@@ -58,6 +58,11 @@
     main{padding:16px;max-width:1200px;margin:0 auto;}
     .og{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start;}
     @media(max-width:720px){.og{grid-template-columns:1fr;}}
+    .order-left{overflow-y:auto;-webkit-overflow-scrolling:touch;}
+    body.in-order{overflow:hidden;}
+    body.in-order main{overflow:hidden;height:calc(100vh - 56px);display:flex;flex-direction:column;}
+    body.in-order .og{flex:1;overflow:hidden;min-height:0;}
+    body.in-order .order-left{overflow-y:auto;-webkit-overflow-scrolling:touch;padding-right:4px;}
     #loading{position:fixed;inset:0;background:#0a0a0f;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:999;}
     .sp{width:40px;height:40px;border:3px solid rgba(184,150,12,.2);border-top-color:#d4a017;border-radius:50%;animation:spin .8s linear infinite;}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -290,12 +295,21 @@ function tableChange(newId){
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
+  // bodyクラスをビューに合わせて切り替え
+  document.body.classList.toggle("in-order",["order","checkin"].includes(vw));
   if(vw==="floor")m.innerHTML=rFloor();
   else if(vw==="checkin")m.innerHTML=rCI();
-  else if(vw==="order")m.innerHTML=rOrder();
+  else if(vw==="order"){
+    // order画面は差分更新：既にorder-leftがある場合はスクロール位置を保持
+    const existing=document.querySelector(".order-left");
+    const scrollTop=existing?existing.scrollTop:0;
+    m.innerHTML=rOrder();
+    const newLeft=document.querySelector(".order-left");
+    if(newLeft&&scrollTop>0)newLeft.scrollTop=scrollTop;
+  }
   else if(vw==="history")m.innerHTML=rHist();
   else if(vw==="settings")m.innerHTML=rSettings();
-  // モーダルは開いていなければ再描画しない（スクロール保持）
+  // モーダルは開いていなければ再描画しない
   if(!md)document.getElementById("md").innerHTML="";
 }
 function updateNav(){
@@ -304,8 +318,8 @@ function updateNav(){
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v===vw)?" ac":"");
   });
 }
-function sv(v){vw=v;if(!["order","checkin"].includes(v))at=null;render();}
-function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";render();}
+function sv(v){vw=v;if(!["order","checkin"].includes(v))at=null;document.body.classList.toggle("in-order",["order","checkin"].includes(v));render();}
+function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";document.body.classList.add("in-order");render();}
 
 // ===== FLOOR =====
 function rFloor(){
@@ -393,7 +407,7 @@ function rOrder(){
 
   let html='<div class="og">';
   // 左カラム
-  html+='<div>';
+  html+='<div class="order-left">';
   html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
   html+='<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;background:none;">← フロア</button>';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:20px;color:#d4a017;">'+tl+'</h2>';
@@ -838,9 +852,41 @@ function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.histor
 // ===== CLOCK =====
 setInterval(()=>{
   now=Date.now();
+  // ヘッダー時計
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
-  if(["floor","order"].includes(vw)&&!md)render();
+
+  if(md)return; // モーダル中は何もしない
+
+  if(vw==="floor"){
+    // フロアは全体再描画（テーブルカード小さいのでOK）
+    render();
+  } else if(vw==="order"){
+    // 注文画面はタイマー部分だけ部分更新（スクロール保持）
+    tickOrder();
+  }
 },1000);
+
+function tickOrder(){
+  const s=S.sessions[at];if(!s)return;
+  const rv=rem(s.setEndTime);const vr=rem(s.vipEndTime);
+  const urg=rv!==null&&rv>0&&rv<600000;const ovr=rv!==null&&rv<=0;
+  const tc3=ovr?"#ff4444":urg?"#ff8c00":"#d4a017";
+  const td=rv===null?"—":ovr?"- "+ts(-rv):ts(rv);
+
+  // 残り時間テキストだけ更新
+  const timerEl=document.getElementById("order-timer");
+  if(timerEl){
+    timerEl.style.color=tc3;
+    timerEl.textContent=td;
+    timerEl.className=(urg||ovr?"urg":"");
+  }
+  // VIP残り時間
+  const vipEl=document.getElementById("order-vip-timer");
+  if(vipEl&&vr!==null){
+    vipEl.textContent="VIP残 "+ts(Math.max(0,vr));
+  }
+  // フロアカードのURG点滅クラス（フロア画面ではないので不要）
+}
 
 // ===== PWA =====
 if("serviceWorker"in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
