@@ -106,10 +106,12 @@ let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[]};
 let vw="floor",at=null,md=null,cds=0,cdc=null;
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
-let now=Date.now(),writing=false;
+let now=Date.now(),writing=false,renderLock=false;
 let priceHidden=false;
 let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};
+// modal state
+let modalState={};  // カスタム/割引/概算などのモーダル内入力値
 
 // ===== UTILS =====
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
@@ -196,13 +198,18 @@ function addBanai(cid){
   s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
   save("sessions",S.sessions);render();
 }
+
+// 【修正1】時刻変更：renderせずにFirebaseだけ更新
 function applyET(){
-  if(!etv){closeM();return;}
-  const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);const ns=d.getTime();
+  const v=document.getElementById("eti")?.value||etv;
+  if(!v){closeM();return;}
+  const[h,m]=v.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);const ns=d.getTime();
   const s=S.sessions[at];const df=ns-s.startTime;
   s.startTime=ns;if(s.setEndTime)s.setEndTime+=df;if(s.vipEndTime)s.vipEndTime+=df;
-  save("sessions",S.sessions);closeM();render();
+  etv=v;
+  save("sessions",S.sessions);closeM();
 }
+
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
   if(t.isExtension&&t.groupId){
@@ -226,12 +233,19 @@ function addCD(cid,did){
   s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+") "+fmt(d.price)+"円",price:d.price,qty:1,castId:cid}];
   save("sessions",S.sessions);closeM();cds=0;cdc=null;render();
 }
+
+// 【修正3】カスタム金額：DOMから直接読む
 function addCustom(){
-  const p=parseInt(cp,10);if(!p||p<=0)return;
+  const lEl=document.getElementById("cu-label");
+  const pEl=document.getElementById("cu-price");
+  const p=parseInt(pEl?.value||"",10);
+  if(!p||p<=0){if(pEl)pEl.focus();return;}
+  const l=lEl?.value||"その他";
   const s=S.sessions[at];
-  s.items=[...s.items,{id:"cu_"+Date.now(),label:cl||"その他",price:p,qty:1}];
-  save("sessions",S.sessions);cp="";cl="";closeM();render();
+  s.items=[...s.items,{id:"cu_"+Date.now(),label:l,price:p,qty:1}];
+  save("sessions",S.sessions);closeM();render();
 }
+
 function addDiscount(id){
   const d=(S.menus.discounts||[]).find(x=>x.id===id);if(!d)return;
   const s=S.sessions[at];const{subtotal}=ct(s);
@@ -242,21 +256,34 @@ function addDiscount(id){
   s.items=[...s.items,{id:"disc_"+Date.now(),label:d.label,price:-amt,qty:1,isDiscount:true}];
   save("sessions",S.sessions);closeM();render();
 }
+
+// 【修正3】カスタム割引：DOMから直接読む
 function addCustomDiscount(){
-  const el=document.getElementById("disc-custom");if(!el)return;
-  const v=parseInt(el.value,10);if(!v||v<=0)return;
+  const el=document.getElementById("disc-custom");
+  const v=parseInt(el?.value||"",10);if(!v||v<=0){if(el)el.focus();return;}
   const s=S.sessions[at];
   const{subtotal}=ct(s);
   const amt=Math.min(v,subtotal);
   s.items=[...s.items,{id:"disc_"+Date.now(),label:"割引 -¥"+fmt(amt),price:-amt,qty:1,isDiscount:true}];
   save("sessions",S.sessions);closeM();render();
 }
+
 function checkout(){
   const s=S.sessions[at];const totals=ct(s);
   S.history=[{id:Date.now(),tableId:at,tableLabel:S.tables.find(t=>t.id===at)?.label,startTime:s.startTime,endTime:Date.now(),guests:s.guests,items:s.items,...totals},...S.history];
   delete S.sessions[at];
   save("history",S.history);save("sessions",S.sessions);
   at=null;vw="floor";closeM();render();
+}
+
+// 【新機能】テーブルチェンジ
+function tableChange(newId){
+  if(!at||!newId||newId===at)return;
+  if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
+  S.sessions[newId]={...S.sessions[at],tableId:newId};
+  delete S.sessions[at];
+  at=newId;
+  save("sessions",S.sessions);closeM();render();
 }
 
 // ===== RENDER =====
@@ -268,7 +295,8 @@ function render(){
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
   else if(vw==="settings")m.innerHTML=rSettings();
-  rModal();
+  // モーダルは開いていなければ再描画しない（スクロール保持）
+  if(!md)document.getElementById("md").innerHTML="";
 }
 function updateNav(){
   [["nf","floor"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
@@ -315,24 +343,19 @@ function rCI(){
   let html='<div style="max-width:600px;margin:0 auto;">';
   html+='<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;margin-bottom:16px;background:none;">← フロアへ戻る</button>';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;margin-bottom:20px;color:#d4a017;">'+tl+' — チェックイン</h2>';
-  // 人数
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">人数</div><div style="display:flex;gap:8px;flex-wrap:wrap;">';
   [1,2,3,4,5,6,7,8].forEach(n=>{
     html+='<button class="btn" data-n="'+n+'" onclick="sg(parseInt(this.dataset.n))" style="width:44px;height:44px;border-radius:4px;font-weight:600;font-size:16px;background:'+(ci.guests===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests===n?"#1a1200":"#e8dcc8")+';">'+n+'</button>';
   });
   html+='</div></div>';
-  // セットメニュー
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">セットメニュー *</div>';
   S.menus.sets.forEach(s=>{
     html+='<button class="btn" data-sid="'+s.id+'" onclick="sm2(this.dataset.sid)" style="text-align:left;padding:10px 14px;border-radius:4px;background:'+(ci.setMenu===s.id?"rgba(184,150,12,.2)":"rgba(255,255,255,.03)")+';border:1px solid '+(ci.setMenu===s.id?"#b8960c":"rgba(255,255,255,.06)")+';color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;"><span>'+s.label+'</span><span style="color:#d4a017;">¥'+fmt(s.price)+' / '+s.minutes+'分</span></button>';
   });
   html+='</div>';
-  // 入店時刻
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">入店時刻（変更する場合のみ）</div><div style="display:flex;align-items:center;gap:10px;"><input type="time" class="ip" style="flex:1;" value="'+etv+'" onchange="etv=this.value"/><button class="btn" onclick="etv=&quot;&quot;;render()" style="padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;white-space:nowrap;">現在時刻</button></div></div>';
-  // 本指名
   const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">♛ '+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:13px;padding:0;">×</button></span>';}).join("");
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:8px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:7px 14px;background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:12px;">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:11px;color:#d4a017;">本指名料 ¥3,000 × '+ci.honShimeis.length+'名 = ¥'+fmt(3000*ci.honShimeis.length)+'</div>':"")+'</div>';
-  // オプション
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:20px;"><div class="st">オプション</div><div style="display:flex;flex-wrap:wrap;gap:8px;">';
   [["douhan","同伴料 ¥3,000"],["freedrink","フリードリンク ¥2,000/人"],["single","シングルチャージ ¥2,000/人"]].forEach(([k,l])=>{
     html+='<button class="btn" data-key="'+k+'" onclick="to2(this.dataset.key)" style="padding:8px 14px;border-radius:4px;background:'+(ci[k]?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:1px solid '+(ci[k]?"#b8960c":"rgba(255,255,255,.08)")+';color:'+(ci[k]?"#d4a017":"#888")+';font-size:13px;">'+l+'</button>';
@@ -356,15 +379,20 @@ function rOrder(){
   const tc3=ovr?"#ff4444":urg?"#ff8c00":"#d4a017";
   const td=rv===null?"—":ovr?"- "+ts(-rv):ts(rv);
   const{subtotal,discount,tax,total,rate}=ct(s);const hv=s.items.some(i=>i.isVipCharge);
+
+  // 【修正4】注文リスト：固定高さ＋overflow-y:auto で独立スクロール、onclickをstopPropagation
   let rows="";
   [...s.items].sort((a,b)=>iso(a)-iso(b)).forEach(i=>{
     const lb=i.qty>1?i.label+" × "+i.qty:i.label;
     const isDisc=i.isDiscount;
-    rows+='<div class="ir"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+';">'+lb+'</span><div style="display:flex;align-items:center;gap:8px;"><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+';font-size:13px;">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItem(this.dataset.iid)" style="width:20px;height:20px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:12px;display:flex;align-items:center;justify-content:center;">×</button></div></div>';
+    rows+='<div class="ir" onclick="event.stopPropagation()" style="min-height:36px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+';">'+lb+'</span><div style="display:flex;align-items:center;gap:8px;flex-shrink:0;"><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+';font-size:13px;">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="event.stopPropagation();remItem(this.dataset.iid)" style="width:24px;height:24px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:13px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">×</button></div></div>';
   });
+
   let dks="";
   S.menus.drinks.forEach(d=>{dks+='<button class="dc" data-did="'+d.id+'" onclick="odq(this.dataset.did)">'+d.label+'</button>';});
+
   let html='<div class="og">';
+  // 左カラム
   html+='<div>';
   html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">';
   html+='<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;background:none;">← フロア</button>';
@@ -386,7 +414,10 @@ function rOrder(){
   if(isV(at))html+='<button class="btn" onclick="om(\'vip\')" style="padding:8px 14px;background:rgba(124,77,255,.15);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:13px;">VIP室料</button>';
   html+='<button class="btn" onclick="om(\'disc\')" style="padding:8px 14px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:4px;font-size:13px;">割引</button>';
   html+='<button class="btn" onclick="om(\'cu\')" style="padding:8px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:4px;font-size:13px;">カスタム金額</button>';
+  html+='<button class="btn" onclick="om(\'tc\')" style="padding:8px 14px;background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.25);color:#38bdf8;border-radius:4px;font-size:13px;">テーブルチェンジ</button>';
+  html+='<button class="btn" onclick="om(\'est\')" style="padding:8px 14px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:4px;font-size:13px;">📊 概算</button>';
   html+='</div></div></div>';
+  // 右カラム（スティッキー）
   html+='<div style="position:sticky;top:16px;">';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;">';
   html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
@@ -403,7 +434,8 @@ function rOrder(){
   html+='</div>';
   if(hv&&vr!==null)html+='<div style="font-size:11px;color:#a78bfa;margin-top:4px;">VIP残 '+ts(Math.max(0,vr))+'</div>';
   html+='</div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;max-height:340px;overflow-y:auto;">';
+  // 【修正4】注文リスト：固定高さでスクロール、touchmove停止伝播
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;height:220px;overflow-y:auto;-webkit-overflow-scrolling:touch;" id="order-list" ontouchmove="event.stopPropagation()">';
   html+=rows;
   if(s.items.length===0)html+='<div style="font-size:12px;color:#444;padding:8px 0;">注文なし</div>';
   html+='</div>';
@@ -421,7 +453,12 @@ function rOrder(){
 }
 function odq(id){qv=1;const d=S.menus.drinks.find(d=>d.id===id);if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}}
 function ofdq(){qv=1;qm={id:"fd_add",label:"フリードリンク",price:2000};om("qty");}
-function oet(){const s=S.sessions[at];const t=new Date(s.startTime);etv=String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");om("et");}
+// 【修正1】時刻変更モーダルを開く
+function oet(){
+  const s=S.sessions[at];const t=new Date(s.startTime);
+  etv=String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");
+  om("et");
+}
 
 // ===== HISTORY =====
 function rHist(){
@@ -494,10 +531,7 @@ function rHist(){
   return html;
 }
 function toggleHist(id){expandedHist[id]=!expandedHist[id];render();}
-function setHistToday(){
-  const t=new Date().toISOString().slice(0,10);
-  histFilter.from=t;histFilter.to=t;histFilter.fromTime="00:00";histFilter.toTime="23:59";render();
-}
+function setHistToday(){const t=new Date().toISOString().slice(0,10);histFilter.from=t;histFilter.to=t;histFilter.fromTime="00:00";histFilter.toTime="23:59";render();}
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
 function getFilteredHist(){
   return S.history.filter(h=>{
@@ -608,12 +642,52 @@ function ata(){if(!ntl.trim())return;S.tables=[...S.tables,{id:"t_"+Date.now(),l
 
 // ===== MODAL =====
 function om(name){md=name;rModal();}
-function closeM(){md=null;rModal();}
+function closeM(){md=null;document.getElementById("md").innerHTML="";}
+
+// 【修正5】概算計算
+function calcEst(){
+  const s=S.sessions[at];if(!s)return{items:[],total:0,tax:0,subtotal:0};
+  const extraItems=[];
+  // 追加延長
+  const extSel=document.getElementById("est-ext");
+  if(extSel&&extSel.value){
+    const e=S.menus.extensions.find(x=>x.id===extSel.value);
+    if(e)extraItems.push({label:e.label,price:e.price,qty:s.guests});
+  }
+  // 追加ドリンク
+  const dkSel=document.getElementById("est-dk");
+  if(dkSel&&dkSel.value){
+    const d=[...S.menus.drinks,...S.menus.castDrinks].find(x=>x.id===dkSel.value);
+    if(d)extraItems.push({label:d.label,price:d.price,qty:1});
+  }
+  // カスタム追加金額
+  const exEl=document.getElementById("est-extra");
+  const exV=parseInt(exEl?.value||"",10);
+  if(exV>0)extraItems.push({label:"追加費用",price:exV,qty:1});
+
+  const fakeSession={...s,items:[...s.items,...extraItems.map(x=>({...x,id:"est_"+Math.random()}))]};
+  return{...ct(fakeSession),extraItems};
+}
+function updateEstPreview(){
+  const result=calcEst();
+  const el=document.getElementById("est-preview");
+  if(!el)return;
+  const s=S.sessions[at];
+  const cur=ct(s);
+  const diff=result.total-cur.total;
+  el.innerHTML='<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:12px;padding-top:12px;">'
+    +'<div class="ir" style="font-size:12px;"><span style="color:#888;">現在の合計</span><span>'+pAmt(cur.total)+'</span></div>'
+    +(diff>0?'<div class="ir" style="font-size:12px;"><span style="color:#ffd700;">追加分</span><span style="color:#ffd700;">+'+pAmt(diff)+'</span></div>':"")
+    +'<div class="ir" style="font-size:15px;font-weight:700;margin-top:4px;"><span>概算合計</span><span style="color:#ffd700;font-size:18px;">'+pAmt(result.total)+'</span></div>'
+    +'</div>';
+}
+
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
   const s=at?S.sessions[at]:null;
   let h="";
+
   if(md==="co"&&s){
     const{subtotal,discount,tax,total,rate}=ct(s);const hv=s.items.some(i=>i.isVipCharge);
     let rows="";
@@ -632,11 +706,24 @@ function rModal(){
     (S.menus.discounts||[]).forEach(d=>{discs+='<button class="btn" data-did="'+d.id+'" onclick="addDiscount(this.dataset.did)" style="padding:12px 16px;text-align:left;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:14px;width:100%;margin-bottom:8px;">'+d.label+(d.type==="percent"?" ("+d.value+"%)":"")+'</button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()"><h3 style="margin-bottom:16px;font-size:16px;color:#ff6b6b;">割引</h3>'
       +discs
-      +'<div style="display:flex;gap:8px;margin-top:8px;">'
-      +'<input type="number" class="ip" id="disc-custom" placeholder="金額を直接入力" style="flex:1;"/>'
-      +'<button class="btn" onclick="addCustomDiscount()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">割引適用</button>'
-      +'</div>'
-      +'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;">キャンセル</button>'
+      +'<div style="margin-bottom:8px;"><div class="st" style="margin-bottom:6px;">金額を直接入力</div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<input type="number" id="disc-custom" inputmode="numeric" pattern="[0-9]*" class="ip" placeholder="割引金額" style="flex:1;" />'
+      +'<button class="btn" onclick="addCustomDiscount()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">適用</button>'
+      +'</div></div>'
+      +'<button class="btn" onclick="closeM()" style="margin-top:8px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="cu"){
+    // 【修正3】カスタム金額：inputmodeでスマホキーボード対応
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+      +'<h3 style="margin-bottom:16px;font-size:16px;color:#aaa;">カスタム金額</h3>'
+      +'<div class="st" style="margin-bottom:6px;">品名（任意）</div>'
+      +'<input class="ip" id="cu-label" placeholder="例：サービス料" autocomplete="off" style="margin-bottom:12px;" />'
+      +'<div class="st" style="margin-bottom:6px;">金額 *</div>'
+      +'<input type="number" class="ip" id="cu-price" inputmode="numeric" pattern="[0-9]*" placeholder="例：5000" style="margin-bottom:16px;" />'
+      +'<button class="btn gbg" onclick="addCustom()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;">追加する</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
       +'</div></div>';
   }
   else if(md==="cd"){
@@ -645,7 +732,7 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()"><h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">キャストドリンク</h3>'
       +(cds===0?'<div class="st">キャストを選択</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">'+cb+'</div>'
       :'<div class="st" style="margin-bottom:12px;">'+S.casts.find(c=>c.id===cdc)?.name+' のドリンクを選択</div>'+db2
-      +'<div style="display:flex;gap:8px;margin-top:8px;"><input type="number" class="ip" id="cdp" placeholder="金額を入力" style="flex:1;"/><button class="btn gbg" onclick="addCDC()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>'
+      +'<div style="display:flex;gap:8px;margin-top:8px;"><input type="number" class="ip" id="cdp" inputmode="numeric" placeholder="金額を入力" style="flex:1;"/><button class="btn gbg" onclick="addCDC()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>'
       +'<button class="btn" onclick="cds=0;rModal()" style="margin-top:12px;font-size:12px;color:#888;background:none;">← キャスト選択へ</button>')
       +'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;">キャンセル</button></div></div>';
   }
@@ -654,15 +741,12 @@ function rModal(){
     S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="flex:1;padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;"><div style="font-weight:700;font-size:14px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;margin-top:1px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
     ns+='</div>';
     let ws="";
-    if(s.guests===1){ws='<div style="margin-top:16px;"><div style="font-size:10px;color:#888;letter-spacing:.12em;margin-bottom:8px;">SC込み</div><div style="display:flex;gap:8px;">';S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="flex:1;padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;"><div style="font-weight:700;font-size:14px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price+2000)+'</div><div style="font-size:10px;margin-top:1px;opacity:.55;">延長+SC</div></button>'});ws+='</div></div>';}
+    if(s.guests===1){ws='<div style="margin-top:16px;"><div style="font-size:10px;color:#888;letter-spacing:.12em;margin-bottom:8px;">SC込み</div><div style="display:flex;gap:8px;">';S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="flex:1;padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;"><div style="font-weight:700;font-size:14px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price+2000)+'</div><div style="font-size:10px;margin-top:1px;opacity:.55;">延長+SC</div></button>';});ws+='</div></div>';}
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;"><h3 style="margin-bottom:16px;font-size:16px;color:#ffa500;">延長</h3><div style="font-size:10px;color:#888;letter-spacing:.12em;margin-bottom:8px;">SC なし</div>'+ns+ws+'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
   }
   else if(md==="vip"&&s){
     let vb="";S.menus.vip.forEach(v=>{vb+='<button class="btn" data-vid="'+v.id+'" onclick="addVip2(this.dataset.vid)" style="flex:1;padding:14px 8px;background:rgba(124,77,255,.15);border:1px solid rgba(124,77,255,.35);color:#a78bfa;border-radius:6px;text-align:center;"><div style="font-weight:700;font-size:14px;">'+v.label+'</div><div style="font-size:13px;margin-top:4px;">¥'+fmt(v.price)+'</div></button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;"><h3 style="margin-bottom:16px;font-size:16px;color:#a78bfa;">VIP室料</h3><div style="display:flex;gap:8px;">'+vb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
-  }
-  else if(md==="cu"){
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;"><h3 style="margin-bottom:16px;font-size:16px;color:#aaa;">カスタム金額</h3><input class="ip" id="cli" placeholder="品名（任意）" value="'+cl+'" oninput="cl=this.value" style="margin-bottom:10px;"/><input type="number" class="ip" id="cpi" placeholder="金額" value="'+cp+'" oninput="cp=this.value" style="margin-bottom:16px;"/><button class="btn gbg" onclick="addCustom()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;">追加する</button><button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button></div></div>';
   }
   else if(md==="qty"&&qm){
     let qbs="";[1,2,3,4,5,6,7,8].forEach(n=>{qbs+='<button class="btn" data-n="'+n+'" onclick="qv=parseInt(this.dataset.n);rModal()" style="width:44px;height:44px;border-radius:4px;font-weight:600;font-size:16px;background:'+(qv===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(qv===n?"#1a1200":"#e8dcc8")+';">'+n+'</button>';});
@@ -679,23 +763,84 @@ function rModal(){
     let cb="";sc().forEach(c=>{const sel=ci.honShimeis.includes(c.id);cb+='<button class="btn" data-cid="'+c.id+'" onclick="thn(parseInt(this.dataset.cid))" style="padding:14px 8px;background:'+(sel?"rgba(184,150,12,.25)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#b8960c":"rgba(124,77,255,.3)")+';color:'+(sel?"#d4a017":"#a78bfa")+';border-radius:6px;font-size:14px;text-align:center;">'+(sel?"✓ ":"")+c.name+'<div style="font-size:10px;margin-top:2px;opacity:.7;">¥3,000</div></button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">本指名キャストを選択</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで選択・解除（¥3,000/名）</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+cb+'</div>'+(ci.honShimeis.length?'<div style="margin-top:12px;padding:8px 12px;background:rgba(184,150,12,.1);border-radius:4px;font-size:12px;color:#d4a017;">合計 ¥'+fmt(3000*ci.honShimeis.length)+'（'+ci.honShimeis.length+'名）</div>':"")+'<button class="btn gbg" onclick="closeM()" style="margin-top:12px;width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;">確定</button></div></div>';
   }
+  // 【修正1】時刻変更：input要素を静的に保持（onchangeのみ）
   else if(md==="et"&&s){
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">入店時刻を変更</h3><div style="font-size:12px;color:#888;margin-bottom:12px;">現在: '+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div><input type="time" class="ip" id="eti" value="'+etv+'" oninput="etv=this.value" style="margin-bottom:16px;"/><div style="font-size:11px;color:#666;margin-bottom:16px;">※セット終了予定時刻も自動で更新されます</div><div style="display:flex;gap:10px;"><button class="btn gbg" onclick="applyET()" style="flex:1;padding:10px;font-weight:700;font-size:14px;border-radius:4px;">変更する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+      +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'
+      +'<div style="font-size:12px;color:#888;margin-bottom:12px;">現在: '+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>'
+      +'<input type="time" class="ip" id="eti" value="'+etv+'" onchange="etv=this.value" style="margin-bottom:16px;font-size:18px;text-align:center;"/>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:16px;">※セット終了予定時刻も自動で更新されます</div>'
+      +'<div style="display:flex;gap:10px;">'
+      +'<button class="btn gbg" onclick="applyET()" style="flex:1;padding:12px;font-weight:700;font-size:14px;border-radius:4px;">変更する</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button>'
+      +'</div></div></div>';
   }
   else if(md==="dh"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:12px;font-size:16px;">この履歴を削除しますか？</h3><p style="font-size:13px;color:#888;margin-bottom:20px;">削除した履歴は元に戻せません。</p><div style="display:flex;gap:10px;"><button class="btn" onclick="doh()" style="flex:1;padding:10px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;">削除する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
   }
+  // 【新機能】テーブルチェンジ
+  else if(md==="tc"&&s){
+    const tl=S.tables.find(t=>t.id===at)?.label||"";
+    let tbs="";
+    S.tables.filter(t=>t.id!==at).forEach(t=>{
+      const inuse=!!S.sessions[t.id];
+      tbs+='<button class="btn" '+(inuse?"disabled":"")+' data-tid="'+t.id+'" onclick="tableChange(this.dataset.tid)" style="padding:14px 10px;text-align:center;background:'+(inuse?"rgba(255,255,255,.02)":"rgba(0,200,255,.08)")+';border:1px solid '+(inuse?"rgba(255,255,255,.05)":"rgba(0,200,255,.25)")+';color:'+(inuse?"#444":"#38bdf8")+';border-radius:6px;font-size:14px;cursor:'+(inuse?"not-allowed":"pointer")+';">'
+        +t.label
+        +(inuse?'<div style="font-size:10px;color:#555;margin-top:3px;">使用中</div>':'<div style="font-size:10px;margin-top:3px;opacity:.6;">移動</div>')
+        +'</button>';
+    });
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#38bdf8;">テーブルチェンジ</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">'+tl+' の内容を別のテーブルへ移動</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+tbs+'</div>'
+      +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
+  // 【新機能】概算
+  else if(md==="est"&&s){
+    const cur=ct(s);
+    let extOpts='<option value="">なし</option>';
+    S.menus.extensions.forEach(e=>{extOpts+='<option value="'+e.id+'">'+e.label+' (¥'+fmt(e.price*s.guests)+')</option>';});
+    let dkOpts='<option value="">なし</option>';
+    [...S.menus.drinks,...S.menus.castDrinks].forEach(d=>{dkOpts+='<option value="'+d.id+'">'+d.label+'</option>';});
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffd700;">📊 概算シミュレーション</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">現在の合計: '+pAmt(cur.total)+'</div>'
+      +'<div style="margin-bottom:12px;">'
+      +'<div class="st" style="margin-bottom:6px;">追加延長</div>'
+      +'<select class="ip" id="est-ext" onchange="updateEstPreview()" style="font-size:14px;">'+extOpts+'</select>'
+      +'</div>'
+      +'<div style="margin-bottom:12px;">'
+      +'<div class="st" style="margin-bottom:6px;">追加ドリンク</div>'
+      +'<select class="ip" id="est-dk" onchange="updateEstPreview()" style="font-size:14px;">'+dkOpts+'</select>'
+      +'</div>'
+      +'<div style="margin-bottom:12px;">'
+      +'<div class="st" style="margin-bottom:6px;">その他追加金額</div>'
+      +'<input type="number" class="ip" id="est-extra" inputmode="numeric" placeholder="金額を入力" oninput="updateEstPreview()" style="font-size:14px;" />'
+      +'</div>'
+      +'<div id="est-preview">'
+      +'<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:12px;padding-top:12px;">'
+      +'<div class="ir" style="font-size:15px;font-weight:700;"><span>概算合計</span><span style="color:#ffd700;font-size:18px;">'+pAmt(cur.total)+'</span></div>'
+      +'</div></div>'
+      +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button>'
+      +'</div></div>';
+  }
   c.innerHTML=h;
 }
+
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value,10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const s=S.sessions[at];s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;render();}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const s=S.sessions[at];s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;render();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
 
 // ===== CLOCK =====
-setInterval(()=>{now=Date.now();const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");if(["floor","order"].includes(vw))render();},1000);
+setInterval(()=>{
+  now=Date.now();
+  const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
+  if(["floor","order"].includes(vw)&&!md)render();
+},1000);
 
 // ===== PWA =====
 if("serviceWorker"in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
