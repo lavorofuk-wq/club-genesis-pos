@@ -186,8 +186,12 @@ function ct(ses){
   const sub=ses.items.filter(i=>!i.isDiscount).reduce((a,i)=>a+i.price*(i.qty||1),0);
   const discAmt=ses.items.filter(i=>i.isDiscount).reduce((a,i)=>a+Math.abs(i.price*(i.qty||1)),0);
   const afterDisc=Math.max(0,sub-discAmt);
-  const tax=Math.floor(afterDisc*r);
-  return{subtotal:sub,discount:discAmt,tax,total:afterDisc+tax,rate:r};
+  const rawTax=Math.floor(afterDisc*r);
+  const rawTotal=afterDisc+rawTax;
+  // 1,000円単位で繰り上げ（繰り上げ分はtaxに含める）
+  const total=Math.ceil(rawTotal/1000)*1000;
+  const tax=total-afterDisc;
+  return{subtotal:sub,discount:discAmt,tax,total,rate:r};
 }
 function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return[...S.casts].sort((a,b)=>a.name.localeCompare(b.name,"ja"));}
