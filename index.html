@@ -73,6 +73,39 @@
     .disc-chip{display:inline-flex;align-items:center;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);border-radius:4px;padding:6px 12px;font-size:13px;color:#ff6b6b;cursor:pointer;transition:all .15s;}
     .disc-chip:hover{background:rgba(255,80,80,.2);}
 
+    /* ===== RECEIPT PRINT ===== */
+    #receipt-frame{display:none;}
+    @media print{
+      *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      body>*{display:none!important;}
+      #receipt-print-area{
+        display:block!important;
+        font-family:'Noto Sans JP',monospace,sans-serif;
+        font-size:12pt;
+        color:#000;
+        background:#fff;
+        width:80mm;
+        margin:0 auto;
+        padding:4mm 2mm;
+      }
+      .rcp-logo{text-align:center;font-size:16pt;font-weight:700;letter-spacing:3px;margin-bottom:1mm;}
+      .rcp-sub{text-align:center;font-size:8pt;color:#333;letter-spacing:2px;margin-bottom:3mm;}
+      .rcp-divider{border:none;border-top:1px dashed #000;margin:2mm 0;}
+      .rcp-divider-solid{border:none;border-top:1px solid #000;margin:2mm 0;}
+      .rcp-meta{font-size:8pt;color:#333;margin-bottom:1mm;}
+      .rcp-row{display:flex;justify-content:space-between;font-size:9pt;padding:0.5mm 0;line-height:1.5;}
+      .rcp-row-label{flex:1;padding-right:2mm;}
+      .rcp-row-amt{white-space:nowrap;font-weight:600;}
+      .rcp-disc{color:#555;}
+      .rcp-subtotal-row{display:flex;justify-content:space-between;font-size:9pt;padding:0.5mm 0;color:#444;}
+      .rcp-total-label{font-size:13pt;font-weight:700;}
+      .rcp-total-amt{font-size:16pt;font-weight:700;}
+      .rcp-total-row{display:flex;justify-content:space-between;align-items:baseline;padding:1mm 0;}
+      .rcp-thanks{text-align:center;font-size:8pt;color:#444;margin-top:4mm;line-height:1.8;}
+      .rcp-est-label{font-size:8pt;background:#f0f0f0;padding:1mm 2mm;text-align:center;margin-bottom:2mm;border-radius:1mm;}
+    }
+    #receipt-print-area{display:none;}
+
     /* === MENU BUTTONS (均一サイズ) === */
     .menu-btn{
       cursor:pointer;border:1px solid rgba(255,255,255,.1);border-radius:6px;
@@ -86,6 +119,7 @@
   </style>
 </head>
 <body>
+<div id="receipt-print-area"></div>
 <div id="loading">
   <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:#d4a017;letter-spacing:.2em;">CLUB GENESIS</div>
   <div class="sp"></div>
@@ -761,6 +795,98 @@ function ata(){if(!ntl.trim())return;S.tables=[...S.tables,{id:"t_"+Date.now(),l
 function om(name){md=name;rModal();}
 function closeM(){md=null;document.getElementById("md").innerHTML="";}
 
+// ===== RECEIPT PRINT =====
+function buildReceiptHTML(sessionOrEst, isEstimate){
+  // sessionOrEst: {tableLabel, startTime, endTime?, guests, items, subtotal, discount, tax, total, rate, extraItems?}
+  const now2=new Date();
+  const tl=sessionOrEst.tableLabel||"";
+  const st=new Date(sessionOrEst.startTime);
+  const et=sessionOrEst.endTime?new Date(sessionOrEst.endTime):now2;
+  const dur=Math.round((et-st)/60000);
+  const{subtotal,discount,tax,total,rate}=sessionOrEst;
+  const hv=(sessionOrEst.items||[]).some(i=>i.isVipCharge);
+
+  let rows="";
+  const items=[...(sessionOrEst.items||[])].sort((a,b)=>iso(a)-iso(b));
+  items.forEach(i=>{
+    if(i.isDiscount)return; // 割引は後で
+    const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+    const amt="¥"+fmt(Math.abs(i.price*(i.qty||1)));
+    rows+='<div class="rcp-row"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">'+amt+'</span></div>';
+  });
+  // 概算の追加分
+  if(isEstimate&&sessionOrEst.extraItems&&sessionOrEst.extraItems.length>0){
+    rows+='<div style="font-size:8pt;color:#555;padding:0.5mm 0;border-top:1px dotted #ccc;margin-top:1mm;">【概算追加分】</div>';
+    sessionOrEst.extraItems.forEach(i=>{
+      const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+      rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">¥'+fmt(i.price*(i.qty||1))+'</span></div>';
+    });
+  }
+  // 割引
+  const discItems=items.filter(i=>i.isDiscount);
+  if(discItems.length){
+    rows+='<div style="height:1px;border-top:1px dotted #ccc;margin:1mm 0;"></div>';
+    discItems.forEach(i=>{rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+i.label+'</span><span class="rcp-row-amt">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
+  }
+
+  return `
+<div class="rcp-logo">CLUB GENESIS</div>
+<div class="rcp-sub">RECEIPT</div>
+<hr class="rcp-divider">
+<div class="rcp-meta">${isEstimate?'【概算伝票】':''}</div>
+<div class="rcp-meta">テーブル: <strong>${tl}</strong> &nbsp; ${sessionOrEst.guests}名様</div>
+<div class="rcp-meta">入店: ${st.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}&nbsp;→&nbsp;${isEstimate?"(概算)":et.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})}&nbsp;(${dur}分)</div>
+<div class="rcp-meta">発行: ${now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+<hr class="rcp-divider">
+${rows}
+<hr class="rcp-divider">
+<div class="rcp-subtotal-row"><span>小計</span><span>¥${fmt(subtotal)}</span></div>
+${discount>0?`<div class="rcp-subtotal-row"><span>割引</span><span>-¥${fmt(discount)}</span></div>`:""}
+<div class="rcp-subtotal-row"><span>税・SC (${Math.round(rate*100)}%${hv?" ★VIP":""})</span><span>¥${fmt(tax)}</span></div>
+<hr class="rcp-divider-solid">
+<div class="rcp-total-row">
+  <span class="rcp-total-label">${isEstimate?"概算合計":"合 計"}</span>
+  <span class="rcp-total-amt">¥${fmt(total)}</span>
+</div>
+<hr class="rcp-divider">
+<div class="rcp-thanks">
+  ご来店ありがとうございました<br>
+  またのご来店をお待ちしております<br>
+  CLUB GENESIS
+</div>`;
+}
+
+function printReceipt(data, isEstimate){
+  const el=document.getElementById("receipt-print-area");
+  if(!el)return;
+  el.innerHTML=buildReceiptHTML(data,isEstimate);
+  el.style.display="block";
+  // iOS Safari対応：少し待ってからprint
+  setTimeout(()=>{
+    window.print();
+    setTimeout(()=>{el.style.display="none";},500);
+  },150);
+}
+
+function printCheckout(){
+  const s=S.sessions[at];if(!s)return;
+  const tl=S.tables.find(t=>t.id===at)?.label||"";
+  const totals=ct(s);
+  printReceipt({...s,...totals,tableLabel:tl,endTime:Date.now()},false);
+}
+
+function printEstimate(){
+  const s=S.sessions[at];if(!s)return;
+  const tl=S.tables.find(t=>t.id===at)?.label||"";
+  const result=calcEst();
+  const extraItems=result.extraItems||[];
+  // 概算は現在のitemsにextraItemsを追加したセッションで計算
+  const fakeSession={...s,items:[...s.items,...extraItems.map(x=>({...x,id:"est_"+Math.random()}))]};
+  const totals=ct(fakeSession);
+  printReceipt({...fakeSession,...totals,tableLabel:tl,extraItems},true);
+}
+
+// ===== RECEIPT PRINT END =====
 function calcEst(){
   const s=S.sessions[at];if(!s)return{total:0};
   const extraItems=[];
@@ -803,7 +929,11 @@ function rModal(){
       +(discount>0?'<div class="ir"><span style="font-size:12px;color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(discount)+'</span></div>':"")
       +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round(rate*100)+'%)'+(hv?" ★VIP":"")+'</span><span>'+pAmt(tax)+'</span></div>'
       +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
-      +'</div><button class="btn gbg" onclick="checkout()" style="width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:6px;margin-top:16px;touch-action:manipulation;">精算する</button>'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:16px;">'
+      +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:13px;font-size:14px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">🖨 印刷</button>'
+      +'<button class="btn gbg" onclick="checkout()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">精算する</button>'
+      +'</div>'
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button></div></div>';
   }
   else if(md==="disc"&&s){
@@ -942,7 +1072,10 @@ function rModal(){
       +'<div style="margin-bottom:12px;"><div class="st" style="margin-bottom:6px;">追加ドリンク</div><select class="ip" id="est-dk" onchange="updateEstPreview()" style="font-size:14px;">'+dkOpts+'</select></div>'
       +'<div style="margin-bottom:12px;"><div class="st" style="margin-bottom:6px;">その他追加金額</div><input type="number" class="ip" id="est-extra" inputmode="numeric" placeholder="金額を入力" oninput="updateEstPreview()" style="font-size:14px;" /></div>'
       +'<div id="est-preview"><div style="border-top:1px solid rgba(255,255,255,.1);margin-top:12px;padding-top:12px;"><div class="ir" style="font-size:16px;font-weight:700;"><span>概算合計</span><span style="color:#ffd700;">'+pAmt(cur.total)+'</span></div></div></div>'
-      +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button>'
+      +'<div style="display:flex;gap:8px;margin-top:16px;">'
+      +'<button class="btn" onclick="printEstimate()" style="flex:1;padding:10px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:14px;font-weight:600;touch-action:manipulation;">🖨 概算印刷</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button>'
+      +'</div>'
       +'</div></div>';
   }
   c.innerHTML=h;
