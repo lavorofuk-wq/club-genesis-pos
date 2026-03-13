@@ -156,11 +156,11 @@ let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[]};
 let vw="floor",at=null,md=null,cds=0,cdc=null;
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
-let now=Date.now(),writing=false;
+let now=Date.now();
 let priceHidden=false;
 let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};
-let coState={payMethod:"cash",receipt:false}; // 会計終了ステート
+let coState={payMethod:null,receipt:false}; // 会計終了ステート
 let estCustomMin=0; // 概算カスタム延長分
 
 // ===== DEVICE DETECTION =====
@@ -207,22 +207,27 @@ function initFB(){
   const db=window._db;
   sbs(false,"接続中…");
   db.ref("pos").on("value",(snap)=>{
-    if(writing)return;
-    const d=snap.val();if(!d){sbs(true,"同期済み ✓");return;}
-    if(d.casts)S.casts=d.casts;if(d.menus)S.menus=d.menus;
-    if(d.tables)S.tables=d.tables;if(d.sessions)S.sessions=d.sessions;
-    if(d.history)S.history=d.history;
+    const d=snap.val();
+    if(!d){sbs(true,"同期済み ✓");render();return;}
+    if(d.casts)S.casts=d.casts;
+    if(d.menus)S.menus=d.menus;
+    if(d.tables)S.tables=d.tables;
+    // sessions: 全員会計済みでFirebaseがnullを返すケースも空オブジェクトとして受け取る
+    S.sessions=d.sessions||{};
+    S.history=d.history||[];
     sbs(true,"同期済み ✓");
-    // Firebase更新時は画面再描画（ただしorder画面は差分更新）
+    // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
+    if(at&&vw==="order"&&!S.sessions[at]){
+      at=null;vw="floor";closeM();render();return;
+    }
     if(vw==="order")renderOrderPartial();
     else render();
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
-  if(!window._db)return;writing=true;
+  if(!window._db)return;
   try{await window._db.ref("pos/"+path).set(val);sbs(true,"同期済み ✓");}
   catch(e){sbs(false,"保存エラー");}
-  writing=false;
 }
 
 // ===== SESSIONS =====
@@ -363,10 +368,19 @@ function checkout(){
     receiptIssued:coState.receipt||false,
     ...totals
   };
-  S.history=[rec,...S.history];
-  delete S.sessions[at];
-  save("history",S.history);save("sessions",S.sessions);
-  at=null;vw="floor";coState={payMethod:"cash",receipt:false};closeM();render();
+  const newHistory=[rec,...S.history];
+  const newSessions={...S.sessions};
+  delete newSessions[at];
+  // sessions と history を同時に書き込み（他端末が中間状態を見ないようにアトミック更新）
+  if(window._db){
+    window._db.ref("pos").update({
+      sessions: Object.keys(newSessions).length>0 ? newSessions : null,
+      history: newHistory
+    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  S.sessions=newSessions;
+  S.history=newHistory;
+  at=null;vw="floor";coState={payMethod:null,receipt:false};closeM();render();
 }
 function tableChange(newId){
   if(!at||!newId||newId===at)return;
@@ -636,7 +650,7 @@ function orderRightCol(s,td,tc3,urg,ovr,vr,hv,big){
     +'</div>'
     // 合計
     +'<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;" id="order-summary">'+buildOrderSummary(s)+'</div>'
-    +'<button class="btn gbg" onclick="om(\'co\')" style="width:100%;padding:14px;font-size:16px;font-weight:700;letter-spacing:.05em;border-radius:6px;touch-action:manipulation;">会計終了</button>';
+    +'<button class="btn gbg" onclick="om(\'co\')" style="width:100%;padding:14px;font-size:16px;font-weight:700;letter-spacing:.05em;border-radius:6px;touch-action:manipulation;">会計</button>';
 }
 
 function odq(id){qv=1;const d=S.menus.drinks.find(d=>d.id===id);if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}}
@@ -908,22 +922,13 @@ function printEstimate(){
   const st=new Date(s.startTime);
   const dur=Math.round((now2-st)/60000);
   function estBlock(label,result){
-    let rows="";
-    const items=[...s.items,...(result.extraItems||[]).map((x,i)=>({...x,id:"re_"+i}))].sort((a,b)=>iso(a)-iso(b));
-    items.forEach(i=>{
-      if(i.isDiscount)return;
-      const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
-      rows+='<div class="rcp-row"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';
-    });
-    const discItems=items.filter(i=>i.isDiscount);
-    if(discItems.length){rows+='<div style="height:1px;border-top:1px dotted #ccc;margin:1mm 0;"></div>';discItems.forEach(i=>{rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+i.label+'</span><span class="rcp-row-amt">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});}
-    const hv=items.some(i=>i.isVipCharge);
+    // 概算伝票は料金のみ表示（注文明細は省略）
+    const allItems=[...s.items,...(result.extraItems||[]).map((x,i)=>({...x,id:"re_"+i}))];
+    const hv=allItems.some(i=>i.isVipCharge);
     return '<div style="margin-bottom:3mm;">'
       +'<div style="font-size:9pt;font-weight:700;border-bottom:1px solid #000;padding-bottom:1mm;margin-bottom:2mm;">'+label+'</div>'
-      +rows
-      +'<hr class="rcp-divider">'
       +(result.discount>0?'<div class="rcp-subtotal-row"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>':"")
-      +'<div class="rcp-subtotal-row"><span>税・SC ('+Math.round(result.rate*100)+'%'+(hv?" ★VIP":"")+')</span><span>¥'+fmt(result.tax)+'</span></div>'
+      +'<div class="rcp-subtotal-row"><span>税・SC ('+Math.round(result.rate*100)+'%'+(hv?" VIP":"")+')</span><span>¥'+fmt(result.tax)+'</span></div>'
       +'<div class="rcp-total-row" style="border-top:1px solid #000;">'
       +'<span class="rcp-total-label" style="font-size:11pt;">'+label+'</span>'
       +'<span class="rcp-total-amt" style="font-size:14pt;">¥'+fmt(result.total)+'</span>'
@@ -943,7 +948,7 @@ function printEstimate(){
     +'<div class="rcp-meta">発行: '+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</div>'
     +'<hr class="rcp-divider">'
     +blocks
-    +'<div class="rcp-thanks">※概算のため実際の金額と異なる場合があります</div>';
+    +'<div class="rcp-thanks">CLUB GENESIS</div>';
   const el=document.getElementById("receipt-print-area");
   if(!el)return;
   el.innerHTML=html;el.style.display="block";
@@ -1027,12 +1032,12 @@ function rModal(){
   const isBig=DEV!=="mobile";
 
   if(md==="co"&&s){
+    // ステップ1：明細確認
     const{subtotal,discount,tax,total,rate}=ct(s);const hv=s.items.some(i=>i.isVipCharge);
     let rows="";
     [...s.items].sort((a,b)=>iso(a)-iso(b)).forEach(i=>{const isDisc=i.isDiscount;rows+='<div class="ir"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
-    const pm=coState.payMethod;const rc=coState.receipt;
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
-      +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">会計終了</h3>'
+      +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">会計</h3>'
       +rows
       +'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">'
       +'<div class="ir"><span style="font-size:12px;color:#888;">小計</span><span>'+pAmt(subtotal)+'</span></div>'
@@ -1040,25 +1045,47 @@ function rModal(){
       +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round(rate*100)+'%)'+(hv?" ★VIP":"")+'</span><span>'+pAmt(tax)+'</span></div>'
       +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
       +'</div>'
+      +'<div style="display:flex;gap:8px;margin-top:20px;">'
+      +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:14px 8px;font-size:14px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">🖨 印刷</button>'
+      +'<button class="btn gbg" onclick="md=\'co2\';rModal()" style="flex:2;padding:14px 8px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計終了 →</button>'
+      +'</div>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="co2"&&s){
+    // ステップ2：支払方法・領収書選択 → 確定
+    const{total}=ct(s);
+    const pm=coState.payMethod;const rc=coState.receipt;
+    h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">'
+      +'<button class="btn" onclick="md=\'co\';rModal()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 戻る</button>'
+      +'<h3 style="font-size:16px;color:#d4a017;margin:0;">会計終了</h3>'
+      +'</div>'
+      // 合計再表示
+      +'<div style="text-align:center;padding:14px 0;margin-bottom:20px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
+      +'<div style="font-size:12px;color:#888;margin-bottom:4px;">合計金額</div>'
+      +'<div style="font-size:32px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
+      +'</div>'
       // 支払方法
-      +'<div style="margin-top:16px;">'
-      +'<div class="st" style="margin-bottom:8px;">支払方法</div>'
-      +'<div style="display:flex;gap:8px;">'
-      +'<button class="btn" onclick="coState.payMethod=\'cash\';rModal()" style="flex:1;padding:14px 8px;border-radius:6px;font-size:15px;font-weight:700;background:'+(pm==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:1px solid '+(pm==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(pm==="cash"?"#1a1200":"#888")+';touch-action:manipulation;">💴 現金</button>'
-      +'<button class="btn" onclick="coState.payMethod=\'card\';rModal()" style="flex:1;padding:14px 8px;border-radius:6px;font-size:15px;font-weight:700;background:'+(pm==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(pm==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(pm==="card"?"#38bdf8":"#888")+';touch-action:manipulation;">💳 カード</button>'
+      +'<div style="margin-bottom:16px;">'
+      +'<div class="st" style="margin-bottom:10px;">支払方法</div>'
+      +'<div style="display:flex;gap:10px;">'
+      +'<button class="btn" onclick="coState.payMethod=\'cash\';rModal()" style="flex:1;padding:18px 8px;border-radius:8px;font-size:16px;font-weight:700;background:'+(pm==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(pm==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(pm==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">'
+      +'<div style="font-size:22px;margin-bottom:4px;">💴</div>現金</button>'
+      +'<button class="btn" onclick="coState.payMethod=\'card\';rModal()" style="flex:1;padding:18px 8px;border-radius:8px;font-size:16px;font-weight:700;background:'+(pm==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(pm==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(pm==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">'
+      +'<div style="font-size:22px;margin-bottom:4px;">💳</div>クレジットカード</button>'
       +'</div>'
       +'</div>'
       // 領収書
-      +'<div style="margin-top:12px;display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;">'
-      +'<span style="font-size:14px;flex:1;">領収書発行</span>'
-      +'<button class="btn" onclick="coState.receipt=!coState.receipt;rModal()" style="padding:8px 20px;border-radius:6px;font-size:13px;font-weight:700;background:'+(rc?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(rc?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)")+';color:'+(rc?"#4ade80":"#555")+';touch-action:manipulation;">'+(rc?"✓ あり":"なし")+'</button>'
+      +'<div style="margin-bottom:20px;">'
+      +'<div class="st" style="margin-bottom:10px;">領収書</div>'
+      +'<div style="display:flex;gap:10px;">'
+      +'<button class="btn" onclick="coState.receipt=false;rModal()" style="flex:1;padding:14px 8px;border-radius:8px;font-size:15px;font-weight:700;background:'+(rc===false?"rgba(255,255,255,.12)":"rgba(255,255,255,.04)")+';border:2px solid '+(rc===false?"rgba(255,255,255,.3)":"rgba(255,255,255,.08)")+';color:'+(rc===false?"#e8dcc8":"#555")+';touch-action:manipulation;">不要</button>'
+      +'<button class="btn" onclick="coState.receipt=true;rModal()" style="flex:1;padding:14px 8px;border-radius:8px;font-size:15px;font-weight:700;background:'+(rc===true?"rgba(74,222,128,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(rc===true?"rgba(74,222,128,.5)":"rgba(255,255,255,.08)")+';color:'+(rc===true?"#4ade80":"#555")+';touch-action:manipulation;">発行する</button>'
       +'</div>'
-      // ボタン
-      +'<div style="display:flex;gap:8px;margin-top:16px;">'
-      +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:13px;font-size:13px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">🖨 印刷</button>'
-      +'<button class="btn gbg" onclick="checkout()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計終了</button>'
       +'</div>'
-      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
+      // 確定ボタン（支払方法が選択されている場合のみ活性）
+      +'<button class="btn gbg" onclick="checkout()" '+(pm?'':'disabled')+' style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(pm?'':'opacity:.4;cursor:not-allowed;')+'">✓ 会計終了を確定する</button>'
       +'</div></div>';
   }
   else if(md==="disc"&&s){
