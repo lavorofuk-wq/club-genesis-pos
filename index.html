@@ -922,33 +922,28 @@ function printEstimate(){
   const st=new Date(s.startTime);
   const dur=Math.round((now2-st)/60000);
   function estBlock(label,result){
-    // 概算伝票は料金のみ表示（注文明細は省略）
-    const allItems=[...s.items,...(result.extraItems||[]).map((x,i)=>({...x,id:"re_"+i}))];
-    const hv=allItems.some(i=>i.isVipCharge);
-    return '<div style="margin-bottom:3mm;">'
-      +'<div style="font-size:9pt;font-weight:700;border-bottom:1px solid #000;padding-bottom:1mm;margin-bottom:2mm;">'+label+'</div>'
-      +(result.discount>0?'<div class="rcp-subtotal-row"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>':"")
-      +'<div class="rcp-subtotal-row"><span>税・SC ('+Math.round(result.rate*100)+'%'+(hv?" VIP":"")+')</span><span>¥'+fmt(result.tax)+'</span></div>'
-      +'<div class="rcp-total-row" style="border-top:1px solid #000;">'
-      +'<span class="rcp-total-label" style="font-size:11pt;">'+label+'</span>'
-      +'<span class="rcp-total-amt" style="font-size:14pt;">¥'+fmt(result.total)+'</span>'
-      +'</div></div>';
+    return '<div style="margin-bottom:2mm;">'
+      +'<div style="font-size:9pt;font-weight:700;padding-bottom:1mm;margin-bottom:1mm;">'+label+'</div>'
+      +'<hr class="rcp-divider">'
+      +'<div style="font-size:18pt;font-weight:700;text-align:right;padding:1mm 0;">¥'+fmt(result.total)+'</div>'
+      +'</div>';
   }
-  let blocks=estBlock("現在の料金",cur);
-  blocks+='<hr class="rcp-divider-solid" style="margin:2mm 0;">';
-  blocks+=estBlock("+30分延長"+(useVip?" +VIP室料":""),r30);
-  blocks+='<hr class="rcp-divider-solid" style="margin:2mm 0;">';
-  blocks+=estBlock("+60分延長"+(useVip?" +VIP室料":""),r60);
-  if(rCustom){blocks+='<hr class="rcp-divider-solid" style="margin:2mm 0;">';blocks+=estBlock("+"+estCustomMin+"分延長"+(useVip?" +VIP室料":""),rCustom);}
+  let blocks=estBlock("【現在の料金】",cur);
+  blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
+  blocks+=estBlock("【+30分延長"+(useVip?" +VIP室料":"")+"】",r30);
+  blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
+  blocks+=estBlock("【+60分延長"+(useVip?" +VIP室料":"")+"】",r60);
+  if(rCustom){
+    blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
+    blocks+=estBlock("【+"+estCustomMin+"分延長"+(useVip?" +VIP室料":"")+"】",rCustom);
+  }
   const html='<div class="rcp-logo">CLUB GENESIS</div>'
-    +'<div class="rcp-sub">概算伝票</div>'
     +'<hr class="rcp-divider">'
     +'<div class="rcp-meta">テーブル: <strong>'+tl+'</strong> &nbsp; '+s.guests+'名様</div>'
     +'<div class="rcp-meta">入店: '+st.toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+' ('+dur+'分経過)</div>'
     +'<div class="rcp-meta">発行: '+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</div>'
     +'<hr class="rcp-divider">'
-    +blocks
-    +'<div class="rcp-thanks">CLUB GENESIS</div>';
+    +blocks;
   const el=document.getElementById("receipt-print-area");
   if(!el)return;
   el.innerHTML=html;el.style.display="block";
@@ -982,7 +977,11 @@ function calcEstForMinutes(s,extraMinutes,useVipExt){
   }
   if(useVipExt&&isV(at)){
     const vip30=S.menus.vip.find(v=>v.id==="v30");
-    if(vip30)extraItems.push({id:"est_vip",label:vip30.label,price:vip30.price,qty:1,isVipCharge:true});
+    if(vip30&&extraMinutes>0){
+      // 30分単位で積算（60分なら15,000×2=30,000円）
+      const units=Math.ceil(extraMinutes/30);
+      extraItems.push({id:"est_vip",label:vip30.label,price:vip30.price,qty:units,isVipCharge:true});
+    }
   }
   const fake={...s,items:[...s.items,...extraItems.map((x,i)=>({...x,id:"estx_"+i}))]};
   return{...ct(fake),extraItems,extraMinutes,useVipExt};
