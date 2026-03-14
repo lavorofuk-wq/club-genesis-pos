@@ -287,11 +287,30 @@ function applyET(){
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
   if(t.isExtension&&t.groupId){
+    // 延長削除：グループ丸ごと削除＋setEndTime巻き戻し
     const ei=s.items.find(i=>i.groupId===t.groupId&&i.extMinutes);
     const mn=ei?ei.extMinutes:0;
     s.items=s.items.filter(i=>i.groupId!==t.groupId);
     if(s.setEndTime&&mn>0)s.setEndTime-=mn*60000;
-  }else{s.items=s.items.filter(i=>i.id!==id);}
+  }else if(t.isSet){
+    // セット削除：人数を減算し、FD・SCも連動減算
+    const n=t.qty||1;
+    s.items=s.items.filter(i=>i.id!==id);
+    const newGuests=Math.max(1,s.guests-n);
+    const reduce=s.guests-newGuests; // 実際に減る人数（最低1名は残す）
+    s.guests=newGuests;
+    s.items=s.items.map(i=>{
+      const isFD=(i.id==="fd"||i.label==="フリードリンク")&&!i.isSet;
+      const isSC=(i.label==="シングルチャージ"&&!i.isExtension);
+      if(isFD||isSC){
+        const newQty=Math.max(0,(i.qty||1)-reduce);
+        return newQty>0?{...i,qty:newQty}:null;
+      }
+      return i;
+    }).filter(Boolean);
+  }else{
+    s.items=s.items.filter(i=>i.id!==id);
+  }
   save("sessions",S.sessions);renderOrderPartial();
 }
 function confQty(){
