@@ -293,21 +293,10 @@ function remItem(id){
     s.items=s.items.filter(i=>i.groupId!==t.groupId);
     if(s.setEndTime&&mn>0)s.setEndTime-=mn*60000;
   }else if(t.isSet){
-    // セット削除：人数を減算し、FD・SCも連動減算
-    const n=t.qty||1;
+    // セット削除：addedGuestsがあればその分だけ人数を戻す（FD・SCは連動しない）
+    const n=t.addedGuests||0;
     s.items=s.items.filter(i=>i.id!==id);
-    const newGuests=Math.max(1,s.guests-n);
-    const reduce=s.guests-newGuests;
-    s.guests=newGuests;
-    s.items=s.items.map(i=>{
-      const isFD=(i.id==="fd"||i.label==="フリードリンク")&&!i.isSet;
-      const isSC=(i.label==="シングルチャージ"&&!i.isExtension);
-      if(isFD||isSC){
-        const newQty=Math.max(0,(i.qty||1)-reduce);
-        return newQty>0?{...i,qty:newQty}:null;
-      }
-      return i;
-    }).filter(Boolean);
+    if(n>0)s.guests=Math.max(1,s.guests-n);
   }else if(t.isHonShimei){
     // 本指名削除：items＋honShimeis両方から除去
     s.items=s.items.filter(i=>i.id!==id);
@@ -319,7 +308,8 @@ function remItem(id){
   }else{
     s.items=s.items.filter(i=>i.id!==id);
   }
-  save("sessions",S.sessions);renderOrderPartial();
+  save("sessions",S.sessions);
+  if(t.isSet)render();else renderOrderPartial();
 }
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
@@ -368,10 +358,10 @@ function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
   const sm=S.menus.sets.find(x=>x.id===setId);if(!sm)return;
   const n=Math.max(1,parseInt(addGuests)||1);
-  // 新セット追加（追加人数分）
-  s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:n,minutes:sm.minutes,isSet:true}];
+  // 新セット追加（追加人数分）。addedGuests属性で追加人数を記録（削除時に戻すため）
+  s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:n,minutes:sm.minutes,isSet:true,addedGuests:n}];
   if(!s.setEndTime)s.setEndTime=Date.now()+sm.minutes*60000;
-  // 人数のみ加算（FD・SCは自動加算しない）
+  // 人数のみ加算（FD・SCは連動しない）
   s.guests=s.guests+n;
   save("sessions",S.sessions);closeM();render();
 }
@@ -443,6 +433,9 @@ function renderOrderPartial(){
   if(os)os.innerHTML=buildOrderSummary(s);
   // タイマー更新
   tickOrder();
+  // 人数表示更新
+  const guestEl=document.getElementById("order-guests");
+  if(guestEl)guestEl.textContent=s.guests+"名";
   // 入店時刻表示更新
   const timeEl=document.getElementById("order-starttime");
   if(timeEl)timeEl.textContent=new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+" → "+(s.setEndTime?new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"—");
@@ -648,7 +641,7 @@ function orderHeader(tl,s,big){
   return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">'
     +'<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;background:none;touch-action:manipulation;">← フロア</button>'
     +'<h2 style="font-family:Cormorant Garamond,serif;font-size:'+(big?"22px":"18px")+';color:#d4a017;">'+tl+'</h2>'
-    +'<span style="font-size:12px;color:#888;">'+s.guests+'名</span>'
+    +'<span id="order-guests" style="font-size:12px;color:#888;">'+s.guests+'名</span>'
     +(isV(at)?'<span class="tag tv2">VIP</span>':"")
     +'</div>';
 }
@@ -1090,8 +1083,10 @@ function calcEstForMinutes(s,extraMinutes,useVipExt){
       extraItems.push({id:"est_vip",label:vip30.label,price:vip30.price,qty:units,isVipCharge:true});
     }
   }
-  // 1人のときは延長ごとにSCを加算（2人以上は不要）
-  if(s.guests===1&&extraMinutes>0){
+  // SC加算：入店時にSCあり かつ 追加セットなし（1名のまま）の場合のみ
+  const hasSC=s.items.some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
+  const hasAddedGuests=s.items.some(i=>i.isSet&&(i.addedGuests||0)>0);
+  if(hasSC&&!hasAddedGuests&&extraMinutes>0){
     const scOpt=S.menus.options.find(o=>o.id==="sc");
     const scPrice=scOpt?scOpt.price:2000;
     extraItems.push({id:"est_sc",label:"シングルチャージ（延長）",price:scPrice,qty:1});
@@ -1342,8 +1337,12 @@ function rModal(){
       +'</div></div>';
   }
   else if(md==="ext"&&s){
-    // SC込みボタンは1人のときのみ表示（2人以上はSC不要、毎延長ごとに取る）
-    const showSCBtn=s.guests===1;
+    // SC込みボタン表示条件：
+    // ・入店時にSCを取っている（hasSC）
+    // ・かつ追加セット（addedGuests）がない（1名のままの場合のみ）
+    const hasSC=s.items.some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
+    const hasAddedGuests=s.items.some(i=>i.isSet&&(i.addedGuests||0)>0);
+    const showSCBtn=hasSC&&!hasAddedGuests;
     let ns='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
     S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
     ns+='</div>';
