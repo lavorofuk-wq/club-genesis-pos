@@ -363,16 +363,8 @@ function addSetToSession(setId, addGuests){
   // 新セット追加（追加人数分）
   s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:n,minutes:sm.minutes,isSet:true}];
   if(!s.setEndTime)s.setEndTime=Date.now()+sm.minutes*60000;
-  // 人数を加算
-  const oldGuests=s.guests;
-  s.guests=oldGuests+n;
-  // 連動アイテム（フリードリンク・SC）のqtyも追加人数分増やす
-  s.items=s.items.map(i=>{
-    const isFD=(i.id==="fd"||i.label==="フリードリンク")&&!i.isSet;
-    const isSC=(i.label==="シングルチャージ"&&!i.isExtension);
-    if(isFD||isSC)return{...i,qty:(i.qty||1)+n};
-    return i;
-  });
+  // 人数のみ加算（FD・SCは自動加算しない）
+  s.guests=s.guests+n;
   save("sessions",S.sessions);closeM();render();
 }
 function addHonShimeiToSession(cid){
@@ -737,7 +729,7 @@ function rHist(){
       +'<span style="color:#555;font-size:18px;">'+(exp?"▲":"▼")+'</span></div></div>';
     if(exp){
       html+='<div class="hist-body"><div style="margin:12px 0;">';
-      [...(h.items||[])].sort((a,b)=>iso(a)-iso(b)).forEach(i=>{const isDisc=i.isDiscount;html+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
+      [...(h.items||[])].forEach(i=>{const isDisc=i.isDiscount;html+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
       html+='</div><div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">';
       if(h.discount>0){html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(h.subtotal)+'</span></div>';html+='<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(h.discount)+'</span></div>';}
       html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((h.rate||.25)*100)+'%)</span><span>'+pAmt(h.tax)+'</span></div>';
@@ -930,12 +922,15 @@ function buildReceiptHTML(sessionOrEst, isEstimate){
   const hv=(sessionOrEst.items||[]).some(i=>i.isVipCharge);
 
   let rows="";
-  const items=[...(sessionOrEst.items||[])].sort((a,b)=>iso(a)-iso(b));
+  const items=[...(sessionOrEst.items||[])];
   items.forEach(i=>{
-    if(i.isDiscount)return; // 割引は後で
+    const isDisc=i.isDiscount;
     const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
-    const amt="¥"+fmt(Math.abs(i.price*(i.qty||1)));
-    rows+='<div class="rcp-row"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">'+amt+'</span></div>';
+    if(isDisc){
+      rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';
+    }else{
+      rows+='<div class="rcp-row"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';
+    }
   });
   // 概算の追加分
   if(isEstimate&&sessionOrEst.extraItems&&sessionOrEst.extraItems.length>0){
@@ -945,12 +940,7 @@ function buildReceiptHTML(sessionOrEst, isEstimate){
       rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+lb+'</span><span class="rcp-row-amt">¥'+fmt(i.price*(i.qty||1))+'</span></div>';
     });
   }
-  // 割引
-  const discItems=items.filter(i=>i.isDiscount);
-  if(discItems.length){
-    rows+='<div style="height:1px;border-top:1px dotted #ccc;margin:1mm 0;"></div>';
-    discItems.forEach(i=>{rows+='<div class="rcp-row rcp-disc"><span class="rcp-row-label">'+i.label+'</span><span class="rcp-row-amt">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
-  }
+  // 割引は入力順に表示済みのため後出し処理なし
 
   return `
 <div class="rcp-logo">CLUB GENESIS</div>
@@ -1173,7 +1163,7 @@ function rModal(){
     // ステップ1：明細確認
     const{subtotal,discount,tax,total,rate}=ct(s);const hv=s.items.some(i=>i.isVipCharge);
     let rows="";
-    [...s.items].sort((a,b)=>iso(a)-iso(b)).forEach(i=>{const isDisc=i.isDiscount;rows+='<div class="ir"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
+    [...s.items].forEach(i=>{const isDisc=i.isDiscount;rows+='<div class="ir"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
       +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">会計</h3>'
       +rows
