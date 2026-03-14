@@ -503,11 +503,12 @@ function rFloor(){
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
   html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;">';
   S.tables.forEach(t=>{
+    try{
     const s=S.sessions[t.id];const rv=rem(s?.setEndTime);const vr=rem(s?.vipEndTime);
     const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
-    const hn=(s?.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
-    const bn=(s?.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
-    const hv=s?.items?.some(i=>i.isVipCharge);
+    const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
+    const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
+    const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
     let inn=s?
       '<div style="font-size:12px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
@@ -523,6 +524,13 @@ function rFloor(){
       +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>'
       +'<div style="display:flex;gap:4px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+(s?'<span class="tag ta2">使用中</span>':"")+'</div>'
       +'</div>'+inn+'</div>';
+    }catch(e){
+      // データ不整合のテーブルは空席として表示
+      html+='<div class="tc te '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+        +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>'
+        +'</div><div style="font-size:12px;color:#444;margin-top:10px;">空席</div></div>';
+    }
   });
   html+='</div>';
   return html;
@@ -887,8 +895,23 @@ function rSettings(){
     html+='</div></div>';
     html+='</div>';
   }
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(255,80,80,.2);">';
+  html+='<div class="st" style="color:#ff6b6b;margin-bottom:8px;">緊急リセット</div>';
+  html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">フロアが開かない等の不具合時に使用。進行中のセッションが全て消えます。</div>';
+  html+='<button class="btn" onclick="clearAllSessions()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:13px;font-weight:600;">セッションデータをクリア</button>';
+  html+='</div>';
   html+='</div>';
   return html;
+}
+function clearAllSessions(){
+  if(!confirm("進行中のセッションを全て削除します。よろしいですか？"))return;
+  S.sessions={};
+  if(window._db){
+    window._db.ref("pos/sessions").set(null)
+      .then(()=>sbs(true,"セッションクリア済み ✓"))
+      .catch(()=>sbs(false,"クリアエラー"));
+  }
+  at=null;vw="floor";render();
 }
 function sst(t){stab=t;render();}
 function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
