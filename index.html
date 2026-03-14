@@ -507,7 +507,7 @@ function rFloor(){
     const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
     const hn=(s?.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
     const bn=(s?.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
-    const hv=s?.items.some(i=>i.isVipCharge);
+    const hv=s?.items?.some(i=>i.isVipCharge);
     let inn=s?
       '<div style="font-size:12px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
