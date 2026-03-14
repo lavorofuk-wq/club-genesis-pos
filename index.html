@@ -337,12 +337,24 @@ function addCustomDiscount(){
   save("sessions",S.sessions);closeM();renderOrderPartial();
 }
 // 後からセット/指名を追加
-function addSetToSession(setId){
+function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
   const sm=S.menus.sets.find(x=>x.id===setId);if(!sm)return;
-  s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:s.guests,minutes:sm.minutes,isSet:true}];
+  const n=Math.max(1,parseInt(addGuests)||1);
+  // 新セット追加（追加人数分）
+  s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:n,minutes:sm.minutes,isSet:true}];
   if(!s.setEndTime)s.setEndTime=Date.now()+sm.minutes*60000;
-  save("sessions",S.sessions);closeM();renderOrderPartial();
+  // 人数を加算
+  const oldGuests=s.guests;
+  s.guests=oldGuests+n;
+  // 連動アイテム（フリードリンク・SC）のqtyも追加人数分増やす
+  s.items=s.items.map(i=>{
+    const isFD=(i.id==="fd"||i.label==="フリードリンク")&&!i.isSet;
+    const isSC=(i.label==="シングルチャージ"&&!i.isExtension);
+    if(isFD||isSC)return{...i,qty:(i.qty||1)+n};
+    return i;
+  });
+  save("sessions",S.sessions);closeM();render();
 }
 function addHonShimeiToSession(cid){
   const s=S.sessions[at];if(!s)return;
@@ -566,7 +578,6 @@ function rOrder(){
   spBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink<br><small>各種</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
   if(isV(at))spBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料<br><small>追加</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'chguests\')" style="background:rgba(0,180,255,.08);border-color:rgba(0,180,255,.25);color:#38bdf8;">客数変更<br><small>現在: '+s.guests+'名</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'disc\')" style="background:rgba(255,80,80,.1);border-color:rgba(255,80,80,.3);color:#ff6b6b;">割引<br><small>各種</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'tc\')" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.25);color:#38bdf8;">テーブル<br><small>チェンジ</small></button>';
@@ -1221,19 +1232,27 @@ function rModal(){
       +'</div></div>';
   }
   else if(md==="add-set"&&s){
-    // 後からセット追加モーダル
+    // 追加人数の状態（nmi流用せず専用変数）
+    const addN=window._addSetN||1;
+    let gbs="";
+    [1,2,3,4,5,6].forEach(n=>{
+      gbs+='<button class="btn" data-n="'+n+'" onclick="window._addSetN='+n+';rModal()" style="width:48px;height:48px;border-radius:6px;font-weight:700;font-size:18px;background:'+(addN===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(addN===n?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(addN===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
+    });
     let setList="";
     S.menus.sets.forEach(sm=>{
-      setList+='<button class="btn" data-sid="'+sm.id+'" onclick="addSetToSession(this.dataset.sid)" style="text-align:left;padding:12px 14px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;">'
+      setList+='<button class="btn" data-sid="'+sm.id+'" onclick="addSetToSession(this.dataset.sid,window._addSetN||1)" style="text-align:left;padding:12px 14px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;">'
         +'<span style="font-size:14px;">'+sm.label+'</span>'
-        +'<span style="color:#d4a017;">¥'+fmt(sm.price)+' / '+sm.minutes+'分</span>'
+        +'<span style="color:#d4a017;white-space:nowrap;">¥'+fmt(sm.price*addN)+' ('+addN+'名)</span>'
         +'</button>';
     });
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
-      +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">セット料金を追加</h3>'
-      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">入店後に変更・追加する場合</div>'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">セット追加</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">現在 '+s.guests+'名 → 追加人数を選んでセットを選択</div>'
+      +'<div class="st" style="margin-bottom:8px;">追加人数</div>'
+      +'<div style="display:flex;gap:8px;margin-bottom:16px;">'+gbs+'</div>'
+      +'<div class="st" style="margin-bottom:8px;">セットメニュー</div>'
       +setList
-      +'<button class="btn" onclick="closeM()" style="margin-top:8px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'<button class="btn" onclick="window._addSetN=1;closeM()" style="margin-top:8px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
       +'</div></div>';
   }
   else if(md==="add-hon"&&s){
@@ -1384,36 +1403,10 @@ function rModal(){
     updateEstPreview();
     return;
   }
-  else if(md==="chguests"&&s){
-    const cur=s.guests;
-    let gbs="";
-    [1,2,3,4,5,6,7,8].forEach(n=>{
-      gbs+='<button class="btn" data-n="'+n+'" onclick="changeGuests(parseInt(this.dataset.n))" style="width:60px;height:60px;border-radius:8px;font-weight:700;font-size:20px;background:'+(cur===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(cur===n?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(cur===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
-    });
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
-      +'<h3 style="margin-bottom:6px;font-size:16px;color:#38bdf8;">客数変更</h3>'
-      +'<div style="font-size:12px;color:#666;margin-bottom:20px;">現在: '+cur+'名 → 変更後の人数をタップ</div>'
-      +'<div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin-bottom:16px;">'+gbs+'</div>'
-      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
-      +'</div></div>';
-  }
   c.innerHTML=h;
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function changeGuests(n){
-  const s=S.sessions[at];if(!s)return;
-  const old=s.guests;
-  s.guests=n;
-  // 人数連動アイテム（セット・フリードリンク・SC・延長）のqtyを比例更新
-  s.items=s.items.map(i=>{
-    if(i.isSet||i.isExtension||(i.id&&(i.id==="fd"||i.label==="フリードリンク"))||(i.label==="シングルチャージ"&&!i.isExtension)){
-      return {...i,qty:Math.round((i.qty||1)/old*n)};
-    }
-    return i;
-  });
-  save("sessions",S.sessions);closeM();render();
-}
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
