@@ -1066,20 +1066,66 @@ function updateEstPreview(){
   const r60=calcEstForMinutes(s,60,useVip);
   const rCustom=estCustomMin>0?calcEstForMinutes(s,estCustomMin,useVip):null;
   const el=document.getElementById("est-preview");if(!el)return;
+
+  // 現在の明細ブロック
+  function itemRows(items){
+    let h="";
+    items.forEach(i=>{
+      const isDisc=i.isDiscount;
+      const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+      h+='<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;color:'+(isDisc?"#ff6b6b":"#bbb")+'">'
+        +'<span>'+lb+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+';white-space:nowrap;">'+(isDisc?"-":"")+'¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';
+    });
+    return h;
+  }
+  // 延長追加分のみの内訳
+  function extRows(extraItems){
+    if(!extraItems||!extraItems.length)return "";
+    let h='<div style="margin-top:6px;padding:6px 8px;background:rgba(255,165,0,.08);border-radius:4px;border-left:2px solid rgba(255,165,0,.4);">'
+      +'<div style="font-size:10px;color:#ffa500;letter-spacing:.08em;margin-bottom:3px;">延長追加分</div>';
+    extraItems.forEach(i=>{
+      const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+      h+='<div style="display:flex;justify-content:space-between;font-size:12px;padding:1px 0;color:#ffa500;">'
+        +'<span>'+lb+'</span><span>¥'+fmt(i.price*(i.qty||1))+'</span></div>';
+    });
+    h+='</div>';
+    return h;
+  }
+  // 合計行
+  function totalRow(result,label,col){
+    const hv=[...s.items,...(result.extraItems||[])].some(i=>i.isVipCharge);
+    return '<div style="margin-top:6px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1);">'
+      +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;">'
+      +'<span>税・SC ('+Math.round(result.rate*100)+'%'+(hv?" VIP":"")+')</span><span>¥'+fmt(result.tax)+'</span></div>'
+      +(result.discount>0?'<div style="display:flex;justify-content:space-between;font-size:11px;color:#ff6b6b;margin-bottom:2px;"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>':"")
+      +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
+      +'<span style="font-size:12px;color:'+col+';">'+label+'</span>'
+      +'<span style="font-size:18px;font-weight:700;color:'+col+';">¥'+fmt(result.total)+'</span>'
+      +'</div></div>';
+  }
+
   let h='<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:14px;padding-top:14px;">';
-  h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;">'
-    +'<span style="font-size:12px;color:#888;">現在</span>'
-    +'<span style="font-size:16px;font-weight:700;color:#d4a017;">¥'+fmt(cur.total)+'</span></div>';
-  h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.05);">'
-    +'<span style="font-size:12px;color:#ffa500;">+30分'+(useVip?" +VIP":"")+'</span>'
-    +'<span style="font-size:16px;font-weight:700;color:#ffa500;">¥'+fmt(r30.total)+'</span></div>';
-  h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.05);">'
-    +'<span style="font-size:12px;color:#ffd700;">+60分'+(useVip?" +VIP":"")+'</span>'
-    +'<span style="font-size:16px;font-weight:700;color:#ffd700;">¥'+fmt(r60.total)+'</span></div>';
+  // 現在のオーダー明細
+  h+='<div style="margin-bottom:6px;"><div style="font-size:10px;color:#888;letter-spacing:.08em;margin-bottom:4px;">現在のオーダー</div>';
+  h+=itemRows(s.items);
+  h+=totalRow(cur,"現在の合計","#d4a017");
+  h+='</div>';
+  // +30分
+  h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">';
+  h+=extRows(r30.extraItems);
+  h+=totalRow(r30,"+30分延長後","#ffa500");
+  h+='</div>';
+  // +60分
+  h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">';
+  h+=extRows(r60.extraItems);
+  h+=totalRow(r60,"+60分延長後","#ffd700");
+  h+='</div>';
+  // カスタム
   if(rCustom&&estCustomMin!==30&&estCustomMin!==60){
-    h+='<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.05);">'
-      +'<span style="font-size:12px;color:#a78bfa;">+'+estCustomMin+'分'+(useVip?" +VIP":"")+'</span>'
-      +'<span style="font-size:16px;font-weight:700;color:#a78bfa;">¥'+fmt(rCustom.total)+'</span></div>';
+    h+='<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">';
+    h+=extRows(rCustom.extraItems);
+    h+=totalRow(rCustom,"+"+estCustomMin+"分延長後","#a78bfa");
+    h+='</div>';
   }
   h+='</div>';
   el.innerHTML=h;
@@ -1238,12 +1284,18 @@ function rModal(){
       +'</div></div>';
   }
   else if(md==="ext"&&s){
+    // シングルチャージが既にある場合はSC込みボタンを表示しない
+    const hasSC=s.items.some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
     let ns='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
     S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
     ns+='</div>';
     let ws="";
-    if(s.guests===1){ws='<div style="margin-top:14px;"><div class="st" style="margin-bottom:8px;">SC込み</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price+2000)+'</div><div style="font-size:10px;opacity:.5;">延長+SC</div></button>';});ws+='</div></div>';}
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;"><h3 style="margin-bottom:16px;font-size:16px;color:#ffa500;">延長</h3><div class="st" style="margin-bottom:8px;">SC なし</div>'+ns+ws+'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
+    if(!hasSC){
+      ws='<div style="margin-top:14px;"><div class="st" style="margin-bottom:8px;">SC込み</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
+      S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests+2000)+'</div><div style="font-size:10px;opacity:.5;">延長+SC</div></button>';});
+      ws+='</div></div>';
+    }
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;"><h3 style="margin-bottom:16px;font-size:16px;color:#ffa500;">延長</h3>'+(hasSC?"":'<div class="st" style="margin-bottom:8px;">SC なし</div>')+ns+ws+'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
   }
   else if(md==="vip"&&s){
     let vb='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
@@ -1319,19 +1371,18 @@ function rModal(){
       +'<span style="color:#666;font-size:13px;white-space:nowrap;">分延長</span>'
       +'</div>'
       +'</div>'
-      // プレビュー（初期値を埋め込む）
-      +'<div id="est-preview">'
-      +'<div style="border-top:1px solid rgba(255,255,255,.1);margin-top:14px;padding-top:14px;">'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;"><span style="font-size:12px;color:#888;">現在</span><span style="font-size:16px;font-weight:700;color:#d4a017;">¥'+fmt(cur.total)+'</span></div>'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.05);"><span style="font-size:12px;color:#ffa500;">+30分</span><span style="font-size:16px;font-weight:700;color:#ffa500;">¥'+fmt(r30.total)+'</span></div>'
-      +'<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-top:1px solid rgba(255,255,255,.05);"><span style="font-size:12px;color:#ffd700;">+60分</span><span style="font-size:16px;font-weight:700;color:#ffd700;">¥'+fmt(r60.total)+'</span></div>'
-      +'</div></div>'
+      // プレビュー（モーダル表示後にupdateEstPreviewで動的生成）
+      +'<div id="est-preview" style="overflow-y:auto;max-height:45vh;"></div>'
       // ボタン
       +'<div style="display:flex;gap:8px;margin-top:16px;">'
       +'<button class="btn" onclick="printEstimate()" style="flex:1;padding:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:6px;font-size:14px;font-weight:600;touch-action:manipulation;">🖨 概算印刷</button>'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
       +'</div>'
       +'</div></div>';
+    // DOMに挿入後すぐにプレビュー更新
+    c.innerHTML=h;
+    updateEstPreview();
+    return;
   }
   else if(md==="chguests"&&s){
     const cur=s.guests;
@@ -1352,7 +1403,15 @@ function rModal(){
 function scc(id){cdc=id;cds=1;rModal();}
 function changeGuests(n){
   const s=S.sessions[at];if(!s)return;
+  const old=s.guests;
   s.guests=n;
+  // 人数連動アイテム（セット・フリードリンク・SC・延長）のqtyを比例更新
+  s.items=s.items.map(i=>{
+    if(i.isSet||i.isExtension||(i.id&&(i.id==="fd"||i.label==="フリードリンク"))||(i.label==="シングルチャージ"&&!i.isExtension)){
+      return {...i,qty:Math.round((i.qty||1)/old*n)};
+    }
+    return i;
+  });
   save("sessions",S.sessions);closeM();render();
 }
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();}
