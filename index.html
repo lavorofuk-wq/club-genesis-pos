@@ -804,16 +804,16 @@ function rSettings(){
         html+='<div class="ir" style="flex-wrap:wrap;gap:6px;">';
         html+='<input class="ip" value="'+item.label+'" data-k="'+k+'" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
         html+='<div style="display:flex;align-items:center;gap:6px;">';
-        if(hm&&item.minutes!=null)html+='<input type="number" class="ip" value="'+item.minutes+'" data-k="'+k+'" data-id="'+item.id+'" onchange="umm(this.dataset.k,this.dataset.id,this.value)" style="width:52px;"/>分';
-        html+='<input type="number" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="'+k+'" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+        if(hm&&item.minutes!=null)html+='<input type="number" inputmode="numeric" class="ip" value="'+item.minutes+'" data-k="'+k+'" data-id="'+item.id+'" onchange="umm(this.dataset.k,this.dataset.id,this.value)" style="width:52px;"/>分';
+        html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="'+k+'" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
         html+='<button class="btn" data-k="'+k+'" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
         html+='</div></div>';
       });
       html+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
       html+='<input class="ip" placeholder="名前" data-k="'+k+'" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
       if(isDisc)html+='<select class="ip" data-k="'+k+'" data-f="discType" onchange="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"><option value="fixed">固定額</option><option value="percent">%</option></select>';
-      if(hm)html+='<input type="number" class="ip" placeholder="分" data-k="'+k+'" data-f="minutes" value="'+ni.minutes+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:52px;"/>';
-      html+='<input type="number" class="ip" placeholder="'+(isDisc?"値":"金額")+'" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"/>';
+      if(hm)html+='<input type="number" inputmode="numeric" class="ip" placeholder="分" data-k="'+k+'" data-f="minutes" value="'+ni.minutes+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:52px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" placeholder="'+(isDisc?"値":"金額")+'" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"/>';
       html+='<button class="btn gbg" data-k="'+k+'" data-hm="'+(hm?1:0)+'" onclick="ami(this.dataset.k,this.dataset.hm==\'1\')" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;white-space:nowrap;">＋ 追加</button>';
       html+='</div></div></div>';
     });
@@ -844,14 +844,14 @@ function rSettings(){
     (S.menus.drinks||[]).forEach(item=>{
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="drinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-      html+='<input type="number" class="ip" value="'+(item.price||0)+'" data-k="drinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="drinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
       html+='<button class="btn" data-k="drinks" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
       html+='</div>';
     });
     const nid=nmi["drinks"]||{label:"",price:""};
     html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
     html+='<input class="ip" placeholder="名前" data-k="drinks" data-f="label" value="'+nid.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-    html+='<input type="number" class="ip" placeholder="金額" data-k="drinks" data-f="price" value="'+nid.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+    html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="drinks" data-f="price" value="'+nid.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
     html+='<button class="btn gbg" data-k="drinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
     // キャストドリンク
@@ -859,14 +859,14 @@ function rSettings(){
     (S.menus.castDrinks||[]).forEach(item=>{
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="castDrinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-      html+='<input type="number" class="ip" value="'+(item.price||0)+'" data-k="castDrinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="castDrinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
       html+='<button class="btn" data-k="castDrinks" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
       html+='</div>';
     });
     const nicd=nmi["castDrinks"]||{label:"",price:""};
     html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
     html+='<input class="ip" placeholder="名前" data-k="castDrinks" data-f="label" value="'+nicd.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-    html+='<input type="number" class="ip" placeholder="金額" data-k="castDrinks" data-f="price" value="'+nicd.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+    html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="castDrinks" data-f="price" value="'+nicd.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
     html+='<button class="btn gbg" data-k="castDrinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
     // 割引
@@ -875,7 +875,7 @@ function rSettings(){
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="discounts" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
       html+='<select class="ip" data-k="discounts" data-id="'+item.id+'" onchange="udisctype(this.dataset.k,this.dataset.id,this.value)" style="width:70px;font-size:12px;"><option value="fixed"'+(item.type==="fixed"?" selected":"")+'>固定</option><option value="percent"'+(item.type==="percent"?" selected":"")+'>%</option></select>';
-      html+='<input type="number" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="discounts" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:70px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="discounts" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:70px;"/>';
       html+='<button class="btn" data-k="discounts" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
       html+='</div>';
     });
@@ -883,7 +883,7 @@ function rSettings(){
     html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">';
     html+='<input class="ip" placeholder="名前" data-k="discounts" data-f="label" value="'+nidc.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
     html+='<select class="ip" data-k="discounts" data-f="discType" onchange="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;font-size:12px;"><option value="fixed">固定</option><option value="percent">%</option></select>';
-    html+='<input type="number" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
+    html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
     html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
     html+='</div>';
@@ -915,8 +915,10 @@ function umm(k,id,v){const m=parseInt(v,10);if(m>0){S.menus[k]=S.menus[k].map(x=
 function dmi(k,id){S.menus[k]=S.menus[k].filter(x=>x.id!==id);save("menus",S.menus);render();}
 function snmi(k,f,v){if(!nmi[k])nmi[k]={label:"",price:"",minutes:"",discType:"fixed"};nmi[k][f]=v;}
 function ami(k,hm){
-  const ni=nmi[k]||{};if(!ni.label||!ni.price)return;
-  const p=parseInt(ni.price,10);if(!p)return;
+  const ni=nmi[k]||{};
+  if(!ni.label||ni.label.trim()==="")return;
+  if(ni.price===""||ni.price===undefined)return;
+  const p=parseInt(ni.price,10);if(isNaN(p)||p<0)return;
   const isDisc=(k==="discounts");
   let item;
   if(isDisc){const tp=ni.discType||"fixed";item={id:k+"_"+Date.now(),label:ni.label.trim(),type:tp,value:p};if(tp==="fixed")item.price=p;}
@@ -1260,7 +1262,7 @@ function rModal(){
       +'<div class="st" style="margin-bottom:6px;">品名（任意）</div>'
       +'<input class="ip" id="cu-label" placeholder="例：サービス料" autocomplete="off" style="margin-bottom:12px;" />'
       +'<div class="st" style="margin-bottom:6px;">金額 *</div>'
-      +'<input type="number" class="ip" id="cu-price" inputmode="numeric" pattern="[0-9]*" placeholder="例：5000" style="margin-bottom:16px;" />'
+      +'<input type="number" inputmode="numeric" class="ip" id="cu-price" inputmode="numeric" pattern="[0-9]*" placeholder="例：5000" style="margin-bottom:16px;" />'
       +'<button class="btn gbg" onclick="addCustom()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">追加する</button>'
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
       +'</div></div>';
@@ -1329,7 +1331,7 @@ function rModal(){
          +'<div class="st" style="margin-bottom:10px;">ドリンクを選択</div>'
          +db2
          +'<div style="display:flex;gap:8px;margin-top:4px;">'
-         +'<input type="number" class="ip" id="cdp" inputmode="numeric" placeholder="その他の金額" style="flex:1;font-size:15px;"/>'
+         +'<input type="number" inputmode="numeric" class="ip" id="cdp" inputmode="numeric" placeholder="その他の金額" style="flex:1;font-size:15px;"/>'
          +'<button class="btn gbg" onclick="addCDC()" style="padding:10px 20px;border-radius:6px;font-weight:700;font-size:15px;touch-action:manipulation;">追加</button>'
          +'</div>'
       )
