@@ -537,7 +537,7 @@ function render(){
   const m=document.getElementById("m");if(!m)return;
   try{
     if(vw==="histlog")m.innerHTML=rHistLog();
-    else if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
+    else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings"].includes(vw)))m.innerHTML=rHome();
     else if(vw==="floor")m.innerHTML=rFloor();
     else if(vw==="list")m.innerHTML=rList();
     else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -554,7 +554,9 @@ function render(){
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
-  if(!S.activeBizDay&&!["home","histlog"].includes(v))return;
+  // home・histlog・history・shifts・settingsは営業日に関係なく常時アクセス可
+  const alwaysOk=["home","histlog","history","shifts","settings"];
+  if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["order","checkin","tableDetail","assignHistory"].includes(v))at=null;render();
 }
@@ -780,8 +782,8 @@ function rFloor(){
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +' · '+s.guests+'名</div>'
       +((hn.length||bn.length)?'<div style="font-size:11px;color:#d4a017;margin-bottom:3px;">'+hn.map(n=>"♛ "+n).join(" ")+(bn.length?' <span style="color:#4ade80">'+bn.map(n=>"☆ "+n).join(" ")+'</span>':"")+' </div>':"")
-      +'<div style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
-      +(hv&&vr!==null?'<div style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
+      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
+      +(hv&&vr!==null?'<div data-countdown="'+(s.vipEndTime||0)+'" style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
       +'<div style="font-size:12px;color:#888;margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
@@ -859,7 +861,7 @@ function rList(){
       bn.forEach(n=>{html+='<span style="color:#4ade80;margin-right:4px;">場'+n+'</span>';});
       html+='</div>';
     }
-    html+='<div data-countdown="'+( s.setEndTime||0)+'" style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+    html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
     if(ac.length){
       html+='<div style="margin-top:5px;">';
       ac.forEach(a=>{
@@ -1357,7 +1359,7 @@ function setHistToday(){
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
 function getFilteredHist(){
-  return S.history.filter(h=>{
+  return (Array.isArray(S.history)?S.history:[]).filter(h=>{
     if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"00:00")).getTime();if(h.startTime<from)return false;}
     if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"23:59")+":59").getTime();if(h.startTime>to)return false;}
     return true;
@@ -2858,10 +2860,20 @@ setInterval(()=>{
   now=Date.now();
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
   if(md)return; // モーダル中はUI更新しない（nowは更新済み）
-  if(vw==="floor")render();
+  if(vw==="floor")tickFloor();
   else if(vw==="order")tickOrder();
   else if(vw==="list"||vw==="tableDetail"||vw==="assignHistory")tickList();
 },1000);
+
+// フロアタブ差分更新（タイマーは毎秒、フル再renderは5秒ごと）
+let _floorFullRenderTick=0;
+function tickFloor(){
+  _floorFullRenderTick++;
+  // タイマーを毎秒差分更新
+  tickList();
+  // 5秒ごとにフル再renderして金額・使用中バッジなどを同期
+  if(_floorFullRenderTick%5===0)render();
+}
 
 // リスト系は軽量な差分更新（タイマー数値のみ書き換え）
 function tickList(){
@@ -2872,10 +2884,15 @@ function tickList(){
   });
   document.querySelectorAll("[data-countdown]").forEach(el=>{
     const end=parseInt(el.dataset.countdown);
-    if(!isNaN(end)){
+    if(!isNaN(end)&&end>0){
       const diff=end-Date.now();
       const urg=diff<600000&&diff>0;const exp=diff<=0;
-      el.textContent=diff===0?"—":exp?"- "+ts(-diff):"残 "+ts(diff);
+      // VIP残時間用（テキストが「VIP残」で始まる場合）
+      if(el.textContent.startsWith("VIP残")){
+        el.textContent="VIP残 "+ts(Math.max(0,diff));
+        return;
+      }
+      el.textContent=exp?"- "+ts(-diff):"残 "+ts(diff);
       el.style.color=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
       el.className=urg||exp?"urg":"";
     }
