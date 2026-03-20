@@ -186,14 +186,14 @@ window.addEventListener("resize",()=>{DEV=getDevice();});
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
 function ts(ms){const s=Math.max(0,Math.floor(ms/1000));return[Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(x=>String(x).padStart(2,"0")).join(":");}
 function ct(ses){
-  if(!ses)return{subtotal:0,discount:0,tax:0,total:0,rate:.25};
-  const r=ses.items.some(i=>i.isVipCharge)?.30:.25;
-  const sub=ses.items.filter(i=>!i.isDiscount).reduce((a,i)=>a+i.price*(i.qty||1),0);
-  const discAmt=ses.items.filter(i=>i.isDiscount).reduce((a,i)=>a+Math.abs(i.price*(i.qty||1)),0);
+  if(!ses||!ses.items)return{subtotal:0,discount:0,tax:0,total:0,rate:.25};
+  const items=ses.items.filter(Boolean);
+  const r=items.some(i=>i.isVipCharge)?.30:.25;
+  const sub=items.filter(i=>!i.isDiscount).reduce((a,i)=>a+(i.price||0)*(i.qty||1),0);
+  const discAmt=items.filter(i=>i.isDiscount).reduce((a,i)=>a+Math.abs((i.price||0)*(i.qty||1)),0);
   const afterDisc=Math.max(0,sub-discAmt);
   const rawTax=Math.floor(afterDisc*r);
   const rawTotal=afterDisc+rawTax;
-  // 1,000円単位で繰り上げ（繰り上げ分はtaxに含める）
   const total=Math.ceil(rawTotal/1000)*1000;
   const tax=total-afterDisc;
   return{subtotal:sub,discount:discAmt,tax,total,rate:r};
@@ -395,7 +395,6 @@ function addOptionToSession(optId){
   save("sessions",S.sessions);closeM();renderOrderPartial();
 }
 function checkout(){
-  // DOM上の入力値をsplitsに同期
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
     if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
@@ -403,12 +402,14 @@ function checkout(){
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
   const receiptIssued=splits?splits.some(sp=>sp.receipt):(coState.receipt||false);
+  const checkoutTableId=at; // atリセット前に保存
+  const now_co=Date.now();
   const rec={
-    id:Date.now(),
-    tableId:at,
-    tableLabel:S.tables.find(t=>t.id===at)?.label,
+    id:now_co,
+    tableId:checkoutTableId,
+    tableLabel:S.tables.find(t=>t.id===checkoutTableId)?.label,
     startTime:s.startTime,
-    endTime:Date.now(),
+    endTime:now_co,
     guests:s.guests,
     items:s.items,
     payMethod,receiptIssued,
@@ -417,42 +418,33 @@ function checkout(){
   };
   const newHistory=[rec,...S.history];
   const newSessions={...S.sessions};
-  delete newSessions[at];
-  if(window._db){
-    window._db.ref("pos").update({
-      sessions: Object.keys(newSessions).length>0 ? newSessions : null,
-      history: newHistory
-    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
-  }
-  // 会計終了したテーブルのアサインを自動終了→待機へ（atリセット前に処理）
-  const checkoutTableId=at;
-  const now_co=Date.now();
-  let assignChanged=false;
+  delete newSessions[checkoutTableId];
+
+  // アサイン自動終了＋待機移行（atリセット前）
   Object.values(S.assignments||{}).forEach(a=>{
     if(a.tableId===checkoutTableId&&!a.endTime){
       a.endTime=now_co;
-      // setCastStatusを直接インライン展開（関数呼び出しの順序問題を回避）
       const sh=getShiftByCastId(a.castId);
       if(sh){
-        const last=((sh.statusLog||[]).slice(-1)[0]);
-        if(last&&!last.endTime)last.endTime=now_co;
         if(!sh.statusLog)sh.statusLog=[];
+        const last=sh.statusLog.slice(-1)[0];
+        if(last&&!last.endTime)last.endTime=now_co;
         sh.statusLog.push({status:"waiting",startTime:now_co,endTime:null});
         sh.status="waiting";
       }
-      assignChanged=true;
     }
   });
-  S.sessions=newSessions;S.history=newHistory;
-  // 全データを一度にFirebaseへ保存
+
+  // 全データを1回だけアトミックにFirebaseへ保存
+  S.sessions=newSessions;
+  S.history=newHistory;
   if(window._db){
-    const update={
+    window._db.ref("pos").update({
       sessions: Object.keys(newSessions).length>0 ? newSessions : null,
-      history: newHistory
-    };
-    if(assignChanged){update.assignments=S.assignments;update.shifts=S.shifts;}
-    window._db.ref("pos").update(update)
-      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+      history: newHistory,
+      assignments: Object.keys(S.assignments||{}).length>0 ? S.assignments : null,
+      shifts: Object.keys(S.shifts||{}).length>0 ? S.shifts : null
+    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
 }
@@ -783,7 +775,7 @@ function rFloor(){
       +' · '+s.guests+'名</div>'
       +((hn.length||bn.length)?'<div style="font-size:11px;color:#d4a017;margin-bottom:3px;">'+hn.map(n=>"♛ "+n).join(" ")+(bn.length?' <span style="color:#4ade80">'+bn.map(n=>"☆ "+n).join(" ")+'</span>':"")+' </div>':"")
       +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
-      +(hv&&vr!==null?'<div data-countdown="'+(s.vipEndTime||0)+'" style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
+      +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
       +'<div style="font-size:12px;color:#888;margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
