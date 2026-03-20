@@ -1664,19 +1664,34 @@ function rModal(){
         +'</div></div>';
     } else if(shiftMd.step==="time"){
       const name=isIn
-        ?S.casts.find(c=>c.id===shiftMd.castId)?.name
+        ?S.casts.find(c=>String(c.id)===String(shiftMd.castId))?.name
         :S.shifts[shiftMd.shiftId]?.castName;
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
         +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
-        +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+name+'</div>'
+        +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+(name||"不明")+'</div>'
         +'<div class="st" style="margin-bottom:6px;">'+(isIn?"出勤時刻":"退勤時刻")+'</div>'
-        +'<input type="time" id="shift-time" class="ip" value="'+shiftMd.time+'" style="font-size:22px;text-align:center;margin-bottom:16px;" onchange="shiftMd.time=this.value"/>'
+        +'<input type="time" id="shift-time" class="ip" value="'+shiftMd.time+'" style="font-size:22px;text-align:center;margin-bottom:16px;" oninput="shiftMd.time=this.value" onchange="shiftMd.time=this.value"/>'
         +'<div style="display:flex;gap:8px;">'
-        +'<button class="btn gbg" onclick="shiftMd.time=document.getElementById(\'shift-time\').value||shiftMd.time;'
-          +(isIn?"clockIn(shiftMd.castId,shiftMd.time)":"clockOut(shiftMd.shiftId,shiftMd.time)")
-          +'" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">登録する</button>'
+        +'<button class="btn gbg" onclick="confirmShiftTime()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">登録する</button>'
         +'<button class="btn" onclick="shiftMd.step=\'cast\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
         +'</div></div></div>';
+    } else if(shiftMd.step==="edit"){
+      const sh=S.shifts[shiftMd.shiftId];if(!sh){closeM();return;}
+      const inHHMM=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}).replace(/:/g,":");
+      const outHHMM=sh.clockOut?new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}).replace(/:/g,":"):"";
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">シフト編集</h3>'
+        +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+sh.castName+'</div>'
+        +'<div class="st" style="margin-bottom:6px;">出勤時刻</div>'
+        +'<input type="time" id="se-in" class="ip" value="'+inHHMM+'" style="font-size:18px;text-align:center;margin-bottom:12px;"/>'
+        +'<div class="st" style="margin-bottom:6px;">退勤時刻（未退勤の場合は空欄）</div>'
+        +'<input type="time" id="se-out" class="ip" value="'+outHHMM+'" style="font-size:18px;text-align:center;margin-bottom:16px;"/>'
+        +'<div style="display:flex;gap:8px;">'
+        +'<button class="btn gbg" onclick="saveShiftEdit()" style="flex:2;padding:12px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存する</button>'
+        +'<button class="btn" onclick="deleteShift(shiftMd.shiftId)" style="flex:1;padding:12px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;">削除</button>'
+        +'</div>'
+        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:12px;color:#555;background:none;">キャンセル</button>'
+        +'</div></div>';
     }
   }
   else if(md==="tsuke"&&s){
@@ -1827,23 +1842,43 @@ function fmtDur(ms){
 }
 
 function clockIn(castId,time){
-  // castIdは数値・文字列どちらでも対応
   const c=S.casts.find(c=>String(c.id)===String(castId));
-  if(!c){alert("キャストが見つかりません id="+castId);return;}
-  const ts=hhmm2ts(time||nowHHMM());
+  if(!c)return;
+  const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+castId+"_"+Date.now();
-  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:ts,clockOut:null};
+  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null};
   save("shifts",S.shifts);closeM();render();
 }
 function clockOut(shiftId,time){
   const sh=S.shifts[shiftId];if(!sh)return;
   sh.clockOut=hhmm2ts(time);
-  if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000; // 日跨ぎ補正
+  if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
+  save("shifts",S.shifts);closeM();render();
+}
+function confirmShiftTime(){
+  // 登録ボタン押下時：DOMからinputの現在値を読み取って確実に登録
+  const el=document.getElementById("shift-time");
+  const t=el?el.value:shiftMd.time;
+  if(t)shiftMd.time=t;
+  if(shiftMd.mode==="in")clockIn(shiftMd.castId,shiftMd.time);
+  else clockOut(shiftMd.shiftId,shiftMd.time);
+}
+function editShift(sid){
+  shiftMd.step="edit";shiftMd.shiftId=sid;md="shift";rModal();
+}
+function saveShiftEdit(){
+  const sh=S.shifts[shiftMd.shiftId];if(!sh)return;
+  const inEl=document.getElementById("se-in");
+  const outEl=document.getElementById("se-out");
+  if(inEl&&inEl.value)sh.clockIn=hhmm2ts(inEl.value);
+  if(outEl&&outEl.value){
+    sh.clockOut=hhmm2ts(outEl.value);
+    if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
+  }else{sh.clockOut=null;}
   save("shifts",S.shifts);closeM();render();
 }
 function deleteShift(sid){
-  if(!confirm("このシフトを削除しますか？"))return;
-  delete S.shifts[sid];save("shifts",S.shifts);render();
+  delete S.shifts[sid];save("shifts",S.shifts);closeM();render();
 }
 function exportShiftCSV(){
   const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
@@ -1923,7 +1958,9 @@ function rShifts(){
     html+='<span style="font-size:11px;color:#888;margin-left:8px;">'+inT+'〜 ('+fmtDur(elapsed)+')</span>';
     html+='<div style="margin-top:3px;"><span style="font-size:11px;padding:2px 7px;background:rgba(0,0,0,.3);border:1px solid '+aCol+';color:'+aCol+';border-radius:3px;">'+aLbl+(curA?" · "+tbl:"")+'</span></div>';
     html+='</div>';
-    html+='<button class="btn" data-sid="'+sh.id+'" onclick="deleteShift(this.dataset.sid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+    html+='<div style="display:flex;gap:6px;">';
+    html+='<button class="btn" data-sid="'+sh.id+'" onclick="editShift(this.dataset.sid)" style="padding:4px 10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:11px;touch-action:manipulation;">編集</button>';
+    html+='</div>';
     html+='</div>';
   });
   html+='</div>';
@@ -1942,7 +1979,7 @@ function rShifts(){
       html+='<span style="color:#666;margin-left:10px;">'+inT+' → '+outT+'</span>';
       html+='<span style="color:#888;margin-left:8px;">('+fmtDur(worked)+')</span>';
       html+='</div>';
-      html+='<button class="btn" data-sid="'+sh.id+'" onclick="deleteShift(this.dataset.sid)" style="padding:4px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+      html+='<button class="btn" data-sid="'+sh.id+'" onclick="editShift(this.dataset.sid)" style="padding:4px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:11px;touch-action:manipulation;">編集</button>';
       html+='</div>';
     });
     html+='</div>';
