@@ -131,10 +131,10 @@
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
       <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span>
     </div>
-    <nav style="display:flex;gap:2px;">
+    <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
       <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
-      <button class="nb" id="nh" onclick="sv('history')">履歴</button>
+      <button class="nb" id="nh" onclick="sv('history')">売上</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
@@ -153,8 +153,8 @@ const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2"
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{}};
-let vw="floor",at=null,md=null,cds=0,cdc=null;
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null};
+let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let now=Date.now();
@@ -222,10 +222,16 @@ function initFB(){
     S.history=d.history||[];
     S.shifts=d.shifts||{};
     S.assignments=d.assignments||{};
+    S.bizDays=d.bizDays||{};
+    S.activeBizDay=d.activeBizDay||null;
     sbs(true,"同期済み ✓");
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
       at=null;vw="floor";closeM();render();return;
+    }
+    // 営業日が終了していたらホームへ
+    if(S.activeBizDay===null&&["floor","checkin","order","shifts","history","settings"].includes(vw)){
+      vw="home";closeM();render();return;
     }
     if(vw==="order")renderOrderPartial();
     else render();
@@ -480,6 +486,10 @@ function buildOrderSummary(s){
 }
 
 function updateNav(){
+  const inBiz=!!S.activeBizDay;
+  const nav=document.getElementById("main-nav");
+  if(nav)nav.style.display=inBiz?"flex":"none";
+  if(!inBiz)return;
   [["nf","floor"],["nsh","shifts"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v===vw)?" ac":"");
@@ -488,16 +498,190 @@ function updateNav(){
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
-  if(vw==="floor")m.innerHTML=rFloor();
+  if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
+  else if(vw==="floor")m.innerHTML=rFloor();
   else if(vw==="checkin")m.innerHTML=rCI();
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
   else if(vw==="shifts")m.innerHTML=rShifts();
   else if(vw==="settings")m.innerHTML=rSettings();
+  else if(vw==="histlog")m.innerHTML=rHistLog();
   if(!md)document.getElementById("md").innerHTML="";
 }
-function sv(v){vw=v;if(!["order","checkin"].includes(v))at=null;render();}
+function sv(v){
+  if(!S.activeBizDay&&!["home","histlog"].includes(v))return;
+  vw=v;if(!["order","checkin"].includes(v))at=null;render();
+}
 function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";render();}
+
+// ===== HOME & 営業日管理 =====
+function rHome(){
+  const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
+  let html='<div style="max-width:480px;margin:0 auto;padding-top:32px;">';
+  html+='<div style="text-align:center;margin-bottom:40px;">';
+  html+='<div style="font-family:\'Cormorant Garamond\',serif;font-size:36px;font-weight:300;letter-spacing:.3em;color:#d4a017;">CLUB GENESIS</div>';
+  html+='</div>';
+
+  if(active){
+    // 営業中
+    html+='<div class="glass" style="border-radius:12px;padding:20px;margin-bottom:20px;text-align:center;border-color:rgba(212,160,23,.3);">';
+    html+='<div style="font-size:11px;color:#d4a017;letter-spacing:.15em;margin-bottom:6px;">OPEN</div>';
+    html+='<div style="font-size:28px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+active.date+'</div>';
+    html+='<div style="font-size:12px;color:#888;">開始: '+new Date(active.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>';
+    html+='</div>';
+    // 当日の売上サマリー
+    const todaySales=(active.history||[]).reduce((a,h)=>a+h.total,0);
+    const pendingSales=Object.values(S.sessions).reduce((a,s)=>a+ct(s).total,0);
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">';
+    html+='<div style="text-align:center;padding:12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み</div><div style="font-size:15px;font-weight:700;color:#4ade80;">'+pAmt(todaySales)+'</div></div>';
+    html+='<div style="text-align:center;padding:12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">未収</div><div style="font-size:15px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>';
+    html+='<div style="text-align:center;padding:12px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">合計見込み</div><div style="font-size:15px;font-weight:700;color:#d4a017;">'+pAmt(todaySales+pendingSales)+'</div></div>';
+    html+='</div>';
+    // フロアへ
+    html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
+    html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
+  } else {
+    // 未営業
+    html+='<div style="text-align:center;margin-bottom:32px;">';
+    html+='<div style="font-size:13px;color:#555;margin-bottom:4px;">現在営業中の日はありません</div>';
+    html+='</div>';
+    html+='<button class="btn gbg" onclick="om(\'startBizDay\')" style="width:100%;padding:18px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:16px;touch-action:manipulation;">🟢 営業を開始する</button>';
+    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">📋 過去の営業履歴</button>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function rHistLog(){
+  // 過去の営業日一覧
+  const days=Object.values(S.bizDays||{}).sort((a,b)=>b.date.localeCompare(a.date));
+  let html='<div style="max-width:720px;margin:0 auto;">';
+  html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">';
+  html+='<button class="btn" onclick="sv(\'home\')" style="font-size:12px;color:#888;padding:4px 0;background:none;">← ホーム</button>';
+  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">過去の営業履歴</h2>';
+  html+='</div>';
+  if(!days.length){html+='<div style="color:#555;font-size:14px;">履歴がありません</div></div>';return html;}
+  days.forEach(day=>{
+    const sales=(day.history||[]).reduce((a,h)=>a+h.total,0);
+    const shiftCount=Object.values(day.shifts||{}).length;
+    const exp=expandedHist["day_"+day.id];
+    html+='<div class="glass" style="border-radius:8px;margin-bottom:10px;overflow:hidden;">';
+    html+='<div onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
+    html+='<div><div style="font-size:16px;font-weight:700;color:#e8dcc8;">'+day.date+'</div>';
+    html+='<div style="font-size:11px;color:#666;margin-top:2px;">'+new Date(day.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(day.endedAt?' 〜 '+new Date(day.endedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):' 〜 営業中')+'</div></div>';
+    html+='<div style="display:flex;align-items:center;gap:12px;">';
+    html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+pAmt(sales)+'</span>';
+    html+='<span style="color:#555;font-size:16px;">'+(exp?"▲":"▼")+'</span>';
+    html+='</div></div>';
+    if(exp){
+      html+=rDayDetail(day);
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function rDayDetail(day){
+  let html='<div style="padding:16px;border-top:1px solid rgba(255,255,255,.08);">';
+  // 売上
+  const hist=day.history||[];
+  const sales=hist.reduce((a,h)=>a+h.total,0);
+  html+='<div class="st" style="margin-bottom:10px;">売上 ('+hist.length+'件 合計 '+pAmt(sales)+')</div>';
+  hist.forEach(h=>{
+    html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+h.tableLabel+' '+h.guests+'名</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div>';
+  });
+  // 出勤
+  const shifts=Object.values(day.shifts||{});
+  if(shifts.length){
+    html+='<div class="st" style="margin-top:14px;margin-bottom:10px;">出退勤 ('+shifts.length+'名)</div>';
+    shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
+      const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const outT=sh.clockOut?new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"退勤なし";
+      const dur=sh.clockOut?fmtDur(sh.clockOut-sh.clockIn):"";
+      const durStr=dur?"("+dur+")":"";
+      html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+sh.castName+'</span><span style="color:#888;">'+inT+' → '+outT+' '+durStr+'</span></div>';
+    });
+  }
+  // 付け回し
+  const assigns=Object.values(day.assignments||{});
+  if(assigns.length){
+    html+='<div class="st" style="margin-top:14px;margin-bottom:10px;">付け回し ('+assigns.length+'件)</div>';
+    assigns.sort((a,b)=>a.startTime-b.startTime).forEach(a=>{
+      const col=ASSIGN_TYPES[a.type]?.col||"#888";
+      const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+      const tbl=S.tables.find(t=>t.id===a.tableId)?.label||a.tableId;
+      const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
+      const dur=a.endTime?fmtDur(a.endTime-a.startTime):"";
+      const durStr=dur?"("+dur+")":"";
+      html+='<div class="ir" style="font-size:13px;"><span style="color:'+col+';">'+a.castName+'</span><span style="color:#888;font-size:11px;">'+lbl+' '+tbl+' '+sT+'〜'+eT+' '+durStr+'</span></div>';
+    });
+  }
+  // CSV出力ボタン
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">📊 CSV出力</button>';
+  html+='</div>';
+  return html;
+}
+
+function exportDayCSV(dayId){
+  const day=S.bizDays[dayId];if(!day)return;
+  const hist=day.history||[];
+  if(!hist.length){alert("この営業日の売上データがありません");return;}
+  const bom="\uFEFF";
+  const header=["日時","テーブル","人数","小計","割引","税+SC","合計","支払方法","領収書"].join(",");
+  const rows=hist.map(h=>[
+    new Date(h.startTime).toLocaleString("ja-JP"),
+    h.tableLabel||"",h.guests,
+    h.subtotal||0,h.discount||0,h.tax||0,h.total||0,
+    h.payMethod==="card"?"カード":"現金",
+    h.receiptIssued?"あり":"なし"
+  ].join(","));
+  const csv=bom+header+"\n"+rows.join("\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download="genesis_"+day.date+".csv";a.click();URL.revokeObjectURL(url);
+}
+
+async function startBizDay(dateStr){
+  const id=dateStr;
+  const day={id,date:dateStr,startedAt:Date.now(),endedAt:null,history:[],shifts:{},assignments:{}};
+  S.bizDays[id]=day;
+  S.activeBizDay=id;
+  // history/shifts/assignmentsをクリア（新営業日）
+  S.history=[];S.shifts={};S.assignments={};S.sessions={};
+  if(window._db){
+    await window._db.ref("pos").update({
+      bizDays:S.bizDays,
+      activeBizDay:S.activeBizDay,
+      history:[],shifts:null,assignments:null,sessions:null
+    });
+    sbs(true,"同期済み ✓");
+  }
+  closeM();vw="floor";render();
+}
+
+async function endBizDay(){
+  const id=S.activeBizDay;if(!id)return;
+  const day=S.bizDays[id];if(!day)return;
+  // 現在のデータを営業日に保存
+  day.endedAt=Date.now();
+  day.history=[...S.history];
+  day.shifts={...S.shifts};
+  day.assignments={...S.assignments};
+  S.bizDays[id]=day;
+  S.activeBizDay=null;
+  if(window._db){
+    await window._db.ref("pos").update({
+      bizDays:S.bizDays,
+      activeBizDay:null,
+      history:null,shifts:null,assignments:null,sessions:null
+    });
+    sbs(true,"同期済み ✓");
+  }
+  S.history=[];S.shifts={};S.assignments={};S.sessions={};
+  closeM();vw="home";render();
+}
 
 // ===== FLOOR =====
 function rFloor(){
@@ -770,11 +954,9 @@ function rHist(){
   html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
   html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">📊 CSV出力</button>';
   html+='</div></div>';
-  // 営業日売上サマリー
-  const bizStart=getBizDayStart(Date.now());const bizEnd=getBizDayEnd(Date.now());
-  const todayHist=S.history.filter(h=>h.startTime>=bizStart&&h.startTime<bizEnd);
-  const todaySales=todayHist.reduce((a,h)=>a+h.total,0);
-  const pendingSales=Object.values(S.sessions).reduce((a,s)=>a+ct(s).total,0);
+  // 営業日売上サマリー（現在の営業日のデータ）
+  const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
+  const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
   html+='<div class="st" style="margin-bottom:10px;">本日営業日の売上</div>';
   html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">';
@@ -1751,6 +1933,46 @@ function rModal(){
         +'</div></div></div>';
     }
   }
+  else if(md==="startBizDay"){
+    // 営業日選択（今日を含む前後の日付を提示）
+    const today=new Date();
+    let dateBtns="";
+    for(let i=-1;i<=1;i++){
+      const d=new Date(today);d.setDate(today.getDate()+i);
+      const str=d.toLocaleDateString("sv-SE");
+      const lbl=i===-1?"昨日":i===0?"今日":"明日";
+      const disp=d.toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",weekday:"short"});
+      const already=!!S.bizDays[str];
+      dateBtns+='<button class="btn" '+(already?"disabled":"")+' data-d="'+str+'" onclick="startBizDay(this.dataset.d)" style="flex:1;padding:16px 8px;border-radius:8px;font-size:14px;font-weight:700;text-align:center;background:'+(already?"rgba(255,255,255,.03)":"rgba(212,160,23,.1)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(212,160,23,.3)")+';color:'+(already?"#444":"#d4a017")+';cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;"><div style="font-size:11px;margin-bottom:4px;opacity:.7;">'+lbl+'</div>'+disp+(already?'<div style="font-size:10px;margin-top:3px;color:#555;">記録済み</div>':'')+'</button>';
+    }
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
+      +'<h3 style="margin-bottom:4px;font-size:18px;color:#d4a017;">🟢 営業を開始する</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:20px;">営業日を選択してください</div>'
+      +'<div style="display:flex;gap:10px;margin-bottom:16px;">'+dateBtns+'</div>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="endBizDay"){
+    const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
+    const sales=(S.history||[]).reduce((a,h)=>a+h.total,0);
+    const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
+    const shiftCount=Object.values(S.shifts||{}).length;
+    const assignCount=Object.values(S.assignments||{}).filter(a=>a.endTime).length;
+    const openSessions=Object.values(S.sessions||{}).length;
+    h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
+      +'<h3 style="margin-bottom:4px;font-size:18px;color:#ff6b6b;">営業終了</h3>'
+      +'<div style="font-size:13px;color:#888;margin-bottom:20px;">'+(active?active.date:"")+'</div>'
+      // 本日サマリー
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">'
+      +'<div style="padding:12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み売上</div><div style="font-size:18px;font-weight:700;color:#4ade80;">'+pAmt(sales)+'</div></div>'
+      +(pendingSales>0?'<div style="padding:12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#ff6b6b;margin-bottom:4px;">⚠️ 未会計</div><div style="font-size:18px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>':'<div style="padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">出退勤</div><div style="font-size:18px;font-weight:700;color:#bbb;">'+shiftCount+'名</div></div>')
+      +'</div>'
+      +(openSessions>0?'<div style="padding:10px 14px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;margin-bottom:16px;font-size:13px;color:#ff6b6b;">⚠️ 会計未了のテーブルが '+openSessions+' 卓あります</div>':"")
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="endBizDay()" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;">終了して保存する</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">戻る</button>'
+      +'</div></div></div>';
+  }
   else if(md==="dh"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:12px;font-size:16px;">この履歴を削除しますか？</h3><p style="font-size:13px;color:#888;margin-bottom:20px;">削除した履歴は元に戻せません。</p><div style="display:flex;gap:10px;"><button class="btn" onclick="doh()" style="flex:1;padding:10px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;touch-action:manipulation;">削除する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
   }
@@ -1832,10 +2054,7 @@ function hhmm2ts(hhmm){
   return d.getTime();
 }
 function getOnduty(){
-  // 本営業日（20:00〜翌3:00）に出勤したシフトのうち未退勤のもの
-  const bs=getBizDayStart(Date.now());
-  const be=getBizDayEnd(Date.now());
-  return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be&&!sh.clockOut);
+  return Object.values(S.shifts||{}).filter(sh=>!sh.clockOut);
 }
 function getOndutyIds(){return new Set(getOnduty().map(sh=>sh.castId));}
 function fmtDur(ms){
@@ -1889,9 +2108,8 @@ function deleteShift(sid){
   delete S.shifts[sid];save("shifts",S.shifts);closeM();render();
 }
 function exportShiftCSV(){
-  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
-  const data=Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be);
-  if(!data.length){alert("エクスポートするデータがありません");return;}
+  const data=Object.values(S.shifts||{});
+  if(!data.length){alert("出勤データがありません");return;}
   const bom="\uFEFF";
   const header=["キャスト名","出勤時刻","退勤時刻","勤務時間"].join(",");
   const rows=data.sort((a,b)=>a.clockIn-b.clockIn).map(sh=>{
@@ -1903,7 +2121,8 @@ function exportShiftCSV(){
   const csv=bom+header+"\n"+rows.join("\n");
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");a.href=url;a.download="shift_"+new Date().toLocaleDateString("sv-SE")+".csv";a.click();URL.revokeObjectURL(url);
+  const bizDate=S.activeBizDay||new Date().toLocaleDateString("sv-SE");
+  const a=document.createElement("a");a.href=url;a.download="shift_"+bizDate+".csv";a.click();URL.revokeObjectURL(url);
 }
 
 // ===== 付け回し =====
@@ -1931,7 +2150,7 @@ function rShifts(){
   const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
   const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
   const onIds=getOndutyIds();
-  const allToday=Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be);
+  const allToday=Object.values(S.shifts||{});
   const done=allToday.filter(sh=>sh.clockOut).sort((a,b)=>b.clockIn-a.clockIn);
   const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
 
