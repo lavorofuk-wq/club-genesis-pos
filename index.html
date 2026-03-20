@@ -567,8 +567,8 @@ function rFloor(){
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +' · '+s.guests+'名</div>'
       +((hn.length||bn.length)?'<div style="font-size:11px;color:#d4a017;margin-bottom:3px;">'+hn.map(n=>"♛ "+n).join(" ")+(bn.length?' <span style="color:#4ade80">'+bn.map(n=>"☆ "+n).join(" ")+'</span>':"")+' </div>':"")
-      +'<div style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
-      +(hv&&vr!==null?'<div style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
+      +'<div style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="floor-timer'+(urg||exp?" urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
+      +(hv&&vr!==null?'<div class="floor-vip-timer" style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
       +'<div style="font-size:12px;color:#888;margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
       +tsukeInfo
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
@@ -2019,12 +2019,28 @@ function saveHistPay(){
 }
 
 // ===== CLOCK =====
+function tickFloor(){
+  // フロアカードのタイマー部分だけ差分更新
+  S.tables.forEach(t=>{
+    const el=document.querySelector('[data-tid="'+t.id+'"] .floor-timer');
+    if(!el)return;
+    const s=S.sessions[t.id];if(!s)return;
+    const rv=rem(s.setEndTime);const vr=rem(s.vipEndTime);
+    const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
+    const col=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+    el.style.color=col;
+    el.className="floor-timer"+(urg||exp?" urg":"");
+    el.textContent=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
+    const vipEl=document.querySelector('[data-tid="'+t.id+'"] .floor-vip-timer');
+    if(vipEl&&vr!==null)vipEl.textContent="VIP残 "+ts(Math.max(0,vr));
+  });
+}
 setInterval(()=>{
   now=Date.now();
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
   if(md)return;
-  if(vw==="floor")render();
-  else if(vw==="order")tickOrder();
+  if(vw==="floor")tickFloor();
+  else if(vw==="order"||vw==="shifts")tickOrder();
 },1000);
 
 function tickOrder(){
