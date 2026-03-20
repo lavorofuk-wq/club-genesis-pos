@@ -930,15 +930,15 @@ function rList(){
 
 // ===== 付け回し履歴画面 =====
 function rAssignHistory(){
-  const allA=Object.values(S.assignments||{}).sort((a,b)=>b.startTime-a.startTime);
-  let html='<div style="max-width:720px;margin:0 auto;">';
+  const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
+  let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
   html+='<button class="btn" onclick="sv(\'list\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← リスト</button>';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">付け回し履歴</h2>';
   html+='</div>';
   if(!allA.length){
-    html+='<div style="color:#555;font-size:14px;padding:20px 0;">付け回しデータがありません</div>';
-    html+='</div>';return html;
+    html+='<div style="color:#555;font-size:14px;padding:20px 0;">付け回しデータがありません</div></div>';
+    return html;
   }
   // テーブルごとにグループ化
   const byTable={};
@@ -946,34 +946,36 @@ function rAssignHistory(){
     if(!byTable[a.tableId])byTable[a.tableId]=[];
     byTable[a.tableId].push(a);
   });
-  // テーブル順に表示
   S.tables.forEach(t=>{
     const tas=byTable[t.id];if(!tas||!tas.length)return;
     html+='<div class="glass" style="border-radius:8px;margin-bottom:12px;overflow:hidden;">';
-    html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.07);">';
+    // テーブルヘッダー
+    html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;">';
     html+='<span style="font-size:14px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
-    html+='<span style="font-size:11px;color:#666;margin-left:8px;">'+tas.length+'件</span>';
+    html+='<span style="font-size:11px;color:#666;background:rgba(255,255,255,.06);padding:1px 8px;border-radius:10px;">'+tas.length+'件</span>';
     html+='</div>';
-    html+='<div style="padding:10px 14px;">';
+    // 各アサイン行
+    html+='<div style="padding:8px 12px;">';
     tas.forEach(a=>{
       const col=ASSIGN_TYPES[a.type]?.col||"#888";
-      const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
       const sfx=TYPE_SFX[a.type]||"?";
       const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
       const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-      const dur=a.endTime?(a.endTime-a.startTime):null;
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;">';
-      html+='<div style="display:flex;align-items:center;gap:8px;flex:1;">';
-      html+='<span style="font-size:11px;padding:2px 7px;border:1px solid '+col+'88;color:'+col+';border-radius:3px;min-width:32px;text-align:center;">'+sfx+'</span>';
-      html+='<div>';
-      html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+a.castName+'</div>';
-      html+='<div style="font-size:11px;color:#555;">'+sT+' → '+eT+(dur?' ('+fmtDur(dur)+')':'')+'</div>';
+      const dur=a.endTime?fmtDur(a.endTime-a.startTime):null;
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+      // タイプバッジ（固定幅）
+      html+='<span style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 8px;border:1px solid '+col+'99;color:'+col+';border-radius:4px;min-width:28px;text-align:center;">'+sfx+'</span>';
+      // キャスト名＋時刻（flex:1で残り幅を使う）
+      html+='<div style="flex:1;min-width:0;">';
+      html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+a.castName+'</div>';
+      html+='<div style="font-size:11px;color:#666;margin-top:1px;">'+sT+' → '+eT+(dur?' ('+dur+')':'')+'</div>';
       html+='</div>';
-      html+=(a.endTime?''
-        :'<span style="font-size:11px;color:'+col+';font-family:monospace;">'+ts(Date.now()-a.startTime).slice(3)+'</span>');
-      html+='</div>';
-      html+='<button class="btn" data-daid="'+a.id+'" onclick="deleteAssign(this.dataset.daid)" style="padding:3px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:3px;font-size:10px;white-space:nowrap;touch-action:manipulation;">削除</button>';
+      // 継続中タイマー
+      if(!a.endTime){
+        html+='<span style="flex-shrink:0;font-size:12px;font-family:monospace;color:'+col+';">'+ts(Date.now()-a.startTime).slice(3)+'</span>';
+      }
+      // 削除ボタン（固定幅）
+      html+='<button class="btn" data-daid="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.daid)" style="flex-shrink:0;padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
       html+='</div>';
     });
     html+='</div></div>';
