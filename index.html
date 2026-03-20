@@ -129,7 +129,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.03</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -878,50 +878,51 @@ function rTableDetail(){
   const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
   const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
 
-  // このテーブルの全付け回し
   const allA=Object.values(S.assignments||{}).filter(a=>a.tableId===tid).sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
   const doneA=allA.filter(a=>a.endTime);
 
+  // このテーブルに関係するキャストのstatusLog（待機・休憩）
+  const relatedCastIds=new Set(allA.map(a=>String(a.castId)));
+
   let html='<div style="max-width:600px;margin:0 auto;">';
-  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">';
   html+='<button class="btn" onclick="sv(\'list\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← リスト</button>';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">'+t.label+'</h2>';
   if(isV(tid))html+='<span class="tag tv2">VIP</span>';
   html+='</div>';
 
-  // テーブル情報カード
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;">';
+  // テーブル情報
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
   html+='<div><div style="font-size:12px;color:#999;">'+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(s.setEndTime?' → '+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"")+" · "+s.guests+"名</div>"
-    +(hn.length||bn.length?'<div style="font-size:12px;margin-top:4px;">'+hn.map(n=>'<span style="color:#d4a017;">本'+n+'</span>').join(" ")+' '+bn.map(n=>'<span style="color:#4ade80;">場'+n+'</span>').join(" ")+'</div>':"")
+    +(hn.length||bn.length?'<div style="font-size:12px;margin-top:4px;">'+hn.map(n=>'<span style="color:#d4a017;margin-right:6px;">本'+n+'</span>').join("")+bn.map(n=>'<span style="color:#4ade80;margin-right:6px;">場'+n+'</span>').join("")+'</div>':"")
     +'</div>';
-  html+='<div style="font-size:24px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+  html+='<div style="font-size:22px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
   html+='</div>';
-  // 付けるボタン
-  html+='<button class="btn gbg" data-tid4="'+tid+'" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:\''+tid+'\',time:\'\'};om(\'tsuke\')" style="width:100%;padding:10px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付ける</button>';
+  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:\''+tid+'\',time:\'\'};om(\'tsuke\')" style="width:100%;padding:10px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付ける</button>';
   html+='</div>';
 
-  // 現在付けているキャスト
+  // ===== 現在付けているキャスト =====
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;">';
   html+='<div class="st" style="margin-bottom:10px;">現在</div>';
   if(!acA.length){html+='<div style="font-size:13px;color:#555;">付け回しなし</div>';}
   acA.forEach(a=>{
     const col=ASSIGN_TYPES[a.type]?.col||"#888";
     const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-    const sfx=TYPE_SFX[a.type]||"?";
     const elapsed=Date.now()-a.startTime;
     const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-    html+='<div style="padding:10px;background:rgba(0,0,0,.2);border:1px solid '+col+'44;border-radius:8px;margin-bottom:8px;">';
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-    html+='<div>';
-    html+='<span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span>';
-    html+='<span style="font-size:16px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
+    html+='<div style="padding:12px;background:rgba(0,0,0,.2);border:1px solid '+col+'55;border-radius:8px;margin-bottom:8px;">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+    html+='<div><span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span><span style="font-size:16px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span></div>';
+    html+='<span style="font-size:22px;font-weight:700;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
     html+='</div>';
-    html+='<span style="font-size:20px;font-weight:700;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
+    // 時刻表示＋編集ボタン
+    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+    html+='<span style="font-size:11px;color:#666;">開始: '+sT+'</span>';
+    html+='<button class="btn" data-eid="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid)" style="padding:2px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻変更</button>';
     html+='</div>';
-    html+='<div style="font-size:11px;color:#666;margin-top:5px;">'+sT+'〜</div>';
-    html+='<div style="display:flex;gap:6px;margin-top:8px;">';
+    html+='<div style="display:flex;gap:6px;">';
     html+='<button class="btn" data-aid3="'+a.id+'" onclick="endAssign(this.dataset.aid3)" style="flex:1;padding:7px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 待機</button>';
     html+='<button class="btn" data-cid7="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7)" style="flex:1;padding:7px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 休憩</button>';
     html+='<button class="btn" data-aid4="'+a.id+'" onclick="deleteAssign(this.dataset.aid4)" style="padding:7px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;touch-action:manipulation;">削除</button>';
@@ -929,30 +930,89 @@ function rTableDetail(){
   });
   html+='</div>';
 
-  // 付け回し履歴
+  // ===== 付け回し履歴 =====
   if(doneA.length){
-    html+='<div class="glass" style="border-radius:8px;padding:14px;">';
-    html+='<div class="st" style="margin-bottom:10px;">履歴（'+doneA.length+'件）</div>';
+    html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;">';
+    html+='<div class="st" style="margin-bottom:10px;">付け回し履歴 ('+doneA.length+'件)</div>';
     [...doneA].reverse().forEach(a=>{
       const col=ASSIGN_TYPES[a.type]?.col||"#555";
       const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
       const worked=a.endTime-a.startTime;
       const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
       const eT=new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-      html+='<div>';
-      html+='<span style="font-size:10px;padding:1px 5px;border:1px solid '+col+'66;color:'+col+';border-radius:3px;margin-right:6px;">'+lbl+'</span>';
-      html+='<span style="font-size:13px;color:#bbb;">'+a.castName+'</span>';
-      html+='<div style="font-size:11px;color:#555;margin-top:2px;">'+sT+' → '+eT+' ('+fmtDur(worked)+')</div>';
+      html+='<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
+      html+='<div><span style="font-size:10px;padding:1px 5px;border:1px solid '+col+'66;color:'+col+';border-radius:3px;margin-right:6px;">'+lbl+'</span><span style="font-size:13px;color:#bbb;">'+a.castName+'</span></div>';
+      html+='<button class="btn" data-eid2="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid2)" style="padding:2px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻変更</button>';
       html+='</div>';
-      html+='<button class="btn" data-aid5="'+a.id+'" onclick="deleteAssign(this.dataset.aid5)" style="padding:3px 8px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
+      html+='<div style="font-size:11px;color:#555;margin-top:3px;display:flex;align-items:center;justify-content:space-between;">';
+      html+='<span>'+sT+' → '+eT+' ('+fmtDur(worked)+')</span>';
+      html+='<button class="btn" data-aid5="'+a.id+'" onclick="deleteAssign(this.dataset.aid5)" style="padding:2px 7px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
+      html+='</div></div>';
+    });
+    html+='</div>';
+  }
+
+  // ===== 待機・休憩履歴（このテーブル関連キャストのステータスログ）=====
+  const shiftLogs=[];
+  relatedCastIds.forEach(cid=>{
+    const sh=getShiftByCastId(cid);
+    if(!sh||!sh.statusLog)return;
+    sh.statusLog.forEach(log=>{
+      shiftLogs.push({castName:sh.castName,status:log.status,startTime:log.startTime,endTime:log.endTime});
+    });
+  });
+  shiftLogs.sort((a,b)=>a.startTime-b.startTime);
+  const waitLogs=shiftLogs.filter(l=>l.status==="waiting");
+  const breakLogs=shiftLogs.filter(l=>l.status==="break");
+  if(waitLogs.length||breakLogs.length){
+    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+    // 待機ログ
+    html+='<div class="glass" style="border-radius:8px;padding:12px;">';
+    html+='<div class="st" style="margin-bottom:8px;">待機履歴 <span style="color:#4ade80;">'+waitLogs.length+'</span></div>';
+    if(!waitLogs.length){html+='<div style="font-size:11px;color:#444;">なし</div>';}
+    waitLogs.reverse().forEach(l=>{
+      const dur=l.endTime?(l.endTime-l.startTime):( Date.now()-l.startTime);
+      const sT=new Date(l.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eT=l.endTime?new Date(l.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
+      html+='<div style="font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+      html+='<span style="color:#888;">'+l.castName+'</span><br>';
+      html+='<span style="color:#555;">'+sT+'〜'+eT+' ('+fmtDur(dur)+')</span>';
       html+='</div>';
     });
+    html+='</div>';
+    // 休憩ログ
+    html+='<div class="glass" style="border-radius:8px;padding:12px;">';
+    html+='<div class="st" style="margin-bottom:8px;">休憩履歴 <span style="color:#ffa500;">'+breakLogs.length+'</span></div>';
+    if(!breakLogs.length){html+='<div style="font-size:11px;color:#444;">なし</div>';}
+    breakLogs.reverse().forEach(l=>{
+      const dur=l.endTime?(l.endTime-l.startTime):(Date.now()-l.startTime);
+      const sT=new Date(l.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eT=l.endTime?new Date(l.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
+      html+='<div style="font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+      html+='<span style="color:#888;">'+l.castName+'</span><br>';
+      html+='<span style="color:#555;">'+sT+'〜'+eT+' ('+fmtDur(dur)+')</span>';
+      html+='</div>';
+    });
+    html+='</div>';
     html+='</div>';
   }
 
   html+='</div>';
   return html;
+}
+
+function openEditAssignTime(aid){
+  window._editAid=aid;md="editAssignTime";rModal();
+}
+function saveAssignTimeEdit(){
+  const a=S.assignments[window._editAid];if(!a)return;
+  const sEl=document.getElementById("eat-start");
+  const eEl=document.getElementById("eat-end");
+  if(sEl&&sEl.value)a.startTime=hhmm2ts(sEl.value);
+  if(eEl&&eEl.value)a.endTime=hhmm2ts(eEl.value);
+  else if(eEl&&eEl.value==="")a.endTime=null;
+  save("assignments",S.assignments);closeM();render();
 }
 
 // ===== CHECKIN =====
@@ -2180,6 +2240,26 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">キャンセル</button>'
       +'</div></div></div>';
   }
+  else if(md==="editAssignTime"){
+    const a=S.assignments[window._editAid];
+    if(!a){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
+    else{
+      const sHHMM=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eHHMM=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
+      const col=ASSIGN_TYPES[a.type]?.col||"#888";
+      const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">時刻変更</h3>'
+        +'<div style="margin-bottom:16px;"><span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span><span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span></div>'
+        +'<div class="st" style="margin-bottom:6px;">開始時刻</div>'
+        +'<input type="time" id="eat-start" class="ip" value="'+sHHMM+'" style="font-size:18px;text-align:center;margin-bottom:12px;"/>'
+        +(a.endTime?'<div class="st" style="margin-bottom:6px;">終了時刻</div><input type="time" id="eat-end" class="ip" value="'+eHHMM+'" style="font-size:18px;text-align:center;margin-bottom:16px;"/>':"")
+        +'<div style="display:flex;gap:8px;">'
+        +'<button class="btn gbg" onclick="saveAssignTimeEdit()" style="flex:2;padding:12px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存する</button>'
+        +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">キャンセル</button>'
+        +'</div></div></div>';
+    }
+  }
   else if(md==="startBizDay"){
     const todayStr=new Date().toLocaleDateString("sv-SE");
     const selDate=window._selBizDate||todayStr;
@@ -2284,8 +2364,8 @@ function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
 
 // ===== 出勤・退勤 =====
-const ASSIGN_TYPES={hon:{label:"本指名",col:"#d4a017"},banai:{label:"場内指名",col:"#4ade80"},help:{label:"ヘルプ",col:"#38bdf8"},douhan:{label:"同伴",col:"#a78bfa"},free:{label:"フリー",col:"#888"}};
-const TYPE_SFX={hon:"本",banai:"場",help:"H",douhan:"同",free:"F"};
+const ASSIGN_TYPES={hon:{label:"本指名",col:"#ff4444"},free:{label:"フリー",col:"#38bdf8"},help:{label:"ヘルプ",col:"#e8dcc8"},banai:{label:"場内指名",col:"#4ade80"}};
+const TYPE_SFX={hon:"本",free:"F",help:"H",banai:"場"};
 let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
 let tsukeMd={step:"cast",castId:null,type:null,time:""};
 
@@ -2321,8 +2401,22 @@ function clockIn(castId,time){
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+Date.now();
-  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting"};
+  // statusLogは待機・休憩の開始/終了を記録する配列
+  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
   save("shifts",S.shifts);closeM();render();
+}
+function setCastStatus(castId,newStatus){
+  const sh=getShiftByCastId(castId);if(!sh)return;
+  const now2=Date.now();
+  // 現在のstatusLogの最後のエントリを閉じる
+  if(!sh.statusLog)sh.statusLog=[];
+  const last=sh.statusLog[sh.statusLog.length-1];
+  if(last&&!last.endTime)last.endTime=now2;
+  // 新しいステータスを追加（activeはログ不要）
+  if(newStatus==="waiting"||newStatus==="break"){
+    sh.statusLog.push({status:newStatus,startTime:now2,endTime:null});
+  }
+  sh.status=newStatus;
 }
 function clockOut(shiftId,time){
   const sh=S.shifts[shiftId];if(!sh)return;
