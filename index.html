@@ -963,14 +963,17 @@ function rAssignHistory(){
       const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
       const dur=a.endTime?(a.endTime-a.startTime):null;
       html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
-      html+='<div style="display:flex;align-items:center;gap:8px;">';
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;">';
+      html+='<div style="display:flex;align-items:center;gap:8px;flex:1;">';
       html+='<span style="font-size:11px;padding:2px 7px;border:1px solid '+col+'88;color:'+col+';border-radius:3px;min-width:32px;text-align:center;">'+sfx+'</span>';
       html+='<div>';
       html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+a.castName+'</div>';
       html+='<div style="font-size:11px;color:#555;">'+sT+' → '+eT+(dur?' ('+fmtDur(dur)+')':'')+'</div>';
-      html+='</div></div>';
+      html+='</div>';
       html+=(a.endTime?''
         :'<span style="font-size:11px;color:'+col+';font-family:monospace;">'+ts(Date.now()-a.startTime).slice(3)+'</span>');
+      html+='</div>';
+      html+='<button class="btn" data-daid="'+a.id+'" onclick="deleteAssign(this.dataset.daid)" style="padding:3px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:3px;font-size:10px;white-space:nowrap;touch-action:manipulation;">削除</button>';
       html+='</div>';
     });
     html+='</div></div>';
@@ -984,7 +987,11 @@ function rTableDetail(){
   const t=S.tables.find(t=>t.id===tid);
   if(!t)return '<div style="padding:20px;"><button class="btn" onclick="sv(\'list\')" style="color:#888;background:none;font-size:13px;">← リストへ戻る</button><div style="color:#555;margin-top:16px;">テーブルが見つかりません</div></div>';
   const s=S.sessions[tid];
-  const allA=Object.values(S.assignments||{}).filter(a=>a.tableId===tid).sort((a,b)=>a.startTime-b.startTime);
+  // セッションがある場合はそのstartTime以降のアサインのみ表示（前回客のデータを除外）
+  const sessionStart=s?s.startTime:null;
+  const allA=Object.values(S.assignments||{})
+    .filter(a=>a.tableId===tid&&(sessionStart===null||a.startTime>=sessionStart))
+    .sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
   const doneA=allA.filter(a=>a.endTime);
   const relatedCastIds=new Set(allA.map(a=>String(a.castId)));
@@ -1354,11 +1361,20 @@ function setHistToday(){
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
 function getFilteredHist(){
-  return (Array.isArray(S.history)?S.history:[]).filter(h=>{
+  // 現在の営業日 + 全過去営業日のhistoryをマージ
+  let allHist=Array.isArray(S.history)?[...S.history]:[];
+  Object.values(S.bizDays||{}).forEach(day=>{
+    if(Array.isArray(day.history))allHist=allHist.concat(day.history);
+  });
+  // 重複除去（id基準）
+  const seen=new Set();
+  allHist=allHist.filter(h=>{if(seen.has(h.id))return false;seen.add(h.id);return true;});
+  // フィルター適用
+  return allHist.filter(h=>{
     if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"00:00")).getTime();if(h.startTime<from)return false;}
     if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"23:59")+":59").getTime();if(h.startTime>to)return false;}
     return true;
-  });
+  }).sort((a,b)=>b.startTime-a.startTime);
 }
 function exportCSV(){
   const data=getFilteredHist();
@@ -2156,8 +2172,9 @@ function rModal(){
         const onIds=getOndutyIds();
         sc().forEach(c=>{
           const already=onIds.has(c.id);
-          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:12px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:1px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.25)")+';color:'+(already?"#444":"#4ade80")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
-            +c.name+(already?'<div style="font-size:10px;margin-top:2px;opacity:.6;">出勤中</div>':'')
+          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:14px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.3)")+';color:'+(already?"#444":"#e8dcc8")+';border-radius:8px;font-size:14px;font-weight:700;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
+            +'<div style="font-size:15px;margin-bottom:3px;">'+c.name+'</div>'
+            +(already?'<div style="font-size:10px;color:#4ade80;opacity:.8;">✓ 出勤中</div>':'<div style="font-size:10px;color:#4ade8077;">タップして選択</div>')
             +'</button>';
         });
       } else {
@@ -2167,16 +2184,21 @@ function rModal(){
         } else {
           onduty.forEach(sh=>{
             const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:12px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:6px;font-size:14px;font-weight:600;text-align:center;touch-action:manipulation;">'
-              +sh.castName+'<div style="font-size:10px;margin-top:2px;opacity:.7;">'+inT+'〜</div></button>';
+            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:14px 8px;background:rgba(255,80,80,.08);border:2px solid rgba(255,80,80,.3);color:#e8dcc8;border-radius:8px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'
+              +'<div style="font-size:15px;margin-bottom:3px;">'+sh.castName+'</div>'
+              +'<div style="font-size:10px;color:#ff6b6b;">'+inT+'〜</div></button>';
           });
         }
       }
-      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
-        +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
-        +'<div style="font-size:12px;color:#666;margin-bottom:16px;">キャストを選択</div>'
-        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+castBtns+'</div>'
-        +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;">'
+        +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">'
+        +'<div style="width:10px;height:10px;border-radius:50%;background:'+(isIn?"#4ade80":"#ff6b6b")+';">'
+        +'</div>'
+        +'<h3 style="font-size:18px;font-weight:700;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
+        +'</div>'
+        +'<div style="font-size:12px;color:#666;margin-bottom:12px;letter-spacing:.05em;">'+(isIn?"出勤するキャストを選択":"退勤するキャストを選択")+'</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:55vh;overflow-y:auto;">'+castBtns+'</div>'
+        +'<button class="btn" onclick="closeM()" style="margin-top:18px;width:100%;padding:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
         +'</div></div>';
     } else if(shiftMd.step==="time"){
       const name=isIn
@@ -2373,7 +2395,7 @@ function rModal(){
         +'<div style="padding:14px;background:'+statusBg+';border:1px solid '+statusCol+'33;border-radius:8px;margin-bottom:16px;text-align:center;">'
         +'<div style="font-size:20px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+sh.castName+'</div>'
         +'<div style="font-size:12px;color:'+statusCol+';margin-bottom:6px;">'+statusLbl+'</div>'
-        +'<div style="font-size:22px;font-family:monospace;font-weight:700;color:'+statusCol+';">'+ts(elapsed).slice(3)+'</div>'
+        +'<div data-modal-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:22px;font-family:monospace;font-weight:700;color:'+statusCol+';">'+ts(elapsed).slice(3)+'</div>'
         +'</div>'
         // テーブルへ付ける
         +'<div class="st" style="margin-bottom:8px;">テーブルへ付ける</div>'
@@ -2830,7 +2852,14 @@ function rShifts(){
 setInterval(()=>{
   now=Date.now();
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
-  if(md)return;
+  // モーダル中でもdata-modal-timer属性の要素はカウントアップを更新
+  if(md){
+    document.querySelectorAll("[data-modal-timer]").forEach(el=>{
+      const start=parseInt(el.dataset.modalTimer);
+      if(!isNaN(start))el.textContent=ts(Date.now()-start).slice(3);
+    });
+    return;
+  }
   // 全ビューを毎秒再描画（シンプル・確実）
   if(vw==="order")tickOrder();
   else if(["floor","list","tableDetail","assignHistory"].includes(vw))render();
