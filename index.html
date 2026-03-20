@@ -133,10 +133,12 @@
     </div>
     <nav style="display:flex;gap:2px;">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
+      <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">履歴</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
+      <button class="btn" id="tsuke-toggle" onclick="toggleTsukeMode()" title="付け回しモード" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">付回</button>
       <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
@@ -152,16 +154,17 @@ const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2"
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[]};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{}};
 let vw="floor",at=null,md=null,cds=0,cdc=null;
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let now=Date.now();
 let priceHidden=false;
+let tsukeMode=false; // 付け回しモード
 let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};
-let coState={payMethod:null,receipt:false}; // 会計終了ステート
-let estCustomMin=0; // 概算カスタム延長分
+let coState={payMethod:null,receipt:false,splits:[]}; // 会計終了ステート（splits:複数支払い）
+let estCustomMin=0;
 
 // ===== DEVICE DETECTION =====
 function getDevice(){
@@ -180,6 +183,24 @@ window.addEventListener("resize",()=>{DEV=getDevice();});
 // ===== UTILS =====
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
 function ts(ms){const s=Math.max(0,Math.floor(ms/1000));return[Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(x=>String(x).padStart(2,"0")).join(":");}
+
+// 営業日：20:00〜翌3:00。現在時刻から「営業日の開始timestamp」を返す
+function getBizDayStart(ts){
+  const d=new Date(ts||Date.now());
+  // 0:00〜2:59は前日の営業日
+  if(d.getHours()<3){d.setDate(d.getDate()-1);}
+  d.setHours(20,0,0,0);
+  return d.getTime();
+}
+function getBizDayEnd(ts){return getBizDayStart(ts)+7*60*60*1000;} // +7h = 翌3:00
+function isSameBizDay(ts1,ts2){return getBizDayStart(ts1)===getBizDayStart(ts2);}
+function setHistToday(){
+  const start=getBizDayStart(Date.now());
+  const s=new Date(start);const e=new Date(getBizDayEnd(Date.now()));
+  histFilter.from=s.toISOString().slice(0,10);histFilter.fromTime=`${String(s.getHours()).padStart(2,"0")}:00`;
+  histFilter.to=e.toISOString().slice(0,10);histFilter.toTime=`${String(e.getHours()).padStart(2,"0")}:59`;
+  render();
+}
 function ct(ses){
   if(!ses)return{subtotal:0,discount:0,tax:0,total:0,rate:.25};
   const r=ses.items.some(i=>i.isVipCharge)?.30:.25;
@@ -216,9 +237,10 @@ function initFB(){
     if(d.casts)S.casts=d.casts;
     if(d.menus)S.menus=d.menus;
     if(d.tables)S.tables=d.tables;
-    // sessions: 全員会計済みでFirebaseがnullを返すケースも空オブジェクトとして受け取る
     S.sessions=d.sessions||{};
     S.history=d.history||[];
+    S.shifts=d.shifts||{};
+    S.assignments=d.assignments||{};
     sbs(true,"同期済み ✓");
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
@@ -381,31 +403,30 @@ function addOptionToSession(optId){
 }
 function checkout(){
   const s=S.sessions[at];const totals=ct(s);
+  const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
+  // 後方互換：splitsがない場合は旧形式
+  const payMethod=splits?splits[0].method:coState.payMethod||"cash";
+  const receiptIssued=splits?splits.some(sp=>sp.receipt):coState.receipt||false;
   const rec={
-    id:Date.now(),
-    tableId:at,
+    id:Date.now(),tableId:at,
     tableLabel:S.tables.find(t=>t.id===at)?.label,
-    startTime:s.startTime,
-    endTime:Date.now(),
-    guests:s.guests,
-    items:s.items,
-    payMethod:coState.payMethod||"cash",
-    receiptIssued:coState.receipt||false,
+    startTime:s.startTime,endTime:Date.now(),
+    guests:s.guests,items:s.items,
+    payMethod,receiptIssued,
+    splits:splits||null,
     ...totals
   };
   const newHistory=[rec,...S.history];
   const newSessions={...S.sessions};
   delete newSessions[at];
-  // sessions と history を同時に書き込み（他端末が中間状態を見ないようにアトミック更新）
   if(window._db){
     window._db.ref("pos").update({
-      sessions: Object.keys(newSessions).length>0 ? newSessions : null,
-      history: newHistory
+      sessions:Object.keys(newSessions).length>0?newSessions:null,
+      history:newHistory
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  S.sessions=newSessions;
-  S.history=newHistory;
-  at=null;vw="floor";coState={payMethod:null,receipt:false};closeM();render();
+  S.sessions=newSessions;S.history=newHistory;
+  at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
 }
 function tableChange(newId){
   if(!at||!newId||newId===at)return;
@@ -472,10 +493,13 @@ function buildOrderSummary(s){
 }
 
 function updateNav(){
-  [["nf","floor"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
+  [["nf","floor"],["nsh","shifts"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v===vw)?" ac":"");
   });
+  // 付け回しモードボタン
+  const tb=document.getElementById("tsuke-toggle");
+  if(tb){tb.textContent=tsukeMode?"付回ON":"付回";tb.style.color=tsukeMode?"#a78bfa":"#888";tb.style.borderColor=tsukeMode?"rgba(124,77,255,.4)":"rgba(255,255,255,.1)";tb.style.background=tsukeMode?"rgba(124,77,255,.15)":"rgba(255,255,255,.05)";}
 }
 function render(){
   updateNav();
@@ -484,11 +508,13 @@ function render(){
   else if(vw==="checkin")m.innerHTML=rCI();
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
+  else if(vw==="shifts")m.innerHTML=rShifts();
   else if(vw==="settings")m.innerHTML=rSettings();
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v){vw=v;if(!["order","checkin"].includes(v))at=null;render();}
 function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";render();}
+function toggleTsukeMode(){tsukeMode=!tsukeMode;render();}
 
 // ===== FLOOR =====
 function rFloor(){
@@ -502,6 +528,19 @@ function rFloor(){
     const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
     const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
+    // 付け回し情報
+    const tableAssigns=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
+    let tsukeInfo="";
+    if(tsukeMode&&tableAssigns.length>0){
+      tsukeInfo='<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px;">';
+      tableAssigns.forEach(a=>{
+        const elapsed=Date.now()-a.startTime;
+        const col=a.type==="hon"?"#d4a017":a.type==="help"?"#38bdf8":"#4ade80";
+        const lbl=a.type==="hon"?"♛":a.type==="help"?"H":"F";
+        tsukeInfo+='<span style="font-size:10px;padding:2px 5px;background:rgba(0,0,0,.3);border:1px solid '+col+';color:'+col+';border-radius:3px;">'+lbl+' '+a.castName+' '+ts(elapsed).slice(3)+'</span>';
+      });
+      tsukeInfo+='</div>';
+    }
     let inn=s?
       '<div style="font-size:12px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
@@ -511,6 +550,7 @@ function rFloor(){
       +'<div style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
       +(hv&&vr!==null?'<div style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
       +'<div style="font-size:12px;color:#888;margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
+      +tsukeInfo
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
@@ -602,6 +642,9 @@ function rOrder(){
   spBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'tc\')" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.25);color:#38bdf8;">テーブル<br><small>チェンジ</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'est\')" style="background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.25);color:#ffd700;">📊 概算<br><small>シミュレーション</small></button>';
+  if(tsukeMode){
+    spBtns+='<button class="menu-btn" onclick="om(\'tsuke\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.4);color:#a78bfa;">付け回し<br><small>キャスト選択</small></button>';
+  }
 
   // レイアウト: tablet/desktopは2カラム、mobileは縦積み
   if(isTabletPlus){
@@ -712,9 +755,27 @@ function rHist(){
   html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.toTime+'" onchange="histFilter.toTime=this.value;render()" />';
   html+='</div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今日</button>';
+  html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今営業日</button>';
   html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
   html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">📊 CSV出力</button>';
+  html+='</div></div>';
+  // 営業日売上サマリー
+  const bizStart=getBizDayStart(Date.now());const bizEnd=getBizDayEnd(Date.now());
+  const todayHist=S.history.filter(h=>h.startTime>=bizStart&&h.startTime<bizEnd);
+  const todaySales=todayHist.reduce((a,h)=>a+h.total,0);
+  const pendingSales=Object.values(S.sessions).reduce((a,s)=>a+ct(s).total,0);
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
+  html+='<div class="st" style="margin-bottom:10px;">本日営業日の売上</div>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">';
+  html+='<div style="text-align:center;padding:10px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;">';
+  html+='<div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み</div>';
+  html+='<div style="font-size:16px;font-weight:700;color:#4ade80;">'+pAmt(todaySales)+'</div></div>';
+  html+='<div style="text-align:center;padding:10px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:6px;">';
+  html+='<div style="font-size:10px;color:#888;margin-bottom:4px;">未収（進行中）</div>';
+  html+='<div style="font-size:16px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>';
+  html+='<div style="text-align:center;padding:10px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;">';
+  html+='<div style="font-size:10px;color:#888;margin-bottom:4px;">合計見込み</div>';
+  html+='<div style="font-size:16px;font-weight:700;color:#d4a017;">'+pAmt(todaySales+pendingSales)+'</div></div>';
   html+='</div></div>';
   const filtered=getFilteredHist();
   if(filtered.length>0){
@@ -733,8 +794,11 @@ function rHist(){
     html+='<div style="flex:1;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;"><span style="font-weight:600;font-size:15px;">'+h.tableLabel+'</span><span style="font-size:12px;color:#888;">'+h.guests+'名</span><span style="font-size:11px;color:#666;">'+dur+'分</span></div>';
     html+='<div style="font-size:11px;color:#666;">'+new Date(h.startTime).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+' → '+new Date(h.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div></div>';
     html+='<div style="display:flex;align-items:center;gap:8px;"><span style="color:#d4a017;font-weight:700;font-size:16px;">'+pAmt(h.total)+'</span>'
-      +(h.payMethod==="card"?'<span style="font-size:10px;padding:2px 6px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:3px;font-weight:700;">💳</span>':'<span style="font-size:10px;padding:2px 6px;background:rgba(184,150,12,.12);border:1px solid rgba(184,150,12,.3);color:#d4a017;border-radius:3px;font-weight:700;">💴</span>')
-      +(h.receiptIssued?'<span style="font-size:10px;padding:2px 6px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:3px;">領</span>':"")
+      // 支払いバッジ（複数対応）
+      +(h.splits&&h.splits.length>0
+        ? h.splits.map(sp=>'<span style="font-size:10px;padding:2px 6px;background:'+(sp.method==="card"?"rgba(56,189,248,.15)":"rgba(184,150,12,.12)")+';border:1px solid '+(sp.method==="card"?"rgba(56,189,248,.3)":"rgba(184,150,12,.3)")+';color:'+(sp.method==="card"?"#38bdf8":"#d4a017")+';border-radius:3px;font-weight:700;">'+(sp.method==="card"?"💳":"💴")+'¥'+fmt(sp.amount)+(sp.receipt?'<span style="color:#4ade80;margin-left:2px;">領</span>':"")+'</span>').join("")
+        : (h.payMethod==="card"?'<span style="font-size:10px;padding:2px 6px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:3px;font-weight:700;">💳</span>':'<span style="font-size:10px;padding:2px 6px;background:rgba(184,150,12,.12);border:1px solid rgba(184,150,12,.3);color:#d4a017;border-radius:3px;font-weight:700;">💴</span>')
+          +(h.receiptIssued?'<span style="font-size:10px;padding:2px 6px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:3px;">領</span>':""))
       +'<span style="color:#555;font-size:18px;">'+(exp?"▲":"▼")+'</span></div></div>';
     if(exp){
       html+='<div class="hist-body"><div style="margin:12px 0;">';
@@ -745,6 +809,7 @@ function rHist(){
       html+='<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div></div>';
       html+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">';
       html+='<button class="btn" data-phid="'+h.id+'" onclick="printHistReceipt(parseInt(this.dataset.phid))" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">🖨 印刷</button>';
+      html+='<button class="btn" data-ehid="'+h.id+'" onclick="editHistPay(parseInt(this.dataset.ehid))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:12px;">💳 支払変更</button>';
       html+='<button class="btn" data-dhid="'+h.id+'" onclick="cdh(parseInt(this.dataset.dhid))" style="padding:6px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button>';
       html+='</div></div>';
     }
@@ -754,7 +819,6 @@ function rHist(){
   return html;
 }
 function toggleHist(id){expandedHist[id]=!expandedHist[id];render();}
-function setHistToday(){const t=new Date().toISOString().slice(0,10);histFilter.from=t;histFilter.to=t;histFilter.fromTime="00:00";histFilter.toTime="23:59";render();}
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
 function getFilteredHist(){
   return S.history.filter(h=>{
@@ -779,6 +843,121 @@ function exportCSV(){
   const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||new Date().toISOString().slice(0,10))+".csv";a.click();URL.revokeObjectURL(url);
 }
 function cdh(id){dhi=id;om("dh");}
+
+// ===== SHIFTS（出勤システム）=====
+function getOnduty(){
+  // 現在の営業日内で出勤中（clockOut未設定）のシフトを返す
+  const bizStart=getBizDayStart(Date.now());
+  return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bizStart&&!sh.clockOut);
+}
+function getShiftCasts(){
+  // 出勤中キャストIDセット
+  return new Set(getOnduty().map(sh=>sh.castId));
+}
+function clockIn(castId,timeStr){
+  const c=S.casts.find(c=>c.id===castId);if(!c)return;
+  const[h,m]=timeStr.split(":").map(Number);
+  const d=new Date();d.setHours(h,m,0,0);
+  // 3時前は翌日扱いしない（当日の営業日内）
+  let ts=d.getTime();
+  // すでに出勤中なら無視
+  if(getOnduty().some(sh=>sh.castId===castId))return;
+  const sid="sh_"+castId+"_"+Date.now();
+  S.shifts[sid]={id:sid,castId,castName:c.name,clockIn:ts,clockOut:null};
+  save("shifts",S.shifts);render();
+}
+function clockOut(shiftId,timeStr){
+  const sh=S.shifts[shiftId];if(!sh)return;
+  const[h,m]=timeStr.split(":").map(Number);
+  const d=new Date();
+  // 翌3時前の場合は翌日の日付
+  if(h<3){d.setDate(d.getDate()+1);}
+  d.setHours(h,m,0,0);
+  sh.clockOut=d.getTime();
+  save("shifts",S.shifts);render();
+}
+function fmtHours(ms){
+  const h=ms/3600000;
+  return h.toFixed(1)+"h";
+}
+function rShifts(){
+  const onduty=getOnduty();
+  const ondutyIds=new Set(onduty.map(sh=>sh.castId));
+  const bizStart=getBizDayStart(Date.now());
+  // 本営業日の全シフト（退勤済み含む）
+  const allShifts=Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bizStart);
+  // 合計労働時間計算
+  const totalMs=allShifts.reduce((a,sh)=>{
+    const end=sh.clockOut||Date.now();
+    return a+(end-sh.clockIn);
+  },0);
+
+  let html='<div style="max-width:680px;margin:0 auto;">';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
+
+  // 現在出勤中
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:14px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+  html+='<div class="st">現在出勤中 ('+onduty.length+'名)</div>';
+  html+='<div style="font-size:12px;color:#888;">本営業日合計: <span style="color:#4ade80;font-weight:700;">'+fmtHours(totalMs)+'</span></div>';
+  html+='</div>';
+  if(onduty.length===0){html+='<div style="font-size:13px;color:#444;">出勤者なし</div>';}
+  else{
+    onduty.forEach(sh=>{
+      const elapsed=Date.now()-sh.clockIn;
+      const inTime=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      html+='<div class="ir" style="min-height:44px;">';
+      html+='<div style="flex:1;">';
+      html+='<span style="font-size:14px;font-weight:600;color:#e8dcc8;">'+sh.castName+'</span>';
+      html+='<span style="font-size:11px;color:#888;margin-left:8px;">'+inTime+'〜</span>';
+      html+='<span style="font-size:12px;color:#4ade80;margin-left:6px;">'+fmtHours(elapsed)+'</span>';
+      html+='</div>';
+      const coTimeId="co_"+sh.id;
+      html+='<div style="display:flex;gap:6px;align-items:center;">';
+      html+='<input type="time" id="'+coTimeId+'" class="ip" value="'
+        +new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}).replace(":",":")+'" style="width:90px;font-size:13px;padding:4px 6px;"/>';
+      html+='<button class="btn" data-sid="'+sh.id+'" data-tid="'+coTimeId+'" onclick="clockOut(this.dataset.sid,document.getElementById(this.dataset.tid).value)" style="padding:6px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:12px;touch-action:manipulation;">退勤</button>';
+      html+='</div></div>';
+    });
+  }
+  html+='</div>';
+
+  // 出勤打刻
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:14px;">';
+  html+='<div class="st" style="margin-bottom:12px;">出勤打刻</div>';
+  const offCasts=sc().filter(c=>!ondutyIds.has(c.id));
+  if(offCasts.length===0){html+='<div style="font-size:13px;color:#444;">全員出勤中です</div>';}
+  else{
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;">';
+    offCasts.forEach(c=>{
+      const ciTimeId="ci_"+c.id;
+      html+='<div style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:8px;">';
+      html+='<div style="font-size:13px;font-weight:600;color:#e8dcc8;margin-bottom:6px;">'+c.name+'</div>';
+      html+='<input type="time" id="'+ciTimeId+'" class="ip" value="'
+        +new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'" style="width:100%;font-size:12px;padding:4px 6px;margin-bottom:6px;"/>';
+      html+='<button class="btn gbg" data-cid="'+c.id+'" data-tid="'+ciTimeId+'" onclick="clockIn(parseInt(this.dataset.cid),document.getElementById(this.dataset.tid).value)" style="width:100%;padding:6px;font-size:12px;font-weight:600;border-radius:4px;touch-action:manipulation;">出勤</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+
+  // 本営業日のシフト履歴（退勤済み）
+  const done=allShifts.filter(sh=>sh.clockOut).sort((a,b)=>b.clockIn-a.clockIn);
+  if(done.length>0){
+    html+='<div class="glass" style="border-radius:8px;padding:16px;">';
+    html+='<div class="st" style="margin-bottom:10px;">本営業日の退勤済み</div>';
+    done.forEach(sh=>{
+      const worked=sh.clockOut-sh.clockIn;
+      const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const outT=new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+sh.castName+'</span><span style="color:#666;">'+inT+'〜'+outT+'</span><span style="color:#888;">'+fmtHours(worked)+'</span></div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  return html;
+}
 
 // ===== SETTINGS =====
 function rSettings(){
@@ -1208,39 +1387,37 @@ function rModal(){
       +'</div></div>';
   }
   else if(md==="co2"&&s){
-    // ステップ2：支払方法・領収書選択 → 確定
     const{total}=ct(s);
-    const pm=coState.payMethod;const rc=coState.receipt;
-    h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
-      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;">'
+    // splits: [{method:"cash"|"card", amount:number, receipt:bool}]
+    if(!coState.splits||coState.splits.length===0)coState.splits=[{method:"cash",amount:total,receipt:false}];
+    const splits=coState.splits;
+    const splitTotal=splits.reduce((a,sp)=>a+(parseInt(sp.amount)||0),0);
+    const remaining=total-splitTotal;
+    let splitRows="";
+    splits.forEach((sp,i)=>{
+      splitRows+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">';
+      splitRows+='<button class="btn" onclick="coState.splits['+i+'].method=\'cash\';rModal()" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(sp.method==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">💴</button>';
+      splitRows+='<button class="btn" onclick="coState.splits['+i+'].method=\'card\';rModal()" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(sp.method==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">💳</button>';
+      splitRows+='<input type="number" inputmode="numeric" class="ip" value="'+sp.amount+'" oninput="coState.splits['+i+'].amount=parseInt(this.value)||0;rModal()" style="width:110px;font-size:16px;font-weight:700;"/>';
+      splitRows+='<button class="btn" onclick="coState.splits['+i+'].receipt=!coState.splits['+i+'].receipt;rModal()" style="padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;background:'+(sp.receipt?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(sp.receipt?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)")+';color:'+(sp.receipt?"#4ade80":"#555")+';touch-action:manipulation;">領'+(sp.receipt?"✓":"")+'</button>';
+      if(splits.length>1)splitRows+='<button class="btn" onclick="coState.splits.splice('+i+',1);rModal()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
+      splitRows+='</div>';
+    });
+    const ok=Math.abs(remaining)<=0;
+    h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">'
       +'<button class="btn" onclick="md=\'co\';rModal()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 戻る</button>'
       +'<h3 style="font-size:16px;color:#d4a017;margin:0;">会計終了</h3>'
       +'</div>'
-      // 合計再表示
-      +'<div style="text-align:center;padding:14px 0;margin-bottom:20px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
-      +'<div style="font-size:12px;color:#888;margin-bottom:4px;">合計金額</div>'
-      +'<div style="font-size:32px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
+      +'<div style="text-align:center;padding:12px;margin-bottom:16px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
+      +'<div style="font-size:11px;color:#888;margin-bottom:2px;">合計金額</div>'
+      +'<div style="font-size:28px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
       +'</div>'
-      // 支払方法
-      +'<div style="margin-bottom:16px;">'
-      +'<div class="st" style="margin-bottom:10px;">支払方法</div>'
-      +'<div style="display:flex;gap:10px;">'
-      +'<button class="btn" onclick="coState.payMethod=\'cash\';rModal()" style="flex:1;padding:18px 8px;border-radius:8px;font-size:16px;font-weight:700;background:'+(pm==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(pm==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(pm==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">'
-      +'<div style="font-size:22px;margin-bottom:4px;">💴</div>現金</button>'
-      +'<button class="btn" onclick="coState.payMethod=\'card\';rModal()" style="flex:1;padding:18px 8px;border-radius:8px;font-size:16px;font-weight:700;background:'+(pm==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(pm==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(pm==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">'
-      +'<div style="font-size:22px;margin-bottom:4px;">💳</div>クレジットカード</button>'
-      +'</div>'
-      +'</div>'
-      // 領収書
-      +'<div style="margin-bottom:20px;">'
-      +'<div class="st" style="margin-bottom:10px;">領収書</div>'
-      +'<div style="display:flex;gap:10px;">'
-      +'<button class="btn" onclick="coState.receipt=false;rModal()" style="flex:1;padding:14px 8px;border-radius:8px;font-size:15px;font-weight:700;background:'+(rc===false?"rgba(255,255,255,.12)":"rgba(255,255,255,.04)")+';border:2px solid '+(rc===false?"rgba(255,255,255,.3)":"rgba(255,255,255,.08)")+';color:'+(rc===false?"#e8dcc8":"#555")+';touch-action:manipulation;">不要</button>'
-      +'<button class="btn" onclick="coState.receipt=true;rModal()" style="flex:1;padding:14px 8px;border-radius:8px;font-size:15px;font-weight:700;background:'+(rc===true?"rgba(74,222,128,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(rc===true?"rgba(74,222,128,.5)":"rgba(255,255,255,.08)")+';color:'+(rc===true?"#4ade80":"#555")+';touch-action:manipulation;">発行する</button>'
-      +'</div>'
-      +'</div>'
-      // 確定ボタン（支払方法が選択されている場合のみ活性）
-      +'<button class="btn gbg" onclick="checkout()" '+(pm?'':'disabled')+' style="width:100%;padding:16px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(pm?'':'opacity:.4;cursor:not-allowed;')+'">✓ 会計終了を確定する</button>'
+      +'<div class="st" style="margin-bottom:8px;">支払い内訳</div>'
+      +splitRows
+      +'<button class="btn" onclick="coState.splits.push({method:\'cash\',amount:Math.max(0,'+remaining+'),receipt:false});rModal()" style="width:100%;padding:8px;margin-bottom:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">＋ 支払いを分ける</button>'
+      +(Math.abs(remaining)>0?'<div style="text-align:right;font-size:13px;margin-bottom:12px;color:'+(remaining>0?"#ff6b6b":"#4ade80")+';">'+(remaining>0?"残り: -¥"+fmt(remaining):"超過: +¥"+fmt(-remaining))+'</div>':"")
+      +'<button class="btn gbg" onclick="checkout()" '+(ok?'':'disabled')+' style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(ok?'':'opacity:.4;cursor:not-allowed;')+'">✓ 会計終了を確定する</button>'
       +'</div></div>';
   }
   else if(md==="disc"&&s){
@@ -1391,6 +1568,32 @@ function rModal(){
   else if(md==="dh"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:12px;font-size:16px;">この履歴を削除しますか？</h3><p style="font-size:13px;color:#888;margin-bottom:20px;">削除した履歴は元に戻せません。</p><div style="display:flex;gap:10px;"><button class="btn" onclick="doh()" style="flex:1;padding:10px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;touch-action:manipulation;">削除する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
   }
+  else if(md==="editpay"){
+    const eh=S.history.find(x=>x.id===editPayHid);
+    if(!eh){c.innerHTML="";return;}
+    // 既存splitsまたはlegacy payMethodから初期値生成
+    const initSplits=eh.splits&&eh.splits.length>0?eh.splits:[{method:eh.payMethod||"cash",amount:eh.total,receipt:eh.receiptIssued||false}];
+    // 動的行生成
+    let spRows="";
+    initSplits.forEach((sp,i)=>{
+      spRows+='<div class="editpay-row" data-method="'+sp.method+'" data-receipt="'+(sp.receipt?1:0)+'" style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">'
+        +'<button class="btn" onclick="epToggleMethod(this,\'cash\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(sp.method==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">💴</button>'
+        +'<button class="btn" onclick="epToggleMethod(this,\'card\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(sp.method==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">💳</button>'
+        +'<input type="number" inputmode="numeric" class="ip editpay-amt" value="'+sp.amount+'" style="width:110px;font-size:16px;font-weight:700;"/>'
+        +'<button class="btn" onclick="epToggleReceipt(this)" style="padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;background:'+(sp.receipt?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(sp.receipt?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)")+';color:'+(sp.receipt?"#4ade80":"#555")+';touch-action:manipulation;">領'+(sp.receipt?"✓":"")+'</button>'
+        +(initSplits.length>1?'<button class="btn" onclick="this.closest(\'.editpay-row\').remove()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>':"")
+        +'</div>';
+    });
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
+      +'<h3 style="margin-bottom:12px;font-size:16px;color:#38bdf8;">支払い変更</h3>'
+      +'<div style="font-size:12px;color:#888;margin-bottom:14px;">'+eh.tableLabel+' — '+pAmt(eh.total)+'</div>'
+      +'<div id="editpay-rows">'+spRows+'</div>'
+      +'<button class="btn" onclick="epAddRow('+eh.total+')" style="width:100%;padding:8px;margin-bottom:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;">＋ 支払いを分ける</button>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn gbg" onclick="saveHistPay()" style="flex:2;padding:12px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button>'
+      +'</div></div></div>';
+  }
   else if(md==="tc"&&s){
     const tl=S.tables.find(t=>t.id===at)?.label||"";
     let tbs="";
@@ -1404,6 +1607,70 @@ function rModal(){
       +'<div style="font-size:12px;color:#666;margin-bottom:16px;">'+tl+' の内容を別のテーブルへ移動</div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+tbs+'</div>'
       +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="tsuke"&&s){
+    // 付け回しモーダル：出勤中キャストを選択してタイプを選ぶ
+    const ondutyIds=getShiftCasts();
+    const tblAssigns=Object.values(S.assignments||{}).filter(a=>a.tableId===at&&!a.endTime);
+    const assignedIds=new Set(tblAssigns.map(a=>a.castId));
+    // 既存の指名情報
+    const honIds=new Set((s.items||[]).filter(i=>i.isHonShimei).map(i=>i.castId));
+    // 全キャスト：出勤中のみ選択可
+    let castGrid='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:40vh;overflow-y:auto;">';
+    sc().forEach(c=>{
+      const onduty=ondutyIds.has(c.id);
+      const assigned=tblAssigns.find(a=>a.castId===c.id);
+      const isHon=honIds.has(c.id);
+      if(!onduty){
+        castGrid+='<div style="padding:10px 6px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;text-align:center;opacity:.35;">'
+          +'<div style="font-size:13px;color:#555;">'+c.name+'</div>'
+          +'<div style="font-size:10px;color:#444;margin-top:2px;">未出勤</div></div>';
+        return;
+      }
+      if(assigned){
+        const col=assigned.type==="hon"?"#d4a017":assigned.type==="help"?"#38bdf8":"#4ade80";
+        const lbl=assigned.type==="hon"?"本指名":assigned.type==="help"?"ヘルプ":"フリー";
+        const elapsed=Date.now()-assigned.startTime;
+        castGrid+='<div style="padding:10px 6px;background:rgba(0,0,0,.3);border:1px solid '+col+';border-radius:6px;text-align:center;">'
+          +'<div style="font-size:13px;font-weight:600;color:'+col+';">'+c.name+'</div>'
+          +'<div style="font-size:10px;color:'+col+';margin-top:2px;">'+lbl+' '+ts(elapsed).slice(3)+'</div>'
+          +'<button class="btn" data-aid="'+assigned.id+'" onclick="endAssign(this.dataset.aid)" style="margin-top:4px;width:100%;padding:3px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">外す</button></div>';
+        return;
+      }
+      // 未配置・出勤中
+      const typeOpts=[
+        ['hon','本指名','#d4a017',isHon],
+        ['help','ヘルプ','#38bdf8',false],
+        ['free','フリー','#4ade80',false],
+      ];
+      castGrid+='<div style="padding:8px 6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;">'
+        +'<div style="font-size:13px;font-weight:600;color:#e8dcc8;text-align:center;margin-bottom:6px;">'+c.name+'</div>'
+        +'<div style="display:flex;flex-direction:column;gap:4px;">';
+      typeOpts.forEach(([type,label,col,active])=>{
+        const timeId="ta_"+c.id+"_"+type;
+        castGrid+='<button class="btn" data-cid="'+c.id+'" data-type="'+type+'" data-tid="'+timeId+'" onclick="startAssign(parseInt(this.dataset.cid),this.dataset.type,this.dataset.tid)" style="padding:4px;background:'+(active?"rgba("+col.slice(1).match(/../g).map(x=>parseInt(x,16)).join(",")+",.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(active?col:"rgba(255,255,255,.1)")+';color:'+(active?col:"#888")+';border-radius:3px;font-size:11px;text-align:center;touch-action:manipulation;">'+label+'</button>';
+      });
+      castGrid+='<input type="time" id="ta_'+c.id+'_hon" class="ip" value="'+new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'" style="width:100%;font-size:11px;padding:3px 4px;margin-top:2px;display:none;"/>';
+      castGrid+='</div></div>';
+    });
+    castGrid+='</div>';
+    // 待機中キャスト（出勤中でどこにもついていない）
+    const waitCasts=sc().filter(c=>{
+      if(!ondutyIds.has(c.id))return false;
+      return!Object.values(S.assignments||{}).some(a=>a.castId===c.id&&!a.endTime);
+    });
+    let waitInfo='';
+    if(waitCasts.length>0){
+      waitInfo='<div style="margin-top:12px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:4px;font-size:11px;color:#888;">'
+        +'待機中: '+waitCasts.map(c=>'<span style="color:#e8dcc8;">'+c.name+'</span>').join(' / ')+'</div>';
+    }
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">付け回し</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">'+S.tables.find(t=>t.id===at)?.label+'</div>'
+      +castGrid
+      +waitInfo
+      +'<button class="btn" onclick="closeM()" style="margin-top:14px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button>'
       +'</div></div>';
   }
   else if(md==="est"&&s){
@@ -1447,11 +1714,75 @@ function rModal(){
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
+function startAssign(castId,type,timeInputId){
+  const c=S.casts.find(c=>c.id===castId);if(!c)return;
+  const timeEl=document.getElementById(timeInputId.replace(/_hon|_help|_free/,"_hon"))
+    ||document.getElementById(timeInputId);
+  // 時刻取得：timeElがあれば使用、なければ現在時刻
+  let ts=Date.now();
+  if(timeEl&&timeEl.value){
+    const[h,m]=timeEl.value.split(":").map(Number);
+    const d=new Date();d.setHours(h,m,0,0);ts=d.getTime();
+  }
+  // 既存の同テーブル同キャストのassignを終了
+  Object.values(S.assignments||{}).forEach(a=>{
+    if(a.castId===castId&&a.tableId===at&&!a.endTime)a.endTime=Date.now();
+  });
+  const aid="as_"+castId+"_"+Date.now();
+  S.assignments[aid]={id:aid,castId,castName:c.name,tableId:at,type,startTime:ts,endTime:null};
+  save("assignments",S.assignments);rModal();
+}
+function endAssign(aid){
+  if(S.assignments[aid])S.assignments[aid].endTime=Date.now();
+  save("assignments",S.assignments);rModal();
+}
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
+let editPayHid=null;
+function editHistPay(id){editPayHid=id;md="editpay";rModal();}
+function epToggleMethod(btn,method){
+  const row=btn.closest(".editpay-row");row.dataset.method=method;
+  row.querySelectorAll("button").forEach(b=>{
+    if(b.textContent==="💴")b.style.background=method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)";
+    if(b.textContent==="💳")b.style.background=method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)";
+  });
+}
+function epToggleReceipt(btn){
+  const row=btn.closest(".editpay-row");
+  const now=row.dataset.receipt==="1";row.dataset.receipt=now?"0":"1";
+  btn.textContent="領"+(now?"":"✓");
+  btn.style.background=now?"rgba(255,255,255,.06)":"rgba(74,222,128,.2)";
+  btn.style.color=now?"#555":"#4ade80";
+}
+function epAddRow(total){
+  const rows=document.getElementById("editpay-rows");if(!rows)return;
+  const div=document.createElement("div");
+  div.className="editpay-row";div.dataset.method="cash";div.dataset.receipt="0";
+  div.style.cssText="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;";
+  div.innerHTML='<button class="btn" onclick="epToggleMethod(this,\'cash\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:linear-gradient(135deg,#b8960c,#e8c84a);border:2px solid #b8960c;color:#1a1200;touch-action:manipulation;">💴</button>'
+    +'<button class="btn" onclick="epToggleMethod(this,\'card\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(255,255,255,.06);border:2px solid rgba(255,255,255,.1);color:#666;touch-action:manipulation;">💳</button>'
+    +'<input type="number" inputmode="numeric" class="ip editpay-amt" value="0" style="width:110px;font-size:16px;font-weight:700;"/>'
+    +'<button class="btn" onclick="epToggleReceipt(this)" style="padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#555;touch-action:manipulation;">領</button>'
+    +'<button class="btn" onclick="this.closest(\'.editpay-row\').remove()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
+  rows.appendChild(div);
+}
+function saveHistPay(){
+  const h=S.history.find(x=>x.id===editPayHid);if(!h)return;
+  const rows=document.querySelectorAll(".editpay-row");
+  const splits=[];
+  rows.forEach(row=>{
+    const method=row.dataset.method;
+    const amount=parseInt(row.querySelector(".editpay-amt")?.value||"0")||0;
+    const receipt=row.dataset.receipt==="1";
+    if(amount>0)splits.push({method,amount,receipt});
+  });
+  if(splits.length===0)return;
+  h.splits=splits;h.payMethod=splits[0].method;h.receiptIssued=splits.some(sp=>sp.receipt);
+  save("history",S.history);editPayHid=null;closeM();render();
+}
 
 // ===== CLOCK =====
 setInterval(()=>{
