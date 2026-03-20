@@ -419,9 +419,12 @@ function addOptionToSession(optId){
   save("sessions",S.sessions);closeM();renderOrderPartial();
 }
 function checkout(){
+  // DOM上の最新金額をcoState.splitsに同期してから保存
+  document.querySelectorAll(".sp-amt").forEach((el,i)=>{
+    if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
+  });
   const s=S.sessions[at];const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
-  // 後方互換：splitsがない場合は旧形式
   const payMethod=splits?splits[0].method:coState.payMethod||"cash";
   const receiptIssued=splits?splits.some(sp=>sp.receipt):coState.receipt||false;
   const rec={
@@ -1210,9 +1213,50 @@ function ttv(id){S.tables=S.tables.map(t=>t.id===id?{...t,vip:!t.vip}:t);save("t
 function dta(id){if(S.sessions[id])return;S.tables=S.tables.filter(t=>t.id!==id);save("tables",S.tables);render();}
 function ata(){if(!ntl.trim())return;S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
-// ===== MODAL =====
-function om(name){md=name;rModal();}
-function closeM(){md=null;document.getElementById("md").innerHTML="";}
+// ===== SPLITS操作（co2モーダル用） =====
+function spSetMethod(idx,method){
+  // DOM上のボタンの見た目を切り替えるだけ（coStateも更新）
+  coState.splits[idx].method=method;
+  // ボタンの見た目更新
+  const rows=document.querySelectorAll(".split-row");
+  if(!rows[idx])return;
+  const cashBtn=rows[idx].querySelector(".sp-cash");
+  const cardBtn=rows[idx].querySelector(".sp-card");
+  if(cashBtn){cashBtn.style.background=method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)";cashBtn.style.borderColor=method==="cash"?"#b8960c":"rgba(255,255,255,.1)";cashBtn.style.color=method==="cash"?"#1a1200":"#666";}
+  if(cardBtn){cardBtn.style.background=method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)";cardBtn.style.borderColor=method==="card"?"#38bdf8":"rgba(255,255,255,.1)";cardBtn.style.color=method==="card"?"#38bdf8":"#666";}
+}
+function spUpdateAmt(idx,val){
+  coState.splits[idx].amount=parseInt(val)||0;
+  // 残額表示更新
+  const s=S.sessions[at];if(!s)return;
+  const total=ct(s).total;
+  const splitTotal=coState.splits.reduce((a,sp)=>a+(sp.amount||0),0);
+  const remaining=total-splitTotal;
+  const el=document.getElementById("sp-remain");
+  if(Math.abs(remaining)>0){
+    if(!el){/* 表示は次のrModal時に反映 */}
+    else{el.textContent=(remaining>0?"残り ¥":"超過 ¥")+fmt(Math.abs(remaining));el.style.color=remaining>0?"#ff6b6b":"#4ade80";}
+  }
+}
+function spToggleRcpt(idx){
+  coState.splits[idx].receipt=!coState.splits[idx].receipt;
+  const rows=document.querySelectorAll(".split-row");
+  if(!rows[idx])return;
+  const btn=rows[idx].querySelector(".sp-rcpt");
+  const r=coState.splits[idx].receipt;
+  if(btn){btn.textContent="領"+(r?"✓":"");btn.style.background=r?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)";btn.style.borderColor=r?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)";btn.style.color=r?"#4ade80":"#555";}
+}
+function spAdd(total){
+  // 現在のDOM上の金額を先に同期
+  document.querySelectorAll(".sp-amt").forEach((el,i)=>{if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;});
+  const used=coState.splits.reduce((a,sp)=>a+(sp.amount||0),0);
+  coState.splits.push({method:"cash",amount:Math.max(0,total-used),receipt:false});
+  md="co2";rModal();
+}
+function spRemove(idx){
+  coState.splits.splice(idx,1);
+  md="co2";rModal();
+}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -1457,8 +1501,10 @@ function updateEstPreview(){
 }
 
 
+// ===== MODAL =====
+function om(name){md=name;rModal();}
+function closeM(){md=null;document.getElementById("md").innerHTML="";}
 function rModal(){
-  const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
   const s=at?S.sessions[at]:null;
   let h="";
@@ -1487,22 +1533,21 @@ function rModal(){
   }
   else if(md==="co2"&&s){
     const{total}=ct(s);
-    // splits: [{method:"cash"|"card", amount:number, receipt:bool}]
     if(!coState.splits||coState.splits.length===0)coState.splits=[{method:"cash",amount:total,receipt:false}];
     const splits=coState.splits;
-    const splitTotal=splits.reduce((a,sp)=>a+(parseInt(sp.amount)||0),0);
-    const remaining=total-splitTotal;
+    const ok=splits.length>0&&splits.every(sp=>sp.method);
     let splitRows="";
     splits.forEach((sp,i)=>{
-      splitRows+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">';
-      splitRows+='<button class="btn" onclick="coState.splits['+i+'].method=\'cash\';rModal()" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(sp.method==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">💴</button>';
-      splitRows+='<button class="btn" onclick="coState.splits['+i+'].method=\'card\';rModal()" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(sp.method==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">💳</button>';
-      splitRows+='<input type="number" inputmode="numeric" class="ip" value="'+sp.amount+'" oninput="coState.splits['+i+'].amount=parseInt(this.value)||0;rModal()" style="width:110px;font-size:16px;font-weight:700;"/>';
-      splitRows+='<button class="btn" onclick="coState.splits['+i+'].receipt=!coState.splits['+i+'].receipt;rModal()" style="padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;background:'+(sp.receipt?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(sp.receipt?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)")+';color:'+(sp.receipt?"#4ade80":"#555")+';touch-action:manipulation;">領'+(sp.receipt?"✓":"")+'</button>';
-      if(splits.length>1)splitRows+='<button class="btn" onclick="coState.splits.splice('+i+',1);rModal()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
+      splitRows+='<div class="split-row" data-idx="'+i+'" style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">';
+      splitRows+='<button class="btn sp-cash" data-idx="'+i+'" onclick="spSetMethod('+i+',\'cash\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(sp.method==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">💴</button>';
+      splitRows+='<button class="btn sp-card" data-idx="'+i+'" onclick="spSetMethod('+i+',\'card\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:13px;font-weight:700;background:'+(sp.method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(sp.method==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">💳</button>';
+      splitRows+='<input type="number" inputmode="numeric" class="ip sp-amt" data-idx="'+i+'" value="'+sp.amount+'" style="width:110px;font-size:16px;font-weight:700;" oninput="spUpdateAmt('+i+',this.value)"/>';
+      splitRows+='<button class="btn sp-rcpt" data-idx="'+i+'" onclick="spToggleRcpt('+i+')" style="padding:6px 10px;border-radius:6px;font-size:12px;font-weight:700;background:'+(sp.receipt?"rgba(74,222,128,.2)":"rgba(255,255,255,.06)")+';border:1px solid '+(sp.receipt?"rgba(74,222,128,.5)":"rgba(255,255,255,.1)")+';color:'+(sp.receipt?"#4ade80":"#555")+';touch-action:manipulation;">領'+(sp.receipt?"✓":"")+'</button>';
+      if(splits.length>1)splitRows+='<button class="btn" onclick="spRemove('+i+')" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
       splitRows+='</div>';
     });
-    const ok=Math.abs(remaining)<=0;
+    const splitTotal=splits.reduce((a,sp)=>a+(sp.amount||0),0);
+    const remaining=total-splitTotal;
     h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
       +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">'
       +'<button class="btn" onclick="md=\'co\';rModal()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 戻る</button>'
@@ -1513,10 +1558,10 @@ function rModal(){
       +'<div style="font-size:28px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
       +'</div>'
       +'<div class="st" style="margin-bottom:8px;">支払い内訳</div>'
-      +splitRows
-      +'<button class="btn" onclick="coState.splits.push({method:\'cash\',amount:Math.max(0,'+remaining+'),receipt:false});rModal()" style="width:100%;padding:8px;margin-bottom:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">＋ 支払いを分ける</button>'
-      +(Math.abs(remaining)>0?'<div style="text-align:right;font-size:13px;margin-bottom:12px;color:'+(remaining>0?"#ff6b6b":"#4ade80")+';">'+(remaining>0?"残り: -¥"+fmt(remaining):"超過: +¥"+fmt(-remaining))+'</div>':"")
-      +'<button class="btn gbg" onclick="checkout()" '+(ok?'':'disabled')+' style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(ok?'':'opacity:.4;cursor:not-allowed;')+'">✓ 会計終了を確定する</button>'
+      +'<div id="split-rows">'+splitRows+'</div>'
+      +'<button class="btn" onclick="spAdd('+total+')" style="width:100%;padding:8px;margin-bottom:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">＋ 支払いを分ける</button>'
+      +(Math.abs(remaining)>0?'<div id="sp-remain" style="text-align:right;font-size:13px;margin-bottom:10px;color:'+(remaining>0?"#ff6b6b":"#4ade80")+';">'+(remaining>0?"残り ¥"+fmt(remaining):"超過 ¥"+fmt(-remaining))+'</div>':"")
+      +'<button class="btn gbg" onclick="checkout()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">✓ 会計終了を確定する</button>'
       +'</div></div>';
   }
   else if(md==="disc"&&s){
@@ -1693,7 +1738,6 @@ function rModal(){
         +'<button class="btn" onclick="closeM()" style="margin-top:14px;width:100%;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
         +'</div></div>';
     } else if(shiftModal.step==="time"){
-      // 時刻選択
       const castName=isIn
         ? S.casts.find(c=>c.id===shiftModal.castId)?.name
         : Object.values(S.shifts).find(s=>s.id===shiftModal.shiftId)?.castName;
@@ -1701,8 +1745,11 @@ function rModal(){
         +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+(isIn?"出勤打刻":"退勤打刻")+'</h3>'
         +'<div style="font-size:14px;font-weight:600;color:#e8dcc8;margin-bottom:14px;">'+castName+'</div>'
         +'<div class="st" style="margin-bottom:8px;">時刻</div>'
-        +'<input type="time" id="shift-time" class="ip" value="'+shiftModal.timeStr+'" oninput="shiftModal.timeStr=this.value" style="font-size:22px;text-align:center;margin-bottom:16px;"/>'
-        +'<button class="btn gbg" onclick="'+(isIn?"clockIn(shiftModal.castId,shiftModal.timeStr)":"clockOut(shiftModal.shiftId,shiftModal.timeStr)")+'" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">確定</button>'
+        +'<input type="time" id="shift-time" class="ip" value="'+shiftModal.timeStr+'" style="font-size:22px;text-align:center;margin-bottom:16px;"/>'
+        +'<button class="btn gbg" onclick="'+(isIn
+            ?"clockIn(shiftModal.castId,document.getElementById('shift-time').value||shiftModal.timeStr)"
+            :"clockOut(shiftModal.shiftId,document.getElementById('shift-time').value||shiftModal.timeStr)"
+          )+'" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">確定</button>'
         +'<button class="btn" onclick="shiftModal.step=\'cast\';rModal()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#888;background:none;">← 戻る</button>'
         +'</div></div>';
     }
@@ -1814,8 +1861,8 @@ function rModal(){
         +'<span style="font-size:12px;padding:2px 8px;border:1px solid '+col+';color:'+col+';border-radius:3px;">'+lbl+'</span>'
         +'</div>'
         +'<div class="st" style="margin-bottom:8px;">開始時刻</div>'
-        +'<input type="time" id="tsuke-time" class="ip" value="'+st.timeStr+'" oninput="window._tsukeState.timeStr=this.value" style="font-size:22px;text-align:center;margin-bottom:16px;"/>'
-        +'<button class="btn gbg" onclick="confirmTsuke()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">確定</button>'
+        +'<input type="time" id="tsuke-time" class="ip" value="'+st.timeStr+'" style="font-size:22px;text-align:center;margin-bottom:16px;"/>'
+        +'<button class="btn gbg" onclick="window._tsukeState.timeStr=document.getElementById(\'tsuke-time\').value||window._tsukeState.timeStr;confirmTsuke()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">確定</button>'
         +'<button class="btn" onclick="window._tsukeState.step=\'type\';rModal()" style="width:100%;margin-top:8px;padding:9px;color:#888;background:none;font-size:13px;">← 戻る</button>'
         +'</div></div>';
     }
@@ -1846,59 +1893,6 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
       +'</div></div>';
   }
-    const tblAssigns=Object.values(S.assignments||{}).filter(a=>a.tableId===at&&!a.endTime);
-    const assignedIds=new Set(tblAssigns.map(a=>a.castId));
-    // 既存の指名情報
-    const honIds=new Set((s.items||[]).filter(i=>i.isHonShimei).map(i=>i.castId));
-    // 全キャスト：出勤中のみ選択可
-    let castGrid='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:40vh;overflow-y:auto;">';
-    sc().forEach(c=>{
-      const onduty=ondutyIds.has(c.id);
-      const assigned=tblAssigns.find(a=>a.castId===c.id);
-      const isHon=honIds.has(c.id);
-      if(!onduty){
-        castGrid+='<div style="padding:10px 6px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);border-radius:6px;text-align:center;opacity:.35;">'
-          +'<div style="font-size:13px;color:#555;">'+c.name+'</div>'
-          +'<div style="font-size:10px;color:#444;margin-top:2px;">未出勤</div></div>';
-        return;
-      }
-      if(assigned){
-        const col=assigned.type==="hon"?"#d4a017":assigned.type==="help"?"#38bdf8":"#4ade80";
-        const lbl=assigned.type==="hon"?"本指名":assigned.type==="help"?"ヘルプ":"フリー";
-        const elapsed=Date.now()-assigned.startTime;
-        castGrid+='<div style="padding:10px 6px;background:rgba(0,0,0,.3);border:1px solid '+col+';border-radius:6px;text-align:center;">'
-          +'<div style="font-size:13px;font-weight:600;color:'+col+';">'+c.name+'</div>'
-          +'<div style="font-size:10px;color:'+col+';margin-top:2px;">'+lbl+' '+ts(elapsed).slice(3)+'</div>'
-          +'<button class="btn" data-aid="'+assigned.id+'" onclick="endAssign(this.dataset.aid)" style="margin-top:4px;width:100%;padding:3px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">外す</button></div>';
-        return;
-      }
-      // 未配置・出勤中
-      const typeOpts=[
-        ['hon','本指名','#d4a017',isHon],
-        ['help','ヘルプ','#38bdf8',false],
-        ['free','フリー','#4ade80',false],
-      ];
-      castGrid+='<div style="padding:8px 6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;">'
-        +'<div style="font-size:13px;font-weight:600;color:#e8dcc8;text-align:center;margin-bottom:6px;">'+c.name+'</div>'
-        +'<div style="display:flex;flex-direction:column;gap:4px;">';
-      typeOpts.forEach(([type,label,col,active])=>{
-        const timeId="ta_"+c.id+"_"+type;
-        castGrid+='<button class="btn" data-cid="'+c.id+'" data-type="'+type+'" data-tid="'+timeId+'" onclick="startAssign(parseInt(this.dataset.cid),this.dataset.type,this.dataset.tid)" style="padding:4px;background:'+(active?"rgba("+col.slice(1).match(/../g).map(x=>parseInt(x,16)).join(",")+",.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(active?col:"rgba(255,255,255,.1)")+';color:'+(active?col:"#888")+';border-radius:3px;font-size:11px;text-align:center;touch-action:manipulation;">'+label+'</button>';
-      });
-      castGrid+='<input type="time" id="ta_'+c.id+'_hon" class="ip" value="'+new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'" style="width:100%;font-size:11px;padding:3px 4px;margin-top:2px;display:none;"/>';
-      castGrid+='</div></div>';
-    });
-    castGrid+='</div>';
-    // 待機中キャスト（出勤中でどこにもついていない）
-    const waitCasts=sc().filter(c=>{
-      if(!ondutyIds.has(c.id))return false;
-      return!Object.values(S.assignments||{}).some(a=>a.castId===c.id&&!a.endTime);
-    });
-    let waitInfo='';
-    if(waitCasts.length>0){
-      waitInfo='<div style="margin-top:12px;padding:8px 10px;background:rgba(255,255,255,.04);border-radius:4px;font-size:11px;color:#888;">'
-        +'待機中: '+waitCasts.map(c=>'<span style="color:#e8dcc8;">'+c.name+'</span>').join(' / ')+'</div>';
-    }
   else if(md==="est"&&s){
     const cur=ct(s);
     const hasVip=isV(at);
