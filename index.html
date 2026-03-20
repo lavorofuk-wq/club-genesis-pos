@@ -1808,15 +1808,17 @@ let tsukeMd={step:"cast",castId:null,type:null,time:""};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 function hhmm2ts(hhmm){
+  if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const d=new Date();d.setSeconds(0,0);
-  // 0〜3時は翌日扱い（営業日をまたぐ）
-  if(h<3)d.setDate(d.getDate()+(d.getHours()<3?0:1));
-  d.setHours(h,m,0,0);return d.getTime();
+  const d=new Date();
+  d.setHours(h,m,0,0);
+  // 入力時刻が現在より2時間以上未来なら「昨日の同時刻」として扱う（翌朝3時対応）
+  if(d.getTime()>Date.now()+2*3600000)d.setDate(d.getDate()-1);
+  return d.getTime();
 }
 function getOnduty(){
-  const bs=getBizDayStart(Date.now());
-  return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&!sh.clockOut);
+  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be&&!sh.clockOut);
 }
 function getOndutyIds(){return new Set(getOnduty().map(sh=>sh.castId));}
 function fmtDur(ms){
@@ -1825,10 +1827,12 @@ function fmtDur(ms){
 }
 
 function clockIn(castId,time){
-  const c=S.casts.find(c=>c.id===castId);if(!c)return;
-  if(getOnduty().some(sh=>sh.castId===castId))return; // 既に出勤中
+  // castIdは数値・文字列どちらでも対応
+  const c=S.casts.find(c=>String(c.id)===String(castId));
+  if(!c){alert("キャストが見つかりません id="+castId);return;}
+  const ts=hhmm2ts(time||nowHHMM());
   const sid="sh_"+castId+"_"+Date.now();
-  S.shifts[sid]={id:sid,castId,castName:c.name,clockIn:hhmm2ts(time),clockOut:null};
+  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:ts,clockOut:null};
   save("shifts",S.shifts);closeM();render();
 }
 function clockOut(shiftId,time){
@@ -1861,13 +1865,13 @@ function exportShiftCSV(){
 
 // ===== 付け回し =====
 function startAssign(castId,tableId,type,time){
-  const c=S.casts.find(c=>c.id===castId);if(!c)return;
+  const c=S.casts.find(c=>String(c.id)===String(castId));if(!c)return;
   // 同キャストの未終了付け回しがあれば終了
   Object.values(S.assignments||{}).forEach(a=>{
-    if(a.castId===castId&&!a.endTime)a.endTime=Date.now();
+    if(String(a.castId)===String(castId)&&!a.endTime)a.endTime=Date.now();
   });
   const aid="a_"+Date.now();
-  S.assignments[aid]={id:aid,castId,castName:c.name,tableId,type,startTime:hhmm2ts(time),endTime:null};
+  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),endTime:null};
   save("assignments",S.assignments);closeM();render();
 }
 function endAssign(aid){
