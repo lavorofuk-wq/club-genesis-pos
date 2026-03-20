@@ -135,6 +135,7 @@
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
       <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">売上</button>
+      <button class="nb" id="nhl" onclick="sv('histlog')">記録</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
@@ -493,7 +494,7 @@ function updateNav(){
   const endBtn=document.getElementById("end-biz-btn");
   if(endBtn)endBtn.style.display=inBiz?"block":"none";
   if(!inBiz)return;
-  [["nf","floor"],["nsh","shifts"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
+  [["nf","floor"],["nsh","shifts"],["nh","history"],["nhl","histlog"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v===vw)?" ac":"");
   });
@@ -512,6 +513,8 @@ function render(){
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v){
+  // histlogはいつでもアクセス可、homeも常時可
+  // 営業中でないとフロア系・出勤・売上・設定には入れない
   if(!S.activeBizDay&&!["home","histlog"].includes(v))return;
   vw=v;if(!["order","checkin"].includes(v))at=null;render();
 }
@@ -542,6 +545,7 @@ function rHome(){
     html+='</div>';
     // フロアへ
     html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
+    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">📋 過去の営業履歴</button>';
     html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
   } else {
     // 未営業
@@ -1937,23 +1941,21 @@ function rModal(){
     }
   }
   else if(md==="startBizDay"){
-    // 営業日選択（今日を含む前後の日付を提示）
-    const today=new Date();
-    let dateBtns="";
-    for(let i=-1;i<=1;i++){
-      const d=new Date(today);d.setDate(today.getDate()+i);
-      const str=d.toLocaleDateString("sv-SE");
-      const lbl=i===-1?"昨日":i===0?"今日":"明日";
-      const disp=d.toLocaleDateString("ja-JP",{month:"numeric",day:"numeric",weekday:"short"});
-      const already=!!S.bizDays[str];
-      dateBtns+='<button class="btn" '+(already?"disabled":"")+' data-d="'+str+'" onclick="startBizDay(this.dataset.d)" style="flex:1;padding:16px 8px;border-radius:8px;font-size:14px;font-weight:700;text-align:center;background:'+(already?"rgba(255,255,255,.03)":"rgba(212,160,23,.1)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(212,160,23,.3)")+';color:'+(already?"#444":"#d4a017")+';cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;"><div style="font-size:11px;margin-bottom:4px;opacity:.7;">'+lbl+'</div>'+disp+(already?'<div style="font-size:10px;margin-top:3px;color:#555;">記録済み</div>':'')+'</button>';
-    }
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
+    const todayStr=new Date().toLocaleDateString("sv-SE");
+    const selDate=window._selBizDate||todayStr;
+    const already=!!S.bizDays[selDate];
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;">'
       +'<h3 style="margin-bottom:4px;font-size:18px;color:#d4a017;">🟢 営業を開始する</h3>'
       +'<div style="font-size:12px;color:#666;margin-bottom:20px;">営業日を選択してください</div>'
-      +'<div style="display:flex;gap:10px;margin-bottom:16px;">'+dateBtns+'</div>'
-      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
-      +'</div></div>';
+      +'<div class="st" style="margin-bottom:8px;">営業日</div>'
+      +'<input type="date" class="ip" id="biz-date-input" value="'+selDate+'" style="font-size:18px;text-align:center;margin-bottom:16px;" oninput="window._selBizDate=this.value;rModal()"/>'
+      +(already
+        ?'<div style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;">⚠️ この日付は記録済みです。開始すると上書きされます。</div>'
+        :"")
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn gbg" onclick="startBizDay(document.getElementById(\'biz-date-input\').value)" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">開始する</button>'
+      +'<button class="btn" onclick="window._selBizDate=null;closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">キャンセル</button>'
+      +'</div></div></div>';
   }
   else if(md==="endBizDay"){
     const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
