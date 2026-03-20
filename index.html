@@ -1640,7 +1640,7 @@ function rModal(){
         const onIds=getOndutyIds();
         sc().forEach(c=>{
           const already=onIds.has(c.id);
-          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';rModal()" style="padding:12px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:1px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.25)")+';color:'+(already?"#444":"#4ade80")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
+          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:12px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:1px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.25)")+';color:'+(already?"#444":"#4ade80")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
             +c.name+(already?'<div style="font-size:10px;margin-top:2px;opacity:.6;">出勤中</div>':'')
             +'</button>';
         });
@@ -1651,7 +1651,7 @@ function rModal(){
         } else {
           onduty.forEach(sh=>{
             const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';rModal()" style="padding:12px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:6px;font-size:14px;font-weight:600;text-align:center;touch-action:manipulation;">'
+            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:12px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:6px;font-size:14px;font-weight:600;text-align:center;touch-action:manipulation;">'
               +sh.castName+'<div style="font-size:10px;margin-top:2px;opacity:.7;">'+inT+'〜</div></button>';
           });
         }
@@ -1823,16 +1823,18 @@ let tsukeMd={step:"cast",castId:null,type:null,time:""};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 function hhmm2ts(hhmm){
+  // HH:MM を当日または翌日のtimestampに変換
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
   const d=new Date();
+  d.setSeconds(0,0);
   d.setHours(h,m,0,0);
-  // 入力時刻が現在より2時間以上未来なら「昨日の同時刻」として扱う（翌朝3時対応）
-  if(d.getTime()>Date.now()+2*3600000)d.setDate(d.getDate()-1);
   return d.getTime();
 }
 function getOnduty(){
-  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  // 本営業日（20:00〜翌3:00）に出勤したシフトのうち未退勤のもの
+  const bs=getBizDayStart(Date.now());
+  const be=getBizDayEnd(Date.now());
   return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be&&!sh.clockOut);
 }
 function getOndutyIds(){return new Set(getOnduty().map(sh=>sh.castId));}
@@ -1845,23 +1847,29 @@ function clockIn(castId,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
-  const sid="sh_"+castId+"_"+Date.now();
+  const sid="sh_"+Date.now();
   S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null};
   save("shifts",S.shifts);closeM();render();
 }
 function clockOut(shiftId,time){
   const sh=S.shifts[shiftId];if(!sh)return;
-  sh.clockOut=hhmm2ts(time);
+  sh.clockOut=hhmm2ts(time||nowHHMM());
+  // 退勤が出勤より前なら翌日扱い
   if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
   save("shifts",S.shifts);closeM();render();
 }
 function confirmShiftTime(){
-  // 登録ボタン押下時：DOMからinputの現在値を読み取って確実に登録
   const el=document.getElementById("shift-time");
-  const t=el?el.value:shiftMd.time;
-  if(t)shiftMd.time=t;
-  if(shiftMd.mode==="in")clockIn(shiftMd.castId,shiftMd.time);
-  else clockOut(shiftMd.shiftId,shiftMd.time);
+  const t=(el&&el.value)?el.value:nowHHMM();
+  if(shiftMd.mode==="in"){
+    clockIn(shiftMd.castId,t);
+  }else{
+    clockOut(shiftMd.shiftId,t);
+  }
+}
+function openShiftMd(mode){
+  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:nowHHMM()};
+  md="shift";rModal();
 }
 function editShift(sid){
   shiftMd.step="edit";shiftMd.shiftId=sid;md="shift";rModal();
@@ -1986,11 +1994,6 @@ function rShifts(){
   }
   html+='</div>';
   return html;
-}
-
-function openShiftMd(mode){
-  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:nowHHMM()};
-  md="shift";rModal();
 }
 
 // ===== CLOCK =====
