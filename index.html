@@ -129,7 +129,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.03</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.10</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -425,6 +425,19 @@ function checkout(){
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   S.sessions=newSessions;S.history=newHistory;
+  // 会計終了したテーブルについていたキャストを自動的に待機へ
+  let assignChanged=false;
+  Object.values(S.assignments||{}).forEach(a=>{
+    if(a.tableId===at&&!a.endTime){
+      a.endTime=Date.now();
+      const sh=getShiftByCastId(a.castId);
+      if(sh){setCastStatus(a.castId,"waiting");}
+      assignChanged=true;
+    }
+  });
+  if(assignChanged&&window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts});
+  }
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
 }
 function tableChange(newId){
@@ -834,27 +847,51 @@ function rList(){
 
   // 待機・休憩パネル
   html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
-  // 待機
+  // --- 待機 ---
   html+='<div class="glass" style="border-radius:8px;padding:12px;">';
-  html+='<div class="st" style="margin-bottom:10px;">待機中 <span style="color:#4ade80;">'+waiting.length+'</span></div>';
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+  html+='<div class="st">待機中 <span style="color:#4ade80;font-size:13px;">'+waiting.length+'</span></div>';
+  html+='</div>';
   if(!waiting.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
   waiting.forEach(sh=>{
-    const el=Date.now()-sh.clockIn;
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-    html+='<div><div style="font-size:13px;color:#e8dcc8;">'+sh.castName+'</div><div style="font-size:10px;font-family:monospace;color:#555;">'+fmtDur(el)+'</div></div>';
-    html+='<button class="btn" data-cid5="'+sh.castId+'" onclick="event.stopPropagation();moveToBreak(this.dataset.cid5)" style="padding:3px 8px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:10px;touch-action:manipulation;">休憩</button>';
+    // 最後のstatusLogエントリから現在の待機時間
+    const logs=sh.statusLog||[];
+    const lastLog=logs.filter(l=>l.status==="waiting").pop();
+    const waitElapsed=lastLog?(Date.now()-lastLog.startTime):( Date.now()-sh.clockIn);
+    // このキャストの直前のアサインタイプ
+    const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
+    const lastType=lastA?.type||null;
+    const lastCol=lastType?(ASSIGN_TYPES[lastType]?.col||"#888"):"#555";
+    const lastLbl=lastType?(TYPE_SFX[lastType]||"?"):"—";
+    html+='<div data-cid8="'+sh.castId+'" onclick="openCastStatusModal(this.dataset.cid8)" style="padding:10px;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:8px;margin-bottom:8px;cursor:pointer;touch-action:manipulation;">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
+    html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
+    html+=(lastType?'<span style="font-size:11px;padding:2px 6px;border:1px solid '+lastCol+';color:'+lastCol+';border-radius:3px;">'+lastLbl+'</span>':"");
+    html+='</div>';
+    html+='<div style="font-size:13px;font-family:monospace;color:#4ade80;margin-top:4px;">'+ts(waitElapsed).slice(3)+'</div>';
     html+='</div>';
   });
   html+='</div>';
-  // 休憩
+  // --- 休憩 ---
   html+='<div class="glass" style="border-radius:8px;padding:12px;">';
-  html+='<div class="st" style="margin-bottom:10px;">休憩中 <span style="color:#ffa500;">'+brk.length+'</span></div>';
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+  html+='<div class="st">休憩中 <span style="color:#ffa500;font-size:13px;">'+brk.length+'</span></div>';
+  html+='</div>';
   if(!brk.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
   brk.forEach(sh=>{
-    const el=Date.now()-sh.clockIn;
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-    html+='<div><div style="font-size:13px;color:#e8dcc8;">'+sh.castName+'</div><div style="font-size:10px;font-family:monospace;color:#555;">'+fmtDur(el)+'</div></div>';
-    html+='<button class="btn" data-cid6="'+sh.castId+'" onclick="event.stopPropagation();moveToWaiting(this.dataset.cid6)" style="padding:3px 8px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:4px;font-size:10px;touch-action:manipulation;">待機</button>';
+    const logs=sh.statusLog||[];
+    const lastLog=logs.filter(l=>l.status==="break").pop();
+    const brkElapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
+    const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
+    const lastType=lastA?.type||null;
+    const lastCol=lastType?(ASSIGN_TYPES[lastType]?.col||"#888"):"#555";
+    const lastLbl=lastType?(TYPE_SFX[lastType]||"?"):"—";
+    html+='<div data-cid9="'+sh.castId+'" onclick="openCastStatusModal(this.dataset.cid9)" style="padding:10px;background:rgba(255,165,0,.05);border:1px solid rgba(255,165,0,.15);border-radius:8px;margin-bottom:8px;cursor:pointer;touch-action:manipulation;">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
+    html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
+    html+=(lastType?'<span style="font-size:11px;padding:2px 6px;border:1px solid '+lastCol+';color:'+lastCol+';border-radius:3px;">'+lastLbl+'</span>':"");
+    html+='</div>';
+    html+='<div style="font-size:13px;font-family:monospace;color:#ffa500;margin-top:4px;">'+ts(brkElapsed).slice(3)+'</div>';
     html+='</div>';
   });
   html+='</div>';
@@ -925,6 +962,7 @@ function rTableDetail(){
     html+='<div style="display:flex;gap:6px;">';
     html+='<button class="btn" data-aid3="'+a.id+'" onclick="endAssign(this.dataset.aid3)" style="flex:1;padding:7px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 待機</button>';
     html+='<button class="btn" data-cid7="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7)" style="flex:1;padding:7px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 休憩</button>';
+    html+='<button class="btn" data-aidct="'+a.id+'" onclick="openChangeType(this.dataset.aidct)" style="padding:7px 10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:4px;font-size:12px;touch-action:manipulation;">タイプ</button>';
     html+='<button class="btn" data-aid4="'+a.id+'" onclick="deleteAssign(this.dataset.aid4)" style="padding:7px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;touch-action:manipulation;">削除</button>';
     html+='</div></div>';
   });
@@ -943,8 +981,10 @@ function rTableDetail(){
       html+='<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
       html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
       html+='<div><span style="font-size:10px;padding:1px 5px;border:1px solid '+col+'66;color:'+col+';border-radius:3px;margin-right:6px;">'+lbl+'</span><span style="font-size:13px;color:#bbb;">'+a.castName+'</span></div>';
-      html+='<button class="btn" data-eid2="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid2)" style="padding:2px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻変更</button>';
-      html+='</div>';
+      html+='<div style="display:flex;gap:5px;">';
+      html+='<button class="btn" data-aidct2="'+a.id+'" onclick="openChangeType(this.dataset.aidct2)" style="padding:2px 7px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:3px;font-size:10px;touch-action:manipulation;">タイプ</button>';
+      html+='<button class="btn" data-eid2="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid2)" style="padding:2px 7px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻</button>';
+      html+='</div></div>';
       html+='<div style="font-size:11px;color:#555;margin-top:3px;display:flex;align-items:center;justify-content:space-between;">';
       html+='<span>'+sT+' → '+eT+' ('+fmtDur(worked)+')</span>';
       html+='<button class="btn" data-aid5="'+a.id+'" onclick="deleteAssign(this.dataset.aid5)" style="padding:2px 7px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
@@ -2134,8 +2174,8 @@ function rModal(){
         const isOn=!!sh;
         const status=sh?(sh.status||"waiting"):"none";
         const hasActiveA=Object.values(S.assignments||{}).some(a=>String(a.castId)===String(c.id)&&!a.endTime);
-        // 待機中のキャストのみ選択可（出勤していてアクティブなアサインがない）
-        const canSelect=isOn&&!hasActiveA&&status!=="break";
+        // 待機中または休憩中のキャストのみ選択可（テーブルについているactiveは不可）
+        const canSelect=isOn&&!hasActiveA;
         const statusLbl=!isOn?"未出勤":hasActiveA?"付回中":status==="break"?"休憩中":"待機中";
         const statusCol=!isOn?"#444":hasActiveA?"#a78bfa":status==="break"?"#ffa500":"#4ade80";
         castBtns+='<button class="btn" '+(canSelect?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=this.dataset.cid;tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(canSelect?"rgba(74,222,128,.08)":"rgba(255,255,255,.02)")+';border:1px solid '+(canSelect?"rgba(74,222,128,.25)":"rgba(255,255,255,.06)")+';color:'+(canSelect?"#e8dcc8":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(canSelect?"pointer":"not-allowed")+';touch-action:manipulation;">'
@@ -2239,6 +2279,61 @@ function rModal(){
       +'<button class="btn" data-dayid="'+dayId+'" onclick="confirmDeleteBizDay(this.dataset.dayid)" style="flex:1;padding:12px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-weight:700;touch-action:manipulation;">削除する</button>'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">キャンセル</button>'
       +'</div></div></div>';
+  }
+  else if(md==="castStatus"){
+    // キャスト選択→待機/休憩/テーブルへ付ける
+    const castId=window._statusCastId;
+    const sh=getShiftByCastId(castId);
+    if(!sh){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
+    else{
+      const status=sh.status||"waiting";
+      const statusLbl=status==="break"?"休憩中":"待機中";
+      const statusBg=status==="break"?"rgba(255,165,0,.08)":"rgba(74,222,128,.08)";
+      const statusCol=status==="break"?"#ffa500":"#4ade80";
+      const logs=sh.statusLog||[];
+      const lastLog=logs.filter(l=>l.status===status).pop();
+      const elapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+        +'<div style="padding:14px;background:'+statusBg+';border:1px solid '+statusCol+'33;border-radius:8px;margin-bottom:16px;text-align:center;">'
+        +'<div style="font-size:20px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+sh.castName+'</div>'
+        +'<div style="font-size:12px;color:'+statusCol+';margin-bottom:6px;">'+statusLbl+'</div>'
+        +'<div style="font-size:22px;font-family:monospace;font-weight:700;color:'+statusCol+';">'+ts(elapsed).slice(3)+'</div>'
+        +'</div>'
+        // テーブルへ付ける
+        +'<div class="st" style="margin-bottom:8px;">テーブルへ付ける</div>'
+        +(()=>{
+          const activeTables=S.tables.filter(t=>S.sessions[t.id]);
+          if(!activeTables.length)return '<div style="font-size:12px;color:#444;margin-bottom:12px;">入店中のテーブルなし</div>';
+          return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">'
+            +activeTables.map(t=>'<button class="btn" data-tid10="'+t.id+'" onclick="tsukeMd={step:\'type\',castId:\''+castId+'\',type:null,tableId:this.dataset.tid10,time:\'\'};om(\'tsuke\')" style="padding:8px 12px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">'+t.label+'</button>').join("")
+            +'</div>';
+        })()
+        // 状態変更
+        +'<div class="st" style="margin-bottom:8px;">状態を変更</div>'
+        +'<div style="display:flex;gap:8px;">'
+        +(status!=="waiting"?'<button class="btn" data-cid10="'+castId+'" onclick="moveToWaiting(this.dataset.cid10);closeM()" style="flex:1;padding:10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">→ 待機</button>':"")
+        +(status!=="break"?'<button class="btn" data-cid11="'+castId+'" onclick="moveToBreak(this.dataset.cid11);closeM()" style="flex:1;padding:10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">→ 休憩</button>':"")
+        +'</div>'
+        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:10px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
+        +'</div></div>';
+    }
+  }
+  else if(md==="changeType"){
+    const a=S.assignments[window._editAid];
+    if(!a){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
+    else{
+      let typeBtns="";
+      Object.entries(ASSIGN_TYPES).forEach(([key,{label,col}])=>{
+        const isCur=a.type===key;
+        typeBtns+='<button class="btn" data-key="'+key+'" data-aid6="'+a.id+'" onclick="changeAssignType(this.dataset.aid6,this.dataset.key)" style="flex:1;padding:14px 8px;border-radius:8px;font-size:14px;font-weight:700;background:'+(isCur?"rgba(0,0,0,.3)":"rgba(0,0,0,.15)")+';border:2px solid '+col+(isCur?""+"88":"")+';color:'+col+';text-align:center;touch-action:manipulation;">'+(isCur?"✓ ":"")+label+'</button>';
+      });
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">タイプ変更</h3>'
+        +'<div style="font-size:14px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+a.castName+'</div>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+typeBtns+'</div>'
+        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:12px;padding:9px;font-size:12px;color:#555;background:none;">キャンセル</button>'
+        +'</div></div>';
+    }
   }
   else if(md==="editAssignTime"){
     const a=S.assignments[window._editAid];
@@ -2487,18 +2582,26 @@ function confirmTsuke(){
 function startAssign(castId,tableId,type,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
+  // 既にテーブルについている（active）は付けられない
   const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
   if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
   const aid="a_"+Date.now();
   S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),endTime:null};
-  const sh=getShiftByCastId(castId);if(sh)sh.status="active";
-  // assignmentsとshiftsを同時保存
+  const sh=getShiftByCastId(castId);
+  if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
   if(window._db){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
 }
+function changeAssignType(aid,newType){
+  const a=S.assignments[aid];if(!a)return;
+  a.type=newType;
+  save("assignments",S.assignments);closeM();render();
+}
+function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
+function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
 function endAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   a.endTime=Date.now();
