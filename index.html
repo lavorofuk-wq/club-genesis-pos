@@ -901,10 +901,10 @@ function rList(){
   html+='</div>';
   if(!waiting.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
   waiting.forEach(sh=>{
-    // 最後のstatusLogエントリから現在の待機時間
+    // 最後のstatusLogエントリから現在の待機時間（endTime=nullのもの=現在進行中の待機）
     const logs=sh.statusLog||[];
-    const lastLog=logs.filter(l=>l.status==="waiting").pop();
-    const waitElapsed=lastLog?(Date.now()-lastLog.startTime):( Date.now()-sh.clockIn);
+    const lastLog=logs.filter(l=>l.status==="waiting"&&!l.endTime).pop();
+    const waitElapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
     // このキャストの直前のアサインタイプ
     const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
     const lastType=lastA?.type||null;
@@ -926,7 +926,7 @@ function rList(){
   if(!brk.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
   brk.forEach(sh=>{
     const logs=sh.statusLog||[];
-    const lastLog=logs.filter(l=>l.status==="break").pop();
+    const lastLog=logs.filter(l=>l.status==="break"&&!l.endTime).pop();
     const brkElapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
     const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
     const lastType=lastA?.type||null;
@@ -1029,9 +1029,10 @@ function rTableDetail(){
   if(!t)return '<div style="padding:20px;"><button class="btn" onclick="sv(\'list\')" style="color:#888;background:none;font-size:13px;">← リストへ戻る</button><div style="color:#555;margin-top:16px;">テーブルが見つかりません</div></div>';
   const s=S.sessions[tid];
   // セッションがある場合はそのstartTime以降のアサインのみ表示（前回客のデータを除外）
+  // hhmm2tsの秒切り捨て分を考慮して60秒のマージンを設ける
   const sessionStart=s?s.startTime:null;
   const allA=Object.values(S.assignments||{})
-    .filter(a=>a.tableId===tid&&(sessionStart===null||a.startTime>=sessionStart))
+    .filter(a=>a.tableId===tid&&(sessionStart===null||a.startTime>=(sessionStart-60000)))
     .sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
   const doneA=allA.filter(a=>a.endTime);
@@ -2431,7 +2432,7 @@ function rModal(){
       const statusBg=status==="break"?"rgba(255,165,0,.08)":"rgba(74,222,128,.08)";
       const statusCol=status==="break"?"#ffa500":"#4ade80";
       const logs=sh.statusLog||[];
-      const lastLog=logs.filter(l=>l.status===status).pop();
+      const lastLog=logs.filter(l=>l.status===status&&!l.endTime).pop();
       const elapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
         +'<div style="padding:14px;background:'+statusBg+';border:1px solid '+statusCol+'33;border-radius:8px;margin-bottom:16px;text-align:center;">'
