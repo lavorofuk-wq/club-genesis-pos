@@ -120,6 +120,22 @@
 </head>
 <body>
 <div id="receipt-print-area"></div>
+
+<!-- ===== パスワード画面 ===== -->
+<div id="pw-screen" style="display:none;position:fixed;inset:0;background:#0a0a0f;z-index:9999;display:flex;align-items:center;justify-content:center;">
+  <div style="text-align:center;width:320px;padding:0 20px;">
+    <div style="font-family:'Cormorant Garamond',serif;font-size:32px;font-weight:300;letter-spacing:.3em;color:#d4a017;margin-bottom:8px;">CLUB GENESIS</div>
+    <div style="font-size:10px;color:#555;letter-spacing:.15em;margin-bottom:40px;">POS SYSTEM</div>
+    <div style="margin-bottom:12px;">
+      <input type="password" id="pw-input" class="ip" placeholder="パスワードを入力" autocomplete="current-password"
+        style="font-size:16px;text-align:center;letter-spacing:.1em;padding:14px;"
+        onkeydown="if(event.key==='Enter')checkPW()"
+      />
+    </div>
+    <button class="btn gbg" onclick="checkPW()" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">入室する</button>
+    <div id="pw-error" style="color:#ff6b6b;font-size:12px;margin-top:12px;min-height:18px;"></div>
+  </div>
+</div>
 <div id="loading">
   <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:#d4a017;letter-spacing:.2em;">CLUB GENESIS</div>
   <div class="sp"></div>
@@ -2909,8 +2925,43 @@ function tickOrder(){
 if("serviceWorker"in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
 
 // ===== BOOT =====
+// ===== パスワード認証 =====
+(function(){
+  const PW="genesis0127";
+  const KEY="genesis_auth";
+  const pwScreen=document.getElementById("pw-screen");
+  const app=document.getElementById("app");
+  const loading=document.getElementById("loading");
+  if(sessionStorage.getItem(KEY)==="1"){
+    // 認証済み：パスワード画面を非表示
+    pwScreen.style.display="none";
+  }else{
+    // 未認証：アプリとローディングを隠してパスワード画面を表示
+    pwScreen.style.display="flex";
+    app.style.display="none";
+    loading.style.display="none";
+  }
+  window.checkPW=function(){
+    const val=document.getElementById("pw-input").value;
+    if(val===PW){
+      sessionStorage.setItem(KEY,"1");
+      pwScreen.style.display="none";
+      loading.style.display="flex";
+      // Firebase接続開始
+      if(window._fbReady)boot();
+      else window.addEventListener("fbReady",boot);
+    }else{
+      document.getElementById("pw-error").textContent="パスワードが違います";
+      document.getElementById("pw-input").value="";
+      document.getElementById("pw-input").focus();
+    }
+  };
+})();
+
 function boot(){document.getElementById("loading").style.display="none";document.getElementById("app").style.display="block";render();initFB();}
-if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none")document.getElementById("lmsg").textContent="接続失敗。再読み込みしてください。";},10000);}
+if(sessionStorage.getItem("genesis_auth")==="1"){
+  if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none")document.getElementById("lmsg").textContent="接続失敗。再読み込みしてください。";},10000);}
+}
 </script>
 </body>
 </html>
