@@ -424,19 +424,34 @@ function checkout(){
       history: newHistory
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  S.sessions=newSessions;S.history=newHistory;
-  // 会計終了したテーブルについていたキャストを自動的に待機へ
-  const checkoutTableId=at; // atをリセット前に保存
+  // 会計終了したテーブルのアサインを自動終了→待機へ（atリセット前に処理）
+  const checkoutTableId=at;
+  const now_co=Date.now();
   let assignChanged=false;
   Object.values(S.assignments||{}).forEach(a=>{
     if(a.tableId===checkoutTableId&&!a.endTime){
-      a.endTime=Date.now();
-      setCastStatus(a.castId,"waiting"); // statusLogにwaitingを追記
+      a.endTime=now_co;
+      // setCastStatusを直接インライン展開（関数呼び出しの順序問題を回避）
+      const sh=getShiftByCastId(a.castId);
+      if(sh){
+        const last=((sh.statusLog||[]).slice(-1)[0]);
+        if(last&&!last.endTime)last.endTime=now_co;
+        if(!sh.statusLog)sh.statusLog=[];
+        sh.statusLog.push({status:"waiting",startTime:now_co,endTime:null});
+        sh.status="waiting";
+      }
       assignChanged=true;
     }
   });
-  if(assignChanged&&window._db){
-    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+  S.sessions=newSessions;S.history=newHistory;
+  // 全データを一度にFirebaseへ保存
+  if(window._db){
+    const update={
+      sessions: Object.keys(newSessions).length>0 ? newSessions : null,
+      history: newHistory
+    };
+    if(assignChanged){update.assignments=S.assignments;update.shifts=S.shifts;}
+    window._db.ref("pos").update(update)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
@@ -520,18 +535,22 @@ function updateNav(){
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
-  // histlogはactiveBizDayに関わらず常時表示
-  if(vw==="histlog")m.innerHTML=rHistLog();
-  else if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
-  else if(vw==="floor")m.innerHTML=rFloor();
-  else if(vw==="list")m.innerHTML=rList();
-  else if(vw==="tableDetail")m.innerHTML=rTableDetail();
-  else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
-  else if(vw==="checkin")m.innerHTML=rCI();
-  else if(vw==="order")m.innerHTML=rOrder();
-  else if(vw==="history")m.innerHTML=rHist();
-  else if(vw==="shifts")m.innerHTML=rShifts();
-  else if(vw==="settings")m.innerHTML=rSettings();
+  try{
+    if(vw==="histlog")m.innerHTML=rHistLog();
+    else if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
+    else if(vw==="floor")m.innerHTML=rFloor();
+    else if(vw==="list")m.innerHTML=rList();
+    else if(vw==="tableDetail")m.innerHTML=rTableDetail();
+    else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
+    else if(vw==="checkin")m.innerHTML=rCI();
+    else if(vw==="order")m.innerHTML=rOrder();
+    else if(vw==="history")m.innerHTML=rHist();
+    else if(vw==="shifts")m.innerHTML=rShifts();
+    else if(vw==="settings")m.innerHTML=rSettings();
+  }catch(e){
+    console.error("render error:",vw,e);
+    m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エラー: '+e.message+'<br><button class="btn" onclick="sv(\'home\')" style="margin-top:12px;padding:8px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">ホームへ戻る</button></div>';
+  }
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
@@ -840,7 +859,7 @@ function rList(){
       bn.forEach(n=>{html+='<span style="color:#4ade80;margin-right:4px;">場'+n+'</span>';});
       html+='</div>';
     }
-    html+='<div style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+    html+='<div data-countdown="'+( s.setEndTime||0)+'" style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
     if(ac.length){
       html+='<div style="margin-top:5px;">';
       ac.forEach(a=>{
@@ -849,7 +868,7 @@ function rList(){
         const el=Date.now()-a.startTime;
         html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
         html+='<span style="font-size:11px;font-weight:700;color:'+col+';">'+sfx+' '+a.castName+'</span>';
-        html+='<span style="font-size:10px;font-family:monospace;color:'+col+';">'+ts(el).slice(3)+'</span>';
+        html+='<span data-timer="'+a.startTime+'" style="font-size:10px;font-family:monospace;color:'+col+';">'+ts(el).slice(3)+'</span>';
         html+='</div>';
       });
       html+='</div>';
@@ -882,7 +901,7 @@ function rList(){
     html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
     html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
     html+='</div>';
-    html+='<div style="font-size:13px;font-family:monospace;color:#4ade80;margin-top:4px;">'+ts(waitElapsed).slice(3)+'</div>';
+    html+='<div data-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:13px;font-family:monospace;color:#4ade80;margin-top:4px;">'+ts(waitElapsed).slice(3)+'</div>';
     html+='</div>';
   });
   html+='</div>';
@@ -905,7 +924,7 @@ function rList(){
     html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
     html+=(lastType?'<span style="font-size:11px;padding:2px 6px;border:1px solid '+lastCol+';color:'+lastCol+';border-radius:3px;">'+lastLbl+'</span>':"");
     html+='</div>';
-    html+='<div style="font-size:13px;font-family:monospace;color:#ffa500;margin-top:4px;">'+ts(brkElapsed).slice(3)+'</div>';
+    html+='<div data-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:13px;font-family:monospace;color:#ffa500;margin-top:4px;">'+ts(brkElapsed).slice(3)+'</div>';
     html+='</div>';
   });
   html+='</div>';
@@ -1009,7 +1028,7 @@ function rTableDetail(){
   acA.forEach(a=>{
     const col=ASSIGN_TYPES[a.type]?.col||"#888";const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
     const elapsed=Date.now()-a.startTime;
-    html+='<div data-aid_td="'+a.id+'" onclick="openAssignActionModal(this.dataset.aid_td)" style="padding:12px 16px;background:rgba(0,0,0,.2);border:1px solid '+col+'55;border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;touch-action:manipulation;">';
+    html+='<div data-atd="'+a.id+'" onclick="openAssignActionModal(this.dataset.atd)" style="padding:12px 16px;background:rgba(0,0,0,.2);border:1px solid '+col+'55;border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;touch-action:manipulation;">';
     // タイプバッジ
     html+='<span style="font-size:12px;padding:3px 10px;border:1px solid '+col+';color:'+col+';border-radius:4px;font-weight:700;">'+lbl+'</span>';
     // 経過時間（大きく）
@@ -2838,11 +2857,30 @@ function rShifts(){
 setInterval(()=>{
   now=Date.now();
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
-  if(md)return;
+  if(md)return; // モーダル中はUI更新しない（nowは更新済み）
   if(vw==="floor")render();
   else if(vw==="order")tickOrder();
-  else if(vw==="list"||vw==="tableDetail"||vw==="assignHistory")render();
+  else if(vw==="list"||vw==="tableDetail"||vw==="assignHistory")tickList();
 },1000);
+
+// リスト系は軽量な差分更新（タイマー数値のみ書き換え）
+function tickList(){
+  // タイマー要素を探してtextContentだけ更新（DOM再構築なし）
+  document.querySelectorAll("[data-timer]").forEach(el=>{
+    const start=parseInt(el.dataset.timer);
+    if(!isNaN(start)){el.textContent=ts(Date.now()-start).slice(3);}
+  });
+  document.querySelectorAll("[data-countdown]").forEach(el=>{
+    const end=parseInt(el.dataset.countdown);
+    if(!isNaN(end)){
+      const diff=end-Date.now();
+      const urg=diff<600000&&diff>0;const exp=diff<=0;
+      el.textContent=diff===0?"—":exp?"- "+ts(-diff):"残 "+ts(diff);
+      el.style.color=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+      el.className=urg||exp?"urg":"";
+    }
+  });
+}
 
 function tickOrder(){
   const s=S.sessions[at];if(!s)return;
