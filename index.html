@@ -139,6 +139,7 @@
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
+      <button class="btn" id="end-biz-btn" onclick="om('endBizDay')" style="display:none;padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;">営業終了</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
@@ -489,6 +490,8 @@ function updateNav(){
   const inBiz=!!S.activeBizDay;
   const nav=document.getElementById("main-nav");
   if(nav)nav.style.display=inBiz?"flex":"none";
+  const endBtn=document.getElementById("end-biz-btn");
+  if(endBtn)endBtn.style.display=inBiz?"block":"none";
   if(!inBiz)return;
   [["nf","floor"],["nsh","shifts"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
