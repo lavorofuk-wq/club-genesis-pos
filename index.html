@@ -2072,12 +2072,13 @@ function rModal(){
       sc().forEach(c=>{
         const sh=getShiftByCastId(c.id);
         const isOn=!!sh;
-        const status=sh?.status||"waiting";
-        // テーブルについている（active）は選択不可
-        const canSelect=isOn&&status!=="active";
-        const statusLbl=!isOn?"未出勤":status==="active"?"付回中":status==="break"?"休憩中":"待機中";
-        const statusCol=!isOn?"#444":status==="active"?"#a78bfa":status==="break"?"#ffa500":"#4ade80";
-        castBtns+='<button class="btn" '+(canSelect?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=parseInt(this.dataset.cid);tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(canSelect?"rgba(74,222,128,.08)":"rgba(255,255,255,.02)")+';border:1px solid '+(canSelect?"rgba(74,222,128,.25)":"rgba(255,255,255,.06)")+';color:'+(canSelect?"#e8dcc8":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(canSelect?"pointer":"not-allowed")+';touch-action:manipulation;">'
+        const status=sh?(sh.status||"waiting"):"none";
+        const hasActiveA=Object.values(S.assignments||{}).some(a=>String(a.castId)===String(c.id)&&!a.endTime);
+        // 待機中のキャストのみ選択可（出勤していてアクティブなアサインがない）
+        const canSelect=isOn&&!hasActiveA&&status!=="break";
+        const statusLbl=!isOn?"未出勤":hasActiveA?"付回中":status==="break"?"休憩中":"待機中";
+        const statusCol=!isOn?"#444":hasActiveA?"#a78bfa":status==="break"?"#ffa500":"#4ade80";
+        castBtns+='<button class="btn" '+(canSelect?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=this.dataset.cid;tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(canSelect?"rgba(74,222,128,.08)":"rgba(255,255,255,.02)")+';border:1px solid '+(canSelect?"rgba(74,222,128,.25)":"rgba(255,255,255,.06)")+';color:'+(canSelect?"#e8dcc8":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(canSelect?"pointer":"not-allowed")+';touch-action:manipulation;">'
           +c.name
           +'<div style="font-size:10px;margin-top:3px;color:'+statusCol+';">'+statusLbl+'</div>'
           +'</button>';
@@ -2089,7 +2090,7 @@ function rModal(){
         +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
         +'</div></div>';
     } else if(tsukeMd.step==="type"){
-      const cname=S.casts.find(c=>c.id===tsukeMd.castId)?.name||"";
+      const cname=S.casts.find(c=>String(c.id)===String(tsukeMd.castId))?.name||"";
       let typeBtns="";
       Object.entries(ASSIGN_TYPES).forEach(([key,{label,col}])=>{
         typeBtns+='<button class="btn" onclick="tsukeMd.type=\''+key+'\';tsukeMd.step=\'time\';rModal()" style="flex:1;padding:16px 8px;border-radius:8px;font-size:15px;font-weight:700;background:rgba(0,0,0,.2);border:2px solid '+col+';color:'+col+';text-align:center;touch-action:manipulation;">'+label+'</button>';
@@ -2102,7 +2103,7 @@ function rModal(){
         +'<button class="btn" onclick="tsukeMd.step=\'cast\';rModal()" style="margin-top:14px;width:100%;padding:9px;color:#888;background:none;font-size:13px;">← 戻る</button>'
         +'</div></div>';
     } else if(tsukeMd.step==="time"){
-      const cname=S.casts.find(c=>c.id===tsukeMd.castId)?.name||"";
+      const cname=S.casts.find(c=>String(c.id)===String(tsukeMd.castId))?.name||"";
       // リスト画面から来た場合はtsukeMd.tableId、注文画面から来た場合はat
       const targetTid=tsukeMd.tableId||at||"";
       const tlbl=ASSIGN_TYPES[tsukeMd.type]?.label||"";
@@ -2382,43 +2383,63 @@ function exportShiftCSV(){
 function confirmTsuke(){
   const el=document.getElementById("tsuke-time");
   const t=(el&&el.value)?el.value:nowHHMM();
-  tsukeMd.time=t;
   const tableId=tsukeMd.tableId||at;
   if(!tableId){alert("テーブルを選択してください");return;}
-  startAssign(tsukeMd.castId,tableId,tsukeMd.type,tsukeMd.time);
+  if(!tsukeMd.castId){alert("キャストを選択してください");return;}
+  if(!tsukeMd.type){alert("種別を選択してください");return;}
+  startAssign(tsukeMd.castId,tableId,tsukeMd.type,t);
   tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:""};
 }
 function startAssign(castId,tableId,type,time){
-  const c=S.casts.find(c=>String(c.id)===String(castId));if(!c)return;
-  // 既にテーブルについているキャストは付けられない
+  const c=S.casts.find(c=>String(c.id)===String(castId));
+  if(!c){alert("キャストが見つかりません");return;}
   const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
-  if(existing){alert(c.name+"は既に"+S.tables.find(t=>t.id===existing.tableId)?.label+"についています");return;}
+  if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
   const aid="a_"+Date.now();
   S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),endTime:null};
-  setCastStatus(castId,"active");
-  save("assignments",S.assignments);closeM();render();
+  const sh=getShiftByCastId(castId);if(sh)sh.status="active";
+  // assignmentsとshiftsを同時保存
+  if(window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  closeM();render();
 }
 function endAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   a.endTime=Date.now();
-  setCastStatus(a.castId,"waiting");
-  save("assignments",S.assignments);render();
+  const sh=getShiftByCastId(a.castId);if(sh)sh.status="waiting";
+  if(window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  render();
 }
 function moveToBreak(castId){
-  // テーブルから離れて休憩へ
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
-  if(a){a.endTime=Date.now();save("assignments",S.assignments);}
-  setCastStatus(castId,"break");
+  if(a)a.endTime=Date.now();
+  const sh=getShiftByCastId(castId);if(sh)sh.status="break";
+  if(window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
   render();
 }
 function moveToWaiting(castId){
-  setCastStatus(castId,"waiting");render();
+  const sh=getShiftByCastId(castId);if(sh)sh.status="waiting";
+  save("shifts",S.shifts);render();
 }
 function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
-  // 進行中なら待機に戻す
-  if(!a.endTime)setCastStatus(a.castId,"waiting");
-  delete S.assignments[aid];save("assignments",S.assignments);render();
+  if(!a.endTime){
+    const sh=getShiftByCastId(a.castId);if(sh)sh.status="waiting";
+  }
+  delete S.assignments[aid];
+  if(window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  render();
 }
 
 // ===== 出勤画面 =====
