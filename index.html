@@ -285,6 +285,9 @@ function addBanai(cid){
   if(s.items.some(i=>i.isBanaiShimei&&i.castId===cid))return;
   s.items=[...s.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:1500,qty:1,castId:cid,isBanaiShimei:true}];
   s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
+  // フリーでつけていた同キャストのアサインを「場内指名」に自動変更
+  const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
+  if(freeA){freeA.type="banai";save("assignments",S.assignments);}
   save("sessions",S.sessions);renderOrderPartial();
 }
 function applyET(){
@@ -508,6 +511,7 @@ function render(){
   else if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
   else if(vw==="floor")m.innerHTML=rFloor();
   else if(vw==="list")m.innerHTML=rList();
+  else if(vw==="tableDetail")m.innerHTML=rTableDetail();
   else if(vw==="checkin")m.innerHTML=rCI();
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
@@ -515,11 +519,10 @@ function render(){
   else if(vw==="settings")m.innerHTML=rSettings();
   if(!md)document.getElementById("md").innerHTML="";
 }
-function sv(v){
-  // histlogはいつでもアクセス可、homeも常時可
-  // 営業中でないとフロア系・出勤・売上・設定には入れない
+function sv(v,extra){
   if(!S.activeBizDay&&!["home","histlog"].includes(v))return;
-  vw=v;if(!["order","checkin"].includes(v))at=null;render();
+  if(v==="tableDetail"&&extra)window._detailTid=extra;
+  vw=v;if(!["order","checkin","tableDetail"].includes(v))at=null;render();
 }
 function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";render();}
 
@@ -766,101 +769,186 @@ function rFloor(){
 
 // ===== LIST（付け回し管理）=====
 function rList(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(160px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(200px,1fr))":"repeat(auto-fill,minmax(220px,1fr))";
-  // 付け回しタイプの略称
-  const typeSfx={hon:"本",help:"H",douhan:"同",free:"F"};
+  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(155px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(195px,1fr))":"repeat(auto-fill,minmax(215px,1fr))";
+  const waiting=getWaitingCasts();
+  const brk=getBreakCasts();
+  const active=getActiveCasts();
 
   let html='<div>';
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">';
-  html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;">LIST</span>';
-  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\'};om(\'tsuke\')" style="padding:8px 16px;font-size:13px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付け回し追加</button>';
+  // ステータスサマリー行
+  html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">';
+  html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;flex:1;">LIST</span>';
+  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:20px;">待機 '+waiting.length+'名</span>';
+  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:20px;">休憩 '+brk.length+'名</span>';
+  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\'};om(\'tsuke\')" style="padding:7px 14px;font-size:12px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付け回し</button>';
   html+='</div>';
 
-  // ===== テーブルカードグリッド =====
-  html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;margin-bottom:20px;">';
+  // テーブルグリッド
+  html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;margin-bottom:16px;">';
   S.tables.forEach(t=>{
     const s=S.sessions[t.id];
-    const rv=rem(s?.setEndTime);
-    const urg=rv!==null&&rv<600000&&rv>0;
-    const exp=rv!==null&&rv<=0;
-    const timerCol=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
-    const timerStr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
-
-    // 本指名・場内指名
-    const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-    const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-
-    // 付け回し進行中
-    const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
-
     if(!s){
-      // 空席
-      html+='<div class="tc te '+(isV(t.id)?"tv":"")+'sm" style="min-height:'+(DEV==="mobile"?"100px":"120px")+';opacity:.4;">';
-      html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
-      html+='<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>';
-      html+='<div style="display:flex;gap:4px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+'</div>';
-      html+='</div><div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
-      html+='</div>';
+      html+='<div class="tc te '+(isV(t.id)?"tv ":"")+'sm" style="min-height:'+(DEV==="mobile"?"95px":"110px")+';opacity:.35;"><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:'+(DEV==="mobile"?"12px":"13px")+';font-weight:500;">'+t.label+'</span>'+(isV(t.id)?'<span class="tag tv2">VIP</span>':'')+'</div><div style="font-size:11px;color:#444;margin-top:8px;">空席</div></div>';
       return;
     }
-
-    // 使用中テーブルカード（クリックで付け回し追加）
+    const rv=rem(s.setEndTime);
+    const urg=rv!==null&&rv<600000&&rv>0;
+    const exp=rv!==null&&rv<=0;
+    const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+    const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
+    const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+    const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+    const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
     const tid=t.id;
-    html+='<div class="tc ta '+(isV(t.id)?"tv":"")+'sm" data-tid="'+tid+'" style="min-height:'+(DEV==="mobile"?"100px":"120px")+';cursor:default;">';
-    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">';
-    html+='<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>';
-    html+='<div style="display:flex;gap:4px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+'<span class="tag ta2">使用中</span></div>';
+    html+='<div class="tc ta '+(isV(t.id)?"tv ":"")+'sm" data-tid3="'+tid+'" onclick="sv(\'tableDetail\',\''+tid+'\')" style="min-height:'+(DEV==="mobile"?"95px":"110px")+';cursor:pointer;">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
+    html+='<span style="font-size:'+(DEV==="mobile"?"12px":"13px")+';font-weight:500;">'+t.label+'</span>';
+    html+='<div style="display:flex;gap:3px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':'')+'</div>';
     html+='</div>';
-    // 入店時刻・人数
-    html+='<div style="font-size:12px;color:#999;margin-bottom:4px;">';
-    html+=new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-    if(s.setEndTime)html+=' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>';
-    html+=' · '+s.guests+'名</div>';
-    // タイマー
-    html+='<div style="font-size:14px;font-weight:700;color:'+timerCol+';" class="'+(urg||exp?"urg":"")+'">'+timerStr+'</div>';
-    // 本指名・場内指名
+    html+='<div style="font-size:11px;color:#999;margin-bottom:3px;">'+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")+" · "+s.guests+"名</div>";
+    html+='<div style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
     if(hn.length||bn.length){
-      html+='<div style="font-size:11px;margin-top:4px;">';
-      hn.forEach(n=>{html+='<span style="color:#d4a017;margin-right:6px;">本 '+n+'</span>';});
-      bn.forEach(n=>{html+='<span style="color:#4ade80;margin-right:6px;">場 '+n+'</span>';});
+      html+='<div style="font-size:10px;margin-top:3px;">';
+      hn.forEach(n=>{html+='<span style="color:#d4a017;">本'+n+' </span>';});
+      bn.forEach(n=>{html+='<span style="color:#4ade80;">場'+n+' </span>';});
       html+='</div>';
     }
-    // 付け回し中キャスト（略称＋経過時間）
     if(ac.length){
-      html+='<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">';
+      html+='<div style="margin-top:5px;">';
       ac.forEach(a=>{
         const col=ASSIGN_TYPES[a.type]?.col||"#888";
-        const sfx=typeSfx[a.type]||"?";
-        const elapsed=Date.now()-a.startTime;
-        html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-        html+='<span style="font-size:12px;font-weight:700;color:'+col+';">'+sfx+' '+a.castName+'</span>';
-        html+='<span style="font-size:11px;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
+        const sfx=TYPE_SFX[a.type]||"?";
+        const el=Date.now()-a.startTime;
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
+        html+='<span style="font-size:11px;font-weight:700;color:'+col+';">'+sfx+' '+a.castName+'</span>';
+        html+='<span style="font-size:10px;font-family:monospace;color:'+col+';">'+ts(el).slice(3)+'</span>';
         html+='</div>';
       });
       html+='</div>';
+    } else {
+      html+='<div style="font-size:10px;color:#444;margin-top:5px;">付け回しなし</div>';
     }
-    // 付けるボタン
-    html+='<button class="btn" data-tid2="'+tid+'" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:this.dataset.tid2,time:\'\'};om(\'tsuke\')" style="margin-top:8px;width:100%;padding:5px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:4px;font-size:11px;touch-action:manipulation;">＋ 付ける</button>';
     html+='</div>';
   });
   html+='</div>';
 
-  // ===== 待機中キャスト =====
-  const onduty=getOnduty();
-  const assignedIds=new Set(Object.values(S.assignments||{}).filter(a=>!a.endTime).map(a=>String(a.castId)));
-  const waiting=onduty.filter(sh=>!assignedIds.has(String(sh.castId)));
-  if(waiting.length){
+  // 待機・休憩パネル
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+  // 待機
+  html+='<div class="glass" style="border-radius:8px;padding:12px;">';
+  html+='<div class="st" style="margin-bottom:10px;">待機中 <span style="color:#4ade80;">'+waiting.length+'</span></div>';
+  if(!waiting.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
+  waiting.forEach(sh=>{
+    const el=Date.now()-sh.clockIn;
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+    html+='<div><div style="font-size:13px;color:#e8dcc8;">'+sh.castName+'</div><div style="font-size:10px;font-family:monospace;color:#555;">'+fmtDur(el)+'</div></div>';
+    html+='<button class="btn" data-cid5="'+sh.castId+'" onclick="event.stopPropagation();moveToBreak(this.dataset.cid5)" style="padding:3px 8px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:10px;touch-action:manipulation;">休憩</button>';
+    html+='</div>';
+  });
+  html+='</div>';
+  // 休憩
+  html+='<div class="glass" style="border-radius:8px;padding:12px;">';
+  html+='<div class="st" style="margin-bottom:10px;">休憩中 <span style="color:#ffa500;">'+brk.length+'</span></div>';
+  if(!brk.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
+  brk.forEach(sh=>{
+    const el=Date.now()-sh.clockIn;
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+    html+='<div><div style="font-size:13px;color:#e8dcc8;">'+sh.castName+'</div><div style="font-size:10px;font-family:monospace;color:#555;">'+fmtDur(el)+'</div></div>';
+    html+='<button class="btn" data-cid6="'+sh.castId+'" onclick="event.stopPropagation();moveToWaiting(this.dataset.cid6)" style="padding:3px 8px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:4px;font-size:10px;touch-action:manipulation;">待機</button>';
+    html+='</div>';
+  });
+  html+='</div>';
+  html+='</div>';
+
+  html+='</div>';
+  return html;
+}
+
+function rTableDetail(){
+  const tid=window._detailTid;
+  const t=S.tables.find(t=>t.id===tid);
+  const s=S.sessions[tid];
+  if(!t||!s)return '<div style="padding:20px;"><button class="btn" onclick="sv(\'list\')" style="color:#888;background:none;font-size:13px;">← リストへ戻る</button><div style="color:#555;margin-top:16px;">テーブルが見つかりません</div></div>';
+
+  const rv=rem(s.setEndTime);
+  const urg=rv!==null&&rv<600000&&rv>0;
+  const exp=rv!==null&&rv<=0;
+  const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+  const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
+  const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+  const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+
+  // このテーブルの全付け回し
+  const allA=Object.values(S.assignments||{}).filter(a=>a.tableId===tid).sort((a,b)=>a.startTime-b.startTime);
+  const acA=allA.filter(a=>!a.endTime);
+  const doneA=allA.filter(a=>a.endTime);
+
+  let html='<div style="max-width:600px;margin:0 auto;">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
+  html+='<button class="btn" onclick="sv(\'list\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← リスト</button>';
+  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">'+t.label+'</h2>';
+  if(isV(tid))html+='<span class="tag tv2">VIP</span>';
+  html+='</div>';
+
+  // テーブル情報カード
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
+  html+='<div><div style="font-size:12px;color:#999;">'+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(s.setEndTime?' → '+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"")+" · "+s.guests+"名</div>"
+    +(hn.length||bn.length?'<div style="font-size:12px;margin-top:4px;">'+hn.map(n=>'<span style="color:#d4a017;">本'+n+'</span>').join(" ")+' '+bn.map(n=>'<span style="color:#4ade80;">場'+n+'</span>').join(" ")+'</div>':"")
+    +'</div>';
+  html+='<div style="font-size:24px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+  html+='</div>';
+  // 付けるボタン
+  html+='<button class="btn gbg" data-tid4="'+tid+'" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:\''+tid+'\',time:\'\'};om(\'tsuke\')" style="width:100%;padding:10px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付ける</button>';
+  html+='</div>';
+
+  // 現在付けているキャスト
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;">';
+  html+='<div class="st" style="margin-bottom:10px;">現在</div>';
+  if(!acA.length){html+='<div style="font-size:13px;color:#555;">付け回しなし</div>';}
+  acA.forEach(a=>{
+    const col=ASSIGN_TYPES[a.type]?.col||"#888";
+    const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+    const sfx=TYPE_SFX[a.type]||"?";
+    const elapsed=Date.now()-a.startTime;
+    const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    html+='<div style="padding:10px;background:rgba(0,0,0,.2);border:1px solid '+col+'44;border-radius:8px;margin-bottom:8px;">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
+    html+='<div>';
+    html+='<span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span>';
+    html+='<span style="font-size:16px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
+    html+='</div>';
+    html+='<span style="font-size:20px;font-weight:700;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
+    html+='</div>';
+    html+='<div style="font-size:11px;color:#666;margin-top:5px;">'+sT+'〜</div>';
+    html+='<div style="display:flex;gap:6px;margin-top:8px;">';
+    html+='<button class="btn" data-aid3="'+a.id+'" onclick="endAssign(this.dataset.aid3)" style="flex:1;padding:7px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 待機</button>';
+    html+='<button class="btn" data-cid7="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7)" style="flex:1;padding:7px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">→ 休憩</button>';
+    html+='<button class="btn" data-aid4="'+a.id+'" onclick="deleteAssign(this.dataset.aid4)" style="padding:7px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;touch-action:manipulation;">削除</button>';
+    html+='</div></div>';
+  });
+  html+='</div>';
+
+  // 付け回し履歴
+  if(doneA.length){
     html+='<div class="glass" style="border-radius:8px;padding:14px;">';
-    html+='<div class="st" style="margin-bottom:10px;">待機中</div>';
-    html+='<div style="display:flex;flex-wrap:wrap;gap:8px;">';
-    waiting.forEach(sh=>{
-      const elapsed=Date.now()-sh.clockIn;
-      html+='<div style="padding:8px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:6px;">';
-      html+='<div style="font-size:13px;color:#888;">'+sh.castName+'</div>';
-      html+='<div style="font-size:11px;color:#555;font-family:monospace;">'+fmtDur(elapsed)+'</div>';
+    html+='<div class="st" style="margin-bottom:10px;">履歴（'+doneA.length+'件）</div>';
+    [...doneA].reverse().forEach(a=>{
+      const col=ASSIGN_TYPES[a.type]?.col||"#555";
+      const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+      const worked=a.endTime-a.startTime;
+      const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eT=new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<div>';
+      html+='<span style="font-size:10px;padding:1px 5px;border:1px solid '+col+'66;color:'+col+';border-radius:3px;margin-right:6px;">'+lbl+'</span>';
+      html+='<span style="font-size:13px;color:#bbb;">'+a.castName+'</span>';
+      html+='<div style="font-size:11px;color:#555;margin-top:2px;">'+sT+' → '+eT+' ('+fmtDur(worked)+')</div>';
+      html+='</div>';
+      html+='<button class="btn" data-aid5="'+a.id+'" onclick="deleteAssign(this.dataset.aid5)" style="padding:3px 8px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
       html+='</div>';
     });
-    html+='</div></div>';
+    html+='</div>';
   }
 
   html+='</div>';
@@ -1982,15 +2070,16 @@ function rModal(){
     if(tsukeMd.step==="cast"){
       let castBtns="";
       sc().forEach(c=>{
-        const isOn=onIds.has(c.id);
-        const curA=Object.values(S.assignments||{}).find(a=>a.castId===c.id&&!a.endTime);
-        const curTbl=curA?S.tables.find(t=>t.id===curA.tableId)?.label:"";
-        const curLbl=curA?(ASSIGN_TYPES[curA.type]?.label||""):"";
-        castBtns+='<button class="btn" '+(isOn?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=parseInt(this.dataset.cid);tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(isOn?"rgba(167,139,250,.1)":"rgba(255,255,255,.02)")+';border:1px solid '+(isOn?"rgba(167,139,250,.3)":"rgba(255,255,255,.06)")+';color:'+(isOn?"#a78bfa":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(isOn?"pointer":"not-allowed")+';touch-action:manipulation;">'
+        const sh=getShiftByCastId(c.id);
+        const isOn=!!sh;
+        const status=sh?.status||"waiting";
+        // テーブルについている（active）は選択不可
+        const canSelect=isOn&&status!=="active";
+        const statusLbl=!isOn?"未出勤":status==="active"?"付回中":status==="break"?"休憩中":"待機中";
+        const statusCol=!isOn?"#444":status==="active"?"#a78bfa":status==="break"?"#ffa500":"#4ade80";
+        castBtns+='<button class="btn" '+(canSelect?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=parseInt(this.dataset.cid);tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(canSelect?"rgba(74,222,128,.08)":"rgba(255,255,255,.02)")+';border:1px solid '+(canSelect?"rgba(74,222,128,.25)":"rgba(255,255,255,.06)")+';color:'+(canSelect?"#e8dcc8":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(canSelect?"pointer":"not-allowed")+';touch-action:manipulation;">'
           +c.name
-          +(isOn&&curA?'<div style="font-size:10px;margin-top:2px;color:'+(ASSIGN_TYPES[curA.type]?.col||"#888")+';">'+curLbl+" "+curTbl+'</div>'
-            :isOn?'<div style="font-size:10px;margin-top:2px;opacity:.5;">待機中</div>'
-            :'<div style="font-size:10px;margin-top:2px;opacity:.4;">未出勤</div>')
+          +'<div style="font-size:10px;margin-top:3px;color:'+statusCol+';">'+statusLbl+'</div>'
           +'</button>';
       });
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
@@ -2194,7 +2283,8 @@ function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
 
 // ===== 出勤・退勤 =====
-const ASSIGN_TYPES={hon:{label:"本指名",col:"#d4a017"},help:{label:"ヘルプ",col:"#38bdf8"},douhan:{label:"同伴",col:"#a78bfa"},free:{label:"フリー",col:"#4ade80"}};
+const ASSIGN_TYPES={hon:{label:"本指名",col:"#d4a017"},banai:{label:"場内指名",col:"#4ade80"},help:{label:"ヘルプ",col:"#38bdf8"},douhan:{label:"同伴",col:"#a78bfa"},free:{label:"フリー",col:"#888"}};
+const TYPE_SFX={hon:"本",banai:"場",help:"H",douhan:"同",free:"F"};
 let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
 let tsukeMd={step:"cast",castId:null,type:null,time:""};
 
@@ -2212,6 +2302,14 @@ function getOnduty(){
   return Object.values(S.shifts||{}).filter(sh=>!sh.clockOut);
 }
 function getOndutyIds(){return new Set(getOnduty().map(sh=>sh.castId));}
+function getWaitingCasts(){return getOnduty().filter(sh=>(sh.status||"waiting")==="waiting");}
+function getBreakCasts(){return getOnduty().filter(sh=>sh.status==="break");}
+function getActiveCasts(){return getOnduty().filter(sh=>sh.status==="active");}
+function getShiftByCastId(castId){return getOnduty().find(sh=>String(sh.castId)===String(castId));}
+function setCastStatus(castId,status){
+  const sh=getShiftByCastId(castId);if(!sh)return;
+  sh.status=status;save("shifts",S.shifts);
+}
 function fmtDur(ms){
   const h=Math.floor(ms/3600000);const m=Math.floor((ms%3600000)/60000);
   return h>0?h+"h"+m+"m":m+"m";
@@ -2222,7 +2320,7 @@ function clockIn(castId,time){
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+Date.now();
-  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null};
+  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting"};
   save("shifts",S.shifts);closeM();render();
 }
 function clockOut(shiftId,time){
@@ -2292,20 +2390,34 @@ function confirmTsuke(){
 }
 function startAssign(castId,tableId,type,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));if(!c)return;
-  // 同キャストの未終了付け回しがあれば終了
-  Object.values(S.assignments||{}).forEach(a=>{
-    if(String(a.castId)===String(castId)&&!a.endTime)a.endTime=Date.now();
-  });
+  // 既にテーブルについているキャストは付けられない
+  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
+  if(existing){alert(c.name+"は既に"+S.tables.find(t=>t.id===existing.tableId)?.label+"についています");return;}
   const aid="a_"+Date.now();
   S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),endTime:null};
+  setCastStatus(castId,"active");
   save("assignments",S.assignments);closeM();render();
 }
 function endAssign(aid){
-  if(S.assignments[aid])S.assignments[aid].endTime=Date.now();
+  const a=S.assignments[aid];if(!a)return;
+  a.endTime=Date.now();
+  setCastStatus(a.castId,"waiting");
   save("assignments",S.assignments);render();
 }
+function moveToBreak(castId){
+  // テーブルから離れて休憩へ
+  const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
+  if(a){a.endTime=Date.now();save("assignments",S.assignments);}
+  setCastStatus(castId,"break");
+  render();
+}
+function moveToWaiting(castId){
+  setCastStatus(castId,"waiting");render();
+}
 function deleteAssign(aid){
-  if(!confirm("削除しますか？"))return;
+  const a=S.assignments[aid];if(!a)return;
+  // 進行中なら待機に戻す
+  if(!a.endTime)setCastStatus(a.castId,"waiting");
   delete S.assignments[aid];save("assignments",S.assignments);render();
 }
 
@@ -2386,7 +2498,7 @@ setInterval(()=>{
   if(md)return;
   if(vw==="floor")render();
   else if(vw==="order")tickOrder();
-  else if(vw==="list")render(); // リストのタイマー・経過時間を毎秒更新
+  else if(vw==="list"||vw==="tableDetail")render();
 },1000);
 
 function tickOrder(){
