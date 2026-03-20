@@ -502,14 +502,15 @@ function updateNav(){
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
-  if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
+  // histlogはactiveBizDayに関わらず常時表示
+  if(vw==="histlog")m.innerHTML=rHistLog();
+  else if(vw==="home"||!S.activeBizDay)m.innerHTML=rHome();
   else if(vw==="floor")m.innerHTML=rFloor();
   else if(vw==="checkin")m.innerHTML=rCI();
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
   else if(vw==="shifts")m.innerHTML=rShifts();
   else if(vw==="settings")m.innerHTML=rSettings();
-  else if(vw==="histlog")m.innerHTML=rHistLog();
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v){
@@ -573,16 +574,19 @@ function rHistLog(){
     const shiftCount=Object.values(day.shifts||{}).length;
     const exp=expandedHist["day_"+day.id];
     html+='<div class="glass" style="border-radius:8px;margin-bottom:10px;overflow:hidden;">';
-    html+='<div onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="padding:14px 16px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;">';
-    html+='<div><div style="font-size:16px;font-weight:700;color:#e8dcc8;">'+day.date+'</div>';
-    html+='<div style="font-size:11px;color:#666;margin-top:2px;">'+new Date(day.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(day.endedAt?' 〜 '+new Date(day.endedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):' 〜 営業中')+'</div></div>';
-    html+='<div style="display:flex;align-items:center;gap:12px;">';
+    // ヘッダー行
+    html+='<div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">';
+    html+='<div onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="flex:1;cursor:pointer;">';
+    html+='<div style="font-size:16px;font-weight:700;color:#e8dcc8;">'+day.date+'</div>';
+    html+='<div style="font-size:11px;color:#666;margin-top:2px;">'+new Date(day.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(day.endedAt?' 〜 '+new Date(day.endedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):' 〜 営業中')+'</div>';
+    html+='</div>';
+    html+='<div style="display:flex;align-items:center;gap:8px;">';
     html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+pAmt(sales)+'</span>';
-    html+='<span style="color:#555;font-size:16px;">'+(exp?"▲":"▼")+'</span>';
+    html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();om(\'editBizDay_\'+this.dataset.dayid)" style="padding:4px 10px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:11px;touch-action:manipulation;">編集</button>';
+    html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();deleteBizDay(this.dataset.dayid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+    html+='<span onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="color:#555;font-size:16px;cursor:pointer;padding:4px;">'+(exp?"▲":"▼")+'</span>';
     html+='</div></div>';
-    if(exp){
-      html+=rDayDetail(day);
-    }
+    if(exp){html+=rDayDetail(day);}
     html+='</div>';
   });
   html+='</div>';
@@ -629,6 +633,35 @@ function rDayDetail(day){
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">📊 CSV出力</button>';
   html+='</div>';
   return html;
+}
+
+function deleteBizDay(dayId){
+  if(dayId===S.activeBizDay){alert("現在営業中の日は削除できません");return;}
+  md="deleteBizDay_"+dayId;rModal();
+}
+function confirmDeleteBizDay(dayId){
+  delete S.bizDays[dayId];
+  save("bizDays",S.bizDays);
+  closeM();render();
+}
+function saveBizDayEdit(dayId){
+  const day=S.bizDays[dayId];if(!day)return;
+  const dateEl=document.getElementById("edit-biz-date");
+  if(dateEl&&dateEl.value&&dateEl.value!==day.date){
+    // 日付変更：古いキーを削除して新キーで保存
+    const newDate=dateEl.value;
+    const newDay={...day,id:newDate,date:newDate};
+    delete S.bizDays[dayId];
+    S.bizDays[newDate]=newDay;
+  }
+  save("bizDays",S.bizDays);
+  closeM();render();
+}
+function deleteBizDayHist(dayId,idx){
+  const day=S.bizDays[dayId];if(!day)return;
+  day.history=(day.history||[]).filter((_,i)=>i!==idx);
+  save("bizDays",S.bizDays);
+  md="editBizDay_"+dayId;rModal();render();
 }
 
 function exportDayCSV(dayId){
@@ -1939,6 +1972,51 @@ function rModal(){
         +'<button class="btn" onclick="tsukeMd.step=\'type\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
         +'</div></div></div>';
     }
+  }
+  else if(md&&md.startsWith("editBizDay_")){
+    const dayId=md.replace("editBizDay_","");
+    const day=S.bizDays[dayId];
+    if(!day){closeM();return;}
+    const isActive=dayId===S.activeBizDay;
+    // 売上明細の編集（支払変更）
+    const hist=day.history||[];
+    let histRows="";
+    hist.forEach((h,i)=>{
+      const payBadge=h.splits&&h.splits.length>0
+        ?h.splits.map(sp=>(sp.method==="card"?"💳":"💴")+"¥"+fmt(sp.amount)).join(" ")
+        :(h.payMethod==="card"?"💳":"💴")+"¥"+fmt(h.total);
+      histRows+='<div class="ir" style="font-size:12px;">'
+        +'<span style="color:#bbb;">'+h.tableLabel+' '+h.guests+'名</span>'
+        +'<div style="display:flex;align-items:center;gap:8px;">'
+        +'<span style="color:#d4a017;">'+pAmt(h.total)+'</span>'
+        +'<span style="color:#666;font-size:10px;">'+payBadge+'</span>'
+        +(isActive?'':'<button class="btn" data-dayid="'+dayId+'" data-idx="'+i+'" onclick="deleteBizDayHist(this.dataset.dayid,parseInt(this.dataset.idx))" style="padding:2px 7px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>')
+        +'</div></div>';
+    });
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">営業日編集</h3>'
+      +'<div style="font-size:13px;color:#888;margin-bottom:16px;">'+day.date+'</div>'
+      // 日付変更
+      +(isActive?'':'<div class="st" style="margin-bottom:6px;">日付</div>'
+        +'<input type="date" id="edit-biz-date" class="ip" value="'+day.date+'" style="margin-bottom:16px;font-size:16px;"/>')
+      // 売上一覧
+      +(hist.length?'<div class="st" style="margin-bottom:8px;">売上明細 ('+hist.length+'件)</div>'+histRows:'<div style="font-size:12px;color:#555;margin-bottom:12px;">売上データなし</div>')
+      +'<div style="display:flex;gap:8px;margin-top:16px;">'
+      +(isActive?'':'<button class="btn gbg" onclick="saveBizDayEdit(\''+dayId+'\')" style="flex:2;padding:12px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存する</button>')
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">閉じる</button>'
+      +'</div></div></div>';
+  }
+  else if(md&&md.startsWith("deleteBizDay_")){
+    const dayId=md.replace("deleteBizDay_","");
+    const day=S.bizDays[dayId];
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+      +'<h3 style="margin-bottom:8px;font-size:16px;">営業日を削除しますか？</h3>'
+      +'<div style="font-size:14px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+(day?day.date:"")+'</div>'
+      +'<div style="font-size:12px;color:#888;margin-bottom:20px;">この営業日のすべてのデータが削除されます。</div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" data-dayid="'+dayId+'" onclick="confirmDeleteBizDay(this.dataset.dayid)" style="flex:1;padding:12px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-weight:700;touch-action:manipulation;">削除する</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">キャンセル</button>'
+      +'</div></div></div>';
   }
   else if(md==="startBizDay"){
     const todayStr=new Date().toLocaleDateString("sv-SE");
