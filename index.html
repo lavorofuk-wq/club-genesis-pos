@@ -133,6 +133,7 @@
     </div>
     <nav style="display:flex;gap:2px;">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
+      <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">履歴</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
     </nav>
@@ -152,7 +153,7 @@ const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2"
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[]};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{}};
 let vw="floor",at=null,md=null,cds=0,cdc=null;
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -217,9 +218,10 @@ function initFB(){
     if(d.casts)S.casts=d.casts;
     if(d.menus)S.menus=d.menus;
     if(d.tables)S.tables=d.tables;
-    // sessions: 全員会計済みでFirebaseがnullを返すケースも空オブジェクトとして受け取る
     S.sessions=d.sessions||{};
     S.history=d.history||[];
+    S.shifts=d.shifts||{};
+    S.assignments=d.assignments||{};
     sbs(true,"同期済み ✓");
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
@@ -478,7 +480,7 @@ function buildOrderSummary(s){
 }
 
 function updateNav(){
-  [["nf","floor"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
+  [["nf","floor"],["nsh","shifts"],["nh","history"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v===vw)?" ac":"");
   });
@@ -490,6 +492,7 @@ function render(){
   else if(vw==="checkin")m.innerHTML=rCI();
   else if(vw==="order")m.innerHTML=rOrder();
   else if(vw==="history")m.innerHTML=rHist();
+  else if(vw==="shifts")m.innerHTML=rShifts();
   else if(vw==="settings")m.innerHTML=rSettings();
   if(!md)document.getElementById("md").innerHTML="";
 }
@@ -516,6 +519,17 @@ function rFloor(){
       +((hn.length||bn.length)?'<div style="font-size:11px;color:#d4a017;margin-bottom:3px;">'+hn.map(n=>"♛ "+n).join(" ")+(bn.length?' <span style="color:#4ade80">'+bn.map(n=>"☆ "+n).join(" ")+'</span>':"")+' </div>':"")
       +'<div style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
       +(hv&&vr!==null?'<div style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
+      // 付け回し中キャスト表示
+      +(()=>{
+        const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
+        if(!ac.length)return "";
+        const typeCol={hon:"#d4a017",help:"#38bdf8",douhan:"#a78bfa",free:"#4ade80"};
+        const typeLbl={hon:"本",help:"ヘ",douhan:"同",free:"フ"};
+        return '<div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:3px;">'+ac.map(a=>{
+          const col=typeCol[a.type]||"#888";
+          return '<span style="font-size:10px;padding:1px 5px;background:rgba(0,0,0,.3);border:1px solid '+col+';color:'+col+';border-radius:3px;">'+(typeLbl[a.type]||"?")+" "+a.castName+'</span>';
+        }).join("")+'</div>';
+      })()
       +'<div style="font-size:12px;color:#888;margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
@@ -607,6 +621,7 @@ function rOrder(){
   spBtns+='<button class="menu-btn" onclick="om(\'disc\')" style="background:rgba(255,80,80,.1);border-color:rgba(255,80,80,.3);color:#ff6b6b;">割引<br><small>各種</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'tc\')" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.25);color:#38bdf8;">テーブル<br><small>チェンジ</small></button>';
+  spBtns+='<button class="menu-btn" onclick="om(\'tsuke\')" style="background:rgba(167,139,250,.12);border-color:rgba(167,139,250,.35);color:#a78bfa;">付け回し<br><small>キャスト管理</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'est\')" style="background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.25);color:#ffd700;">📊 概算<br><small>シミュレーション</small></button>';
 
   // レイアウト: tablet/desktopは2カラム、mobileは縦積み
@@ -693,6 +708,39 @@ function orderRightCol(s,td,tc3,urg,ovr,vr,hv,big){
     +'</div>'
     // 合計
     +'<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;" id="order-summary">'+buildOrderSummary(s)+'</div>'
+    // 付け回し状況
+    +(()=>{
+      const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===at&&!a.endTime);
+      const done=Object.values(S.assignments||{}).filter(a=>a.tableId===at&&a.endTime).sort((a,b)=>b.startTime-a.startTime).slice(0,5);
+      if(!ac.length&&!done.length)return "";
+      let inner="";
+      ac.forEach(a=>{
+        const col=ASSIGN_TYPES[a.type]?.col||"#888";
+        const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+        const elapsed=Date.now()-a.startTime;
+        const st=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        inner+='<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
+        inner+='<div><span style="font-size:13px;font-weight:700;color:'+col+';">'+a.castName+'</span><span style="font-size:10px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-left:6px;">'+lbl+'</span><div style="font-size:11px;color:#666;margin-top:1px;">'+st+'〜 ('+fmtDur(elapsed)+')</div></div>';
+        inner+='<button class="btn" data-aid="'+a.id+'" onclick="endAssign(this.dataset.aid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">終了</button>';
+        inner+='</div>';
+      });
+      done.forEach(a=>{
+        const col=ASSIGN_TYPES[a.type]?.col||"#666";
+        const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+        const worked=a.endTime-a.startTime;
+        const st=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        const et=new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        inner+='<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.03);">';
+        inner+='<div><span style="font-size:12px;color:#666;">'+a.castName+'</span><span style="font-size:10px;padding:1px 4px;border:1px solid rgba(255,255,255,.1);color:#555;border-radius:3px;margin-left:5px;">'+lbl+'</span><div style="font-size:10px;color:#444;">'+st+'〜'+et+' ('+fmtDur(worked)+')</div></div>';
+        inner+='<button class="btn" data-aid="'+a.id+'" onclick="deleteAssign(this.dataset.aid)" style="padding:3px 7px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
+        inner+='</div>';
+      });
+      return '<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:12px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">'
+        +'<div class="st">付け回し</div>'
+        +'<button class="btn" onclick="tsukeMd={step:\'cast\',castId:null,type:null,time:\'\'};om(\'tsuke\')" style="padding:4px 10px;background:rgba(167,139,250,.12);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:4px;font-size:11px;touch-action:manipulation;">＋ 付ける</button>'
+        +'</div>'+inner+'</div>';
+    })()
     +'<button class="btn gbg" onclick="om(\'co\')" style="width:100%;padding:14px;font-size:16px;font-weight:700;letter-spacing:.05em;border-radius:6px;touch-action:manipulation;">会計</button>';
 }
 
@@ -1580,6 +1628,114 @@ function rModal(){
         +'</div></div></div>';
     }
   }
+  else if(md==="shift"){
+    // 出勤・退勤登録モーダル
+    const isIn=shiftMd.mode==="in";
+    const title=isIn?"🟢 出勤登録":"🔴 退勤登録";
+    const onduty=getOnduty();
+    if(shiftMd.step==="cast"){
+      let castBtns="";
+      if(isIn){
+        // 出勤：未出勤のキャスト一覧
+        const onIds=getOndutyIds();
+        sc().forEach(c=>{
+          const already=onIds.has(c.id);
+          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';rModal()" style="padding:12px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:1px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.25)")+';color:'+(already?"#444":"#4ade80")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
+            +c.name+(already?'<div style="font-size:10px;margin-top:2px;opacity:.6;">出勤中</div>':'')
+            +'</button>';
+        });
+      } else {
+        // 退勤：出勤中のキャスト一覧
+        if(!onduty.length){
+          castBtns='<div style="color:#555;font-size:13px;padding:12px 0;">出勤中のキャストはいません</div>';
+        } else {
+          onduty.forEach(sh=>{
+            const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';rModal()" style="padding:12px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:6px;font-size:14px;font-weight:600;text-align:center;touch-action:manipulation;">'
+              +sh.castName+'<div style="font-size:10px;margin-top:2px;opacity:.7;">'+inT+'〜</div></button>';
+          });
+        }
+      }
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
+        +'<div style="font-size:12px;color:#666;margin-bottom:16px;">キャストを選択</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+castBtns+'</div>'
+        +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+        +'</div></div>';
+    } else if(shiftMd.step==="time"){
+      const name=isIn
+        ?S.casts.find(c=>c.id===shiftMd.castId)?.name
+        :S.shifts[shiftMd.shiftId]?.castName;
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
+        +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+name+'</div>'
+        +'<div class="st" style="margin-bottom:6px;">'+(isIn?"出勤時刻":"退勤時刻")+'</div>'
+        +'<input type="time" id="shift-time" class="ip" value="'+shiftMd.time+'" style="font-size:22px;text-align:center;margin-bottom:16px;" onchange="shiftMd.time=this.value"/>'
+        +'<div style="display:flex;gap:8px;">'
+        +'<button class="btn gbg" onclick="shiftMd.time=document.getElementById(\'shift-time\').value||shiftMd.time;'
+          +(isIn?"clockIn(shiftMd.castId,shiftMd.time)":"clockOut(shiftMd.shiftId,shiftMd.time)")
+          +'" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">登録する</button>'
+        +'<button class="btn" onclick="shiftMd.step=\'cast\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
+        +'</div></div></div>';
+    }
+  }
+  else if(md==="tsuke"&&s){
+    // 付け回しモーダル
+    const onIds=getOndutyIds();
+    if(tsukeMd.step==="cast"){
+      let castBtns="";
+      sc().forEach(c=>{
+        const isOn=onIds.has(c.id);
+        const curA=Object.values(S.assignments||{}).find(a=>a.castId===c.id&&!a.endTime);
+        const curTbl=curA?S.tables.find(t=>t.id===curA.tableId)?.label:"";
+        const curLbl=curA?(ASSIGN_TYPES[curA.type]?.label||""):"";
+        castBtns+='<button class="btn" '+(isOn?"":"disabled")+' data-cid="'+c.id+'" onclick="tsukeMd.castId=parseInt(this.dataset.cid);tsukeMd.step=\'type\';rModal()" style="padding:12px 8px;background:'+(isOn?"rgba(167,139,250,.1)":"rgba(255,255,255,.02)")+';border:1px solid '+(isOn?"rgba(167,139,250,.3)":"rgba(255,255,255,.06)")+';color:'+(isOn?"#a78bfa":"#444")+';border-radius:6px;font-size:14px;font-weight:600;text-align:center;cursor:'+(isOn?"pointer":"not-allowed")+';touch-action:manipulation;">'
+          +c.name
+          +(isOn&&curA?'<div style="font-size:10px;margin-top:2px;color:'+(ASSIGN_TYPES[curA.type]?.col||"#888")+';">'+curLbl+" "+curTbl+'</div>'
+            :isOn?'<div style="font-size:10px;margin-top:2px;opacity:.5;">待機中</div>'
+            :'<div style="font-size:10px;margin-top:2px;opacity:.4;">未出勤</div>')
+          +'</button>';
+      });
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">付け回し</h3>'
+        +'<div style="font-size:12px;color:#666;margin-bottom:16px;">キャストを選択（出勤中のみ選択可）</div>'
+        +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+castBtns+'</div>'
+        +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+        +'</div></div>';
+    } else if(tsukeMd.step==="type"){
+      const cname=S.casts.find(c=>c.id===tsukeMd.castId)?.name||"";
+      let typeBtns="";
+      Object.entries(ASSIGN_TYPES).forEach(([key,{label,col}])=>{
+        typeBtns+='<button class="btn" onclick="tsukeMd.type=\''+key+'\';tsukeMd.step=\'time\';rModal()" style="flex:1;padding:16px 8px;border-radius:8px;font-size:15px;font-weight:700;background:rgba(0,0,0,.2);border:2px solid '+col+';color:'+col+';text-align:center;touch-action:manipulation;">'+label+'</button>';
+      });
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">付け回し</h3>'
+        +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+cname+'</div>'
+        +'<div class="st" style="margin-bottom:10px;">種別を選択</div>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap;">'+typeBtns+'</div>'
+        +'<button class="btn" onclick="tsukeMd.step=\'cast\';rModal()" style="margin-top:14px;width:100%;padding:9px;color:#888;background:none;font-size:13px;">← 戻る</button>'
+        +'</div></div>';
+    } else if(tsukeMd.step==="time"){
+      const cname=S.casts.find(c=>c.id===tsukeMd.castId)?.name||"";
+      const tname=S.tables.find(t=>t.id===at)?.label||"";
+      const tlbl=ASSIGN_TYPES[tsukeMd.type]?.label||"";
+      const tcol=ASSIGN_TYPES[tsukeMd.type]?.col||"#a78bfa";
+      if(!tsukeMd.time)tsukeMd.time=nowHHMM();
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+        +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">付け回し</h3>'
+        +'<div style="margin-bottom:14px;">'
+        +'<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+cname+'</span>'
+        +'<span style="font-size:12px;padding:2px 8px;border:1px solid '+tcol+';color:'+tcol+';border-radius:4px;margin-left:8px;">'+tlbl+'</span>'
+        +'<div style="font-size:12px;color:#888;margin-top:4px;">→ '+tname+'</div>'
+        +'</div>'
+        +'<div class="st" style="margin-bottom:6px;">開始時刻</div>'
+        +'<input type="time" id="tsuke-time" class="ip" value="'+tsukeMd.time+'" style="font-size:22px;text-align:center;margin-bottom:16px;" onchange="tsukeMd.time=this.value"/>'
+        +'<div style="display:flex;gap:8px;">'
+        +'<button class="btn gbg" onclick="tsukeMd.time=document.getElementById(\'tsuke-time\').value||tsukeMd.time;startAssign(tsukeMd.castId,\''+at+'\',tsukeMd.type,tsukeMd.time)" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">確定</button>'
+        +'<button class="btn" onclick="tsukeMd.step=\'type\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
+        +'</div></div></div>';
+    }
+  }
   else if(md==="dh"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:12px;font-size:16px;">この履歴を削除しますか？</h3><p style="font-size:13px;color:#888;margin-bottom:20px;">削除した履歴は元に戻せません。</p><div style="display:flex;gap:10px;"><button class="btn" onclick="doh()" style="flex:1;padding:10px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;touch-action:manipulation;">削除する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
   }
@@ -1644,6 +1800,157 @@ function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addE
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
+
+// ===== 出勤・退勤 =====
+const ASSIGN_TYPES={hon:{label:"本指名",col:"#d4a017"},help:{label:"ヘルプ",col:"#38bdf8"},douhan:{label:"同伴",col:"#a78bfa"},free:{label:"フリー",col:"#4ade80"}};
+let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
+let tsukeMd={step:"cast",castId:null,type:null,time:""};
+
+function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+function hhmm2ts(hhmm){
+  const[h,m]=hhmm.split(":").map(Number);
+  const d=new Date();d.setSeconds(0,0);
+  // 0〜3時は翌日扱い（営業日をまたぐ）
+  if(h<3)d.setDate(d.getDate()+(d.getHours()<3?0:1));
+  d.setHours(h,m,0,0);return d.getTime();
+}
+function getOnduty(){
+  const bs=getBizDayStart(Date.now());
+  return Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&!sh.clockOut);
+}
+function getOndutyIds(){return new Set(getOnduty().map(sh=>sh.castId));}
+function fmtDur(ms){
+  const h=Math.floor(ms/3600000);const m=Math.floor((ms%3600000)/60000);
+  return h>0?h+"h"+m+"m":m+"m";
+}
+
+function clockIn(castId,time){
+  const c=S.casts.find(c=>c.id===castId);if(!c)return;
+  if(getOnduty().some(sh=>sh.castId===castId))return; // 既に出勤中
+  const sid="sh_"+castId+"_"+Date.now();
+  S.shifts[sid]={id:sid,castId,castName:c.name,clockIn:hhmm2ts(time),clockOut:null};
+  save("shifts",S.shifts);closeM();render();
+}
+function clockOut(shiftId,time){
+  const sh=S.shifts[shiftId];if(!sh)return;
+  sh.clockOut=hhmm2ts(time);
+  if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000; // 日跨ぎ補正
+  save("shifts",S.shifts);closeM();render();
+}
+function deleteShift(sid){
+  if(!confirm("このシフトを削除しますか？"))return;
+  delete S.shifts[sid];save("shifts",S.shifts);render();
+}
+function exportShiftCSV(){
+  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  const data=Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be);
+  if(!data.length){alert("エクスポートするデータがありません");return;}
+  const bom="\uFEFF";
+  const header=["キャスト名","出勤時刻","退勤時刻","勤務時間"].join(",");
+  const rows=data.sort((a,b)=>a.clockIn-b.clockIn).map(sh=>{
+    const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    const outT=sh.clockOut?new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"退勤なし";
+    const dur=sh.clockOut?fmtDur(sh.clockOut-sh.clockIn):"";
+    return[sh.castName,inT,outT,dur].join(",");
+  });
+  const csv=bom+header+"\n"+rows.join("\n");
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download="shift_"+new Date().toLocaleDateString("sv-SE")+".csv";a.click();URL.revokeObjectURL(url);
+}
+
+// ===== 付け回し =====
+function startAssign(castId,tableId,type,time){
+  const c=S.casts.find(c=>c.id===castId);if(!c)return;
+  // 同キャストの未終了付け回しがあれば終了
+  Object.values(S.assignments||{}).forEach(a=>{
+    if(a.castId===castId&&!a.endTime)a.endTime=Date.now();
+  });
+  const aid="a_"+Date.now();
+  S.assignments[aid]={id:aid,castId,castName:c.name,tableId,type,startTime:hhmm2ts(time),endTime:null};
+  save("assignments",S.assignments);closeM();render();
+}
+function endAssign(aid){
+  if(S.assignments[aid])S.assignments[aid].endTime=Date.now();
+  save("assignments",S.assignments);render();
+}
+function deleteAssign(aid){
+  if(!confirm("削除しますか？"))return;
+  delete S.assignments[aid];save("assignments",S.assignments);render();
+}
+
+// ===== 出勤画面 =====
+function rShifts(){
+  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
+  const onIds=getOndutyIds();
+  const allToday=Object.values(S.shifts||{}).filter(sh=>sh.clockIn>=bs&&sh.clockIn<be);
+  const done=allToday.filter(sh=>sh.clockOut).sort((a,b)=>b.clockIn-a.clockIn);
+  const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
+
+  let html='<div style="max-width:720px;margin:0 auto;">';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
+
+  // アクションボタン
+  html+='<div style="display:flex;gap:10px;margin-bottom:16px;">';
+  html+='<button class="btn gbg" onclick="openShiftMd(\'in\')" style="flex:1;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">🟢 出勤登録</button>';
+  html+='<button class="btn" onclick="openShiftMd(\'out\')" style="flex:1;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">🔴 退勤登録</button>';
+  html+='<button class="btn" onclick="exportShiftCSV()" style="padding:14px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:8px;font-size:13px;font-weight:600;touch-action:manipulation;">📊 CSV</button>';
+  html+='</div>';
+
+  // 出勤中
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:14px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
+  html+='<div class="st">出勤中 ('+onduty.length+'名)</div>';
+  html+='<div style="font-size:12px;color:#888;">本日累計: <span style="color:#4ade80;font-weight:700;">'+fmtDur(totalMs)+'</span></div>';
+  html+='</div>';
+  if(!onduty.length){html+='<div style="font-size:13px;color:#444;padding:8px 0;">出勤中のキャストはいません</div>';}
+  else onduty.forEach(sh=>{
+    const elapsed=Date.now()-sh.clockIn;
+    const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    // このキャストの現在の付け回し
+    const curA=Object.values(S.assignments||{}).filter(a=>a.castId===sh.castId&&!a.endTime)[0];
+    const tbl=curA?S.tables.find(t=>t.id===curA.tableId)?.label:"待機中";
+    const aCol=curA?(ASSIGN_TYPES[curA.type]?.col||"#888"):"#555";
+    const aLbl=curA?(ASSIGN_TYPES[curA.type]?.label||curA.type):"待機";
+    html+='<div class="ir" style="min-height:48px;">';
+    html+='<div style="flex:1;">';
+    html+='<span style="font-size:14px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
+    html+='<span style="font-size:11px;color:#888;margin-left:8px;">'+inT+'〜 ('+fmtDur(elapsed)+')</span>';
+    html+='<div style="margin-top:3px;"><span style="font-size:11px;padding:2px 7px;background:rgba(0,0,0,.3);border:1px solid '+aCol+';color:'+aCol+';border-radius:3px;">'+aLbl+(curA?" · "+tbl:"")+'</span></div>';
+    html+='</div>';
+    html+='<button class="btn" data-sid="'+sh.id+'" onclick="deleteShift(this.dataset.sid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // 退勤済み
+  if(done.length){
+    html+='<div class="glass" style="border-radius:8px;padding:16px;">';
+    html+='<div class="st" style="margin-bottom:12px;">退勤済み</div>';
+    done.forEach(sh=>{
+      const worked=sh.clockOut-sh.clockIn;
+      const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const outT=new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      html+='<div class="ir" style="font-size:13px;min-height:38px;">';
+      html+='<div style="flex:1;">';
+      html+='<span style="color:#bbb;font-weight:600;">'+sh.castName+'</span>';
+      html+='<span style="color:#666;margin-left:10px;">'+inT+' → '+outT+'</span>';
+      html+='<span style="color:#888;margin-left:8px;">('+fmtDur(worked)+')</span>';
+      html+='</div>';
+      html+='<button class="btn" data-sid="'+sh.id+'" onclick="deleteShift(this.dataset.sid)" style="padding:4px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function openShiftMd(mode){
+  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:nowHHMM()};
+  md="shift";rModal();
+}
 
 // ===== CLOCK =====
 setInterval(()=>{
