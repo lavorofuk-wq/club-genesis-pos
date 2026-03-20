@@ -2350,32 +2350,8 @@ function rModal(){
         +'<button class="btn" data-aidct3="'+a.id+'" onclick="openChangeType(this.dataset.aidct3)" style="flex:1;padding:10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:6px;font-size:13px;touch-action:manipulation;">タイプ変更</button>'
         +'<button class="btn" data-eid3="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid3)" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">時刻変更</button>'
         +'</div>'
-        +'<button class="btn" data-cid_hist="'+a.castId+'" onclick="window._historyCastId=this.dataset.cid_hist;md=\'castHistory\';rModal()" style="padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;width:100%;touch-action:manipulation;">📋 このキャストの履歴</button>'
         +'<button class="btn" data-aid4b="'+a.id+'" onclick="deleteAssign(this.dataset.aid4b)" style="padding:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;width:100%;">削除</button>'
         +'</div>'
-        // 履歴（このキャストの付け回し・待機・休憩）
-        +(()=>{
-          const castAssigns=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(castId)).sort((a,b)=>b.startTime-a.startTime).slice(0,6);
-          const castLogs=(sh.statusLog||[]).slice().reverse().slice(0,4);
-          if(!castAssigns.length&&!castLogs.length)return "";
-          let inner='<div class="st" style="margin-top:14px;margin-bottom:8px;">履歴</div>';
-          castAssigns.forEach(a=>{
-            const col2=ASSIGN_TYPES[a.type]?.col||"#555";const lbl2=TYPE_SFX[a.type]||"?";
-            const tbl=S.tables.find(t=>t.id===a.tableId)?.label||"";
-            const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-            const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-            const dur=a.endTime?" ("+fmtDur(a.endTime-a.startTime)+")":"";
-            inner+='<div style="font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;justify-content:space-between;"><span><span style="color:'+col2+';padding:1px 4px;border:1px solid '+col2+'66;border-radius:2px;margin-right:5px;">'+lbl2+'</span>'+tbl+'</span><span style="color:#555;">'+sT+'→'+eT+dur+'</span></div>';
-          });
-          castLogs.forEach(l=>{
-            const lCol=l.status==="waiting"?"#4ade80":"#ffa500";const lLbl=l.status==="waiting"?"待機":"休憩";
-            const dur=fmtDur(l.endTime?(l.endTime-l.startTime):(Date.now()-l.startTime));
-            const sT=new Date(l.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-            const eT=l.endTime?new Date(l.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-            inner+='<div style="font-size:11px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;justify-content:space-between;"><span style="color:'+lCol+';">'+lLbl+'</span><span style="color:#555;">'+sT+'→'+eT+' ('+dur+')</span></div>';
-          });
-          return inner;
-        })()
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:10px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
         +'</div></div>';
     }
@@ -2854,45 +2830,11 @@ function rShifts(){
 setInterval(()=>{
   now=Date.now();
   const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
-  if(md)return; // モーダル中はUI更新しない（nowは更新済み）
-  if(vw==="floor")tickFloor();
-  else if(vw==="order")tickOrder();
-  else if(vw==="list"||vw==="tableDetail"||vw==="assignHistory")tickList();
+  if(md)return;
+  // 全ビューを毎秒再描画（シンプル・確実）
+  if(vw==="order")tickOrder();
+  else if(["floor","list","tableDetail","assignHistory"].includes(vw))render();
 },1000);
-
-// フロアタブ差分更新（タイマーは毎秒、フル再renderは5秒ごと）
-let _floorFullRenderTick=0;
-function tickFloor(){
-  _floorFullRenderTick++;
-  // タイマーを毎秒差分更新
-  tickList();
-  // 5秒ごとにフル再renderして金額・使用中バッジなどを同期
-  if(_floorFullRenderTick%5===0)render();
-}
-
-// リスト系は軽量な差分更新（タイマー数値のみ書き換え）
-function tickList(){
-  // タイマー要素を探してtextContentだけ更新（DOM再構築なし）
-  document.querySelectorAll("[data-timer]").forEach(el=>{
-    const start=parseInt(el.dataset.timer);
-    if(!isNaN(start)){el.textContent=ts(Date.now()-start).slice(3);}
-  });
-  document.querySelectorAll("[data-countdown]").forEach(el=>{
-    const end=parseInt(el.dataset.countdown);
-    if(!isNaN(end)&&end>0){
-      const diff=end-Date.now();
-      const urg=diff<600000&&diff>0;const exp=diff<=0;
-      // VIP残時間用（テキストが「VIP残」で始まる場合）
-      if(el.textContent.startsWith("VIP残")){
-        el.textContent="VIP残 "+ts(Math.max(0,diff));
-        return;
-      }
-      el.textContent=exp?"- "+ts(-diff):"残 "+ts(diff);
-      el.style.color=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
-      el.className=urg||exp?"urg":"";
-    }
-  });
-}
 
 function tickOrder(){
   const s=S.sessions[at];if(!s)return;
