@@ -245,10 +245,14 @@ function togglePriceHide(){
 }
 
 // ===== FIREBASE =====
+let _writing=false; // 自分のsave中はFirebaseリスナーのrender()をスキップ
+
 function initFB(){
   const db=window._db;
   sbs(false,"接続中…");
   db.ref("pos").on("value",(snap)=>{
+    // 自分のsave中は無視（他端末の変更は次のイベントで必ず受け取る）
+    if(_writing)return;
     const d=snap.val();
     if(!d){sbs(true,"同期済み ✓");render();return;}
     if(d.casts)S.casts=d.casts;
@@ -259,7 +263,6 @@ function initFB(){
     S.shifts=d.shifts||{};
     S.assignments=d.assignments||{};
     sbs(true,"同期済み ✓");
-    // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
       at=null;vw="floor";closeM();render();return;
     }
@@ -269,8 +272,11 @@ function initFB(){
 }
 async function save(path,val){
   if(!window._db)return;
+  _writing=true;
   try{await window._db.ref("pos/"+path).set(val);sbs(true,"同期済み ✓");}
   catch(e){sbs(false,"保存エラー");}
+  // 少し待ってからフラグを解除（Firebaseの自己発火イベントが来るまでの時間）
+  setTimeout(()=>{_writing=false;},500);
 }
 
 // ===== SESSIONS =====
@@ -440,10 +446,12 @@ function checkout(){
   const newSessions={...S.sessions};
   delete newSessions[at];
   if(window._db){
+    _writing=true;
     window._db.ref("pos").update({
       sessions:Object.keys(newSessions).length>0?newSessions:null,
       history:newHistory
-    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    }).then(()=>{sbs(true,"同期済み ✓");setTimeout(()=>{_writing=false;},500);})
+      .catch(()=>{sbs(false,"保存エラー");_writing=false;});
   }
   S.sessions=newSessions;S.history=newHistory;
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
