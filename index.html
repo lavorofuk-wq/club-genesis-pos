@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.30</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.31</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2409,12 +2409,13 @@ function rModal(){
         +'<div style="font-size:11px;color:#666;">開始: '+sT+'</div>'
         +'</div>'
         +'<div style="display:flex;flex-direction:column;gap:8px;">'
-        +'<button class="btn" data-aid3b="'+a.id+'" onclick="endAssign(this.dataset.aid3b)" style="padding:12px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 待機</button>'
-        +'<button class="btn" data-cid7b="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7b)" style="padding:12px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 休憩</button>'
+        +'<button class="btn" data-aid3b="'+a.id+'" onclick="endAssign(this.dataset.aid3b);closeM()" style="padding:12px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 待機</button>'
+        +'<button class="btn" data-cid7b="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7b);closeM()" style="padding:12px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 休憩</button>'
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn" data-aidct3="'+a.id+'" onclick="openChangeType(this.dataset.aidct3)" style="flex:1;padding:10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:6px;font-size:13px;touch-action:manipulation;">タイプ変更</button>'
         +'<button class="btn" data-eid3="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid3)" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">時刻変更</button>'
         +'</div>'
+        +'<button class="btn" data-chist="'+a.castId+'" onclick="window._historyCastId=this.dataset.chist;md=\'castHistory\';rModal()" style="padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;width:100%;touch-action:manipulation;">📋 このキャストの履歴</button>'
         +'<button class="btn" data-aid4b="'+a.id+'" onclick="deleteAssign(this.dataset.aid4b)" style="padding:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;width:100%;">削除</button>'
         +'</div>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:10px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
@@ -2794,7 +2795,7 @@ function endAssign(aid){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  render();
+  closeM();render();
 }
 function moveToBreak(castId){
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
@@ -2804,7 +2805,7 @@ function moveToBreak(castId){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  render();
+  closeM();render();
 }
 function moveToWaiting(castId){
   const sh=getShiftByCastId(castId);if(sh)sh.status="waiting";
