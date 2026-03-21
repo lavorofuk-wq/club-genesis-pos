@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.32</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.33</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2338,8 +2338,13 @@ function rModal(){
         +(tname?'<div style="font-size:12px;color:#888;margin-top:4px;">→ '+tname+'</div>':"")
         +'</div>'
         +tblSel
-        +'<div class="st" style="margin-bottom:6px;">開始時刻</div>'
-        +'<input type="time" id="tsuke-time" class="ip" value="'+tsukeMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="tsukeMd.time=this.value" onchange="tsukeMd.time=this.value"/>'
+        // Now/時刻指定トグル
+        +'<div style="display:flex;gap:8px;margin-bottom:14px;">'
+        +'<button class="btn" onclick="tsukeMd.useNow=true;rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(tsukeMd.useNow?'linear-gradient(135deg,#b8960c,#e8c84a)':'rgba(255,255,255,.06)')+';border:2px solid '+(tsukeMd.useNow?'#b8960c':'rgba(255,255,255,.1)')+';color:'+(tsukeMd.useNow?'#1a1200':'#888')+';">⚡ Now</button>'
+        +'<button class="btn" onclick="tsukeMd.useNow=false;if(!tsukeMd.time)tsukeMd.time=nowHHMM();rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(!tsukeMd.useNow?'rgba(167,139,250,.2)':'rgba(255,255,255,.06)')+';border:2px solid '+(!tsukeMd.useNow?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(!tsukeMd.useNow?'#a78bfa':'#888')+';">🕐 時刻指定</button>'
+        +'</div>'
+        +(!tsukeMd.useNow?'<input type="time" id="tsuke-time" class="ip" value="'+tsukeMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="tsukeMd.time=this.value" onchange="tsukeMd.time=this.value"/>':'')
+        +(tsukeMd.useNow?'<div style="font-size:12px;color:#888;margin-bottom:14px;padding:8px 12px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;">確定した瞬間からカウント開始</div>':'')
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="confirmTsuke()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">確定</button>'
         +'<button class="btn" onclick="tsukeMd.step=\'type\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
@@ -2649,7 +2654,7 @@ function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.histor
 const ASSIGN_TYPES={hon:{label:"本指名",col:"#ff4444"},free:{label:"フリー",col:"#38bdf8"},help:{label:"ヘルプ",col:"#e8dcc8"},banai:{label:"場内指名",col:"#4ade80"}};
 const TYPE_SFX={hon:"本",free:"F",help:"H",banai:"場"};
 let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
-let tsukeMd={step:"cast",castId:null,type:null,time:""};
+let tsukeMd={step:"cast",castId:null,type:null,time:"",useNow:true};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 function hhmm2ts(hhmm){
@@ -2753,14 +2758,37 @@ function exportShiftCSV(){
 
 // ===== 付け回し =====
 function confirmTsuke(){
-  const el=document.getElementById("tsuke-time");
-  const t=(el&&el.value)?el.value:nowHHMM();
   const tableId=tsukeMd.tableId||at;
   if(!tableId){alert("テーブルを選択してください");return;}
   if(!tsukeMd.castId){alert("キャストを選択してください");return;}
   if(!tsukeMd.type){alert("種別を選択してください");return;}
-  startAssign(tsukeMd.castId,tableId,tsukeMd.type,t);
-  tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:""};
+  const useNow=tsukeMd.useNow!==false; // デフォルトtrue
+  if(useNow){
+    startAssignNow(tsukeMd.castId,tableId,tsukeMd.type);
+  }else{
+    const el=document.getElementById("tsuke-time");
+    const t=(el&&el.value)?el.value:nowHHMM();
+    startAssign(tsukeMd.castId,tableId,tsukeMd.type,t);
+  }
+  tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true};
+}
+function startAssignNow(castId,tableId,type){
+  // Nowモード：確定した瞬間のtimestampをstartTime・attachedAt両方に使う
+  const c=S.casts.find(c=>String(c.id)===String(castId));
+  if(!c){alert("キャストが見つかりません");return;}
+  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
+  if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
+  const now_sa=Date.now();
+  const aid="a_"+now_sa;
+  const sessionId=S.sessions[tableId]?.startTime||null;
+  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:now_sa,attachedAt:now_sa,endTime:null,sessionId};
+  const sh=getShiftByCastId(castId);
+  if(sh)setCastStatus(castId,"active");
+  if(window._db){
+    window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  closeM();render();
 }
 function startAssign(castId,tableId,type,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
