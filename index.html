@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.33</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.34</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1669,6 +1669,11 @@ function rSettings(){
   html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">フロアが開かない等の不具合時に使用。進行中のセッションが全て消えます。</div>';
   html+='<button class="btn" onclick="clearAllSessions()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:13px;font-weight:600;">セッションデータをクリア</button>';
   html+='</div>';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:12px;border:1px solid rgba(255,165,0,.2);">';
+  html+='<div class="st" style="color:#ffa500;margin-bottom:8px;">リストタブ緊急リセット</div>';
+  html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">付け回しが正常に動かない等の不具合時に使用。全ての付け回しデータが消え、全キャストが待機状態に戻ります。出勤データには影響しません。</div>';
+  html+='<button class="btn" onclick="clearAllAssignments()" style="padding:8px 16px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:13px;font-weight:600;">付け回しデータをクリア</button>';
+  html+='</div>';
   html+='</div>';
   return html;
 }
@@ -1681,6 +1686,30 @@ function clearAllSessions(){
       .catch(()=>sbs(false,"クリアエラー"));
   }
   at=null;vw="floor";render();
+}
+function clearAllAssignments(){
+  if(!confirm("全ての付け回しデータをクリアし、全キャストを待機状態に戻します。\n出勤データは変更されません。\n\nよろしいですか？"))return;
+  // assignments全クリア
+  S.assignments={};
+  // 全キャストのstatusをwaitingに戻す（shiftsは保持・statusLogは保持）
+  const now_r=Date.now();
+  Object.values(S.shifts||{}).forEach(sh=>{
+    if(!sh.clockOut){ // 出勤中のみ
+      sh.status="waiting";
+      // 現在進行中のstatusLogエントリを閉じて新しいwaitingを追加
+      if(!sh.statusLog)sh.statusLog=[];
+      const last=sh.statusLog[sh.statusLog.length-1];
+      if(last&&!last.endTime)last.endTime=now_r;
+      sh.statusLog.push({status:"waiting",startTime:now_r,endTime:null});
+    }
+  });
+  if(window._db){
+    window._db.ref("pos").update({
+      assignments:null,
+      shifts:Object.keys(S.shifts||{}).length>0?S.shifts:null
+    }).then(()=>sbs(true,"リセット済み ✓")).catch(()=>sbs(false,"リセットエラー"));
+  }
+  vw="list";render();
 }
 function sst(t){stab=t;render();}
 function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
