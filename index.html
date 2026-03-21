@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.31</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.32</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1070,7 +1070,7 @@ function rTableDetail(){
   if(!acA.length){html+='<div style="font-size:13px;color:#555;">付け回しなし</div>';}
   acA.forEach(a=>{
     const col=ASSIGN_TYPES[a.type]?.col||"#888";const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-    const elapsed=Date.now()-a.startTime;
+    const elapsed=Date.now()-(a.attachedAt||a.startTime);
     html+='<div data-atd="'+a.id+'" onclick="openAssignActionModal(this.dataset.atd)" style="padding:12px 16px;background:rgba(0,0,0,.2);border:1px solid '+col+'55;border-radius:8px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;touch-action:manipulation;">';
     // 左：タイプバッジ＋キャスト名
     html+='<div style="display:flex;align-items:center;gap:10px;">';
@@ -1078,7 +1078,7 @@ function rTableDetail(){
     html+='<span style="font-size:16px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
     html+='</div>';
     // 右：経過時間（data-timerでtickList更新）
-    html+='<span data-timer="'+a.startTime+'" style="font-size:22px;font-weight:700;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
+    html+='<span data-timer="'+(a.attachedAt||a.startTime)+'" style="font-size:22px;font-weight:700;font-family:monospace;color:'+col+';">'+ts(elapsed).slice(3)+'</span>';
     html+='</div>';
   });
   html+='</div>';
@@ -2398,7 +2398,7 @@ function rModal(){
     else{
       const col=ASSIGN_TYPES[a.type]?.col||"#888";
       const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-      const elapsed=Date.now()-a.startTime;
+      const elapsed=Date.now()-(a.attachedAt||a.startTime);
       const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
         +'<div style="padding:14px;background:rgba(0,0,0,.2);border:1px solid '+col+'55;border-radius:8px;margin-bottom:16px;">'
@@ -2771,7 +2771,10 @@ function startAssign(castId,tableId,type,time){
   const aid="a_"+Date.now();
   // sessionId = そのテーブルの現在セッション開始時刻（会計単位でグループ化に使う）
   const sessionId=S.sessions[tableId]?.startTime||null;
-  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),endTime:null,sessionId};
+  // attachedAt = 実際に付けた瞬間のtimestamp（カウントアップ基準）
+  // startTime = 入力された開始時刻（記録・表示用）
+  const attachedAt=Date.now();
+  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),attachedAt,endTime:null,sessionId};
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
   if(window._db){
@@ -2789,8 +2792,9 @@ function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
 function endAssign(aid){
   const a=S.assignments[aid];if(!a)return;
-  a.endTime=Date.now();
-  const sh=getShiftByCastId(a.castId);if(sh)sh.status="waiting";
+  const now2=Date.now();
+  a.endTime=now2;
+  setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
   if(window._db){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -2798,9 +2802,10 @@ function endAssign(aid){
   closeM();render();
 }
 function moveToBreak(castId){
+  const now2=Date.now();
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
-  if(a)a.endTime=Date.now();
-  const sh=getShiftByCastId(castId);if(sh)sh.status="break";
+  if(a)a.endTime=now2;
+  setCastStatus(castId,"break"); // statusLogに新エントリを追加
   if(window._db){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -2808,13 +2813,17 @@ function moveToBreak(castId){
   closeM();render();
 }
 function moveToWaiting(castId){
-  const sh=getShiftByCastId(castId);if(sh)sh.status="waiting";
-  save("shifts",S.shifts);render();
+  setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
+  if(window._db){
+    window._db.ref("pos").update({shifts:S.shifts})
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  render();
 }
 function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   if(!a.endTime){
-    const sh=getShiftByCastId(a.castId);if(sh)sh.status="waiting";
+    setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
   }
   delete S.assignments[aid];
   if(window._db){
