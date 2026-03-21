@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.34</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.40</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -815,138 +815,249 @@ function rFloor(){
 }
 
 // ===== LIST（付け回し管理）=====
+// DnD状態
+let _dnd={dragging:false,castId:null,castName:null,fromTable:null,assignId:null,ghost:null};
+
 function rList(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(155px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(195px,1fr))":"repeat(auto-fill,minmax(215px,1fr))";
   const waiting=getWaitingCasts();
   const brk=getBreakCasts();
-  const active=getActiveCasts();
+  const activeSessions=S.tables.filter(t=>S.sessions[t.id]);
 
-  let html='<div>';
-  // ステータスサマリー行
+  let html='<div id="list-root">';
+
+  // ヘッダー
   html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">';
   html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;flex:1;">LIST</span>';
-  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:20px;">待機 '+waiting.length+'名</span>';
-  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:20px;">休憩 '+brk.length+'名</span>';
+  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:20px;">待機 '+waiting.length+'</span>';
+  html+='<span style="font-size:12px;padding:4px 10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:20px;">休憩 '+brk.length+'</span>';
   html+='<button class="btn" onclick="sv(\'assignHistory\')" style="padding:7px 12px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">📋 履歴</button>';
-  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\'};om(\'tsuke\')" style="padding:7px 14px;font-size:12px;font-weight:700;border-radius:6px;touch-action:manipulation;">＋ 付け回し</button>';
   html+='</div>';
 
-  // テーブルグリッド
-  html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;margin-bottom:16px;">';
-  S.tables.forEach(t=>{
-    const s=S.sessions[t.id];
-    if(!s){
-      html+='<div class="tc te '+(isV(t.id)?"tv ":"")+'sm" style="min-height:'+(DEV==="mobile"?"95px":"110px")+';opacity:.35;"><div style="display:flex;justify-content:space-between;margin-bottom:6px;"><span style="font-size:'+(DEV==="mobile"?"12px":"13px")+';font-weight:500;">'+t.label+'</span>'+(isV(t.id)?'<span class="tag tv2">VIP</span>':'')+'</div><div style="font-size:11px;color:#444;margin-top:8px;">空席</div></div>';
-      return;
-    }
-    const rv=rem(s.setEndTime);
-    const urg=rv!==null&&rv<600000&&rv>0;
-    const exp=rv!==null&&rv<=0;
-    const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
-    const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
-    const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-    const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-    const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
-    const tid=t.id;
-    html+='<div class="tc ta '+(isV(t.id)?"tv ":"")+'sm" data-tid3="'+tid+'" onclick="sv(\'tableDetail\',\''+tid+'\')" style="min-height:'+(DEV==="mobile"?"95px":"110px")+';cursor:pointer;">';
-    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
-    html+='<div style="display:flex;align-items:center;gap:4px;">';
-    html+='<span style="font-size:'+(DEV==="mobile"?"12px":"13px")+';font-weight:500;">'+t.label+'</span>';
-    if(hn.length)html+='<span style="font-size:9px;color:#ff4444;padding:1px 4px;border:1px solid #ff444488;border-radius:2px;">本'+hn.length+'</span>';
-    if(bn.length)html+='<span style="font-size:9px;color:#4ade80;padding:1px 4px;border:1px solid #4ade8088;border-radius:2px;">場'+bn.length+'</span>';
-    html+='</div>';
-    html+='<div style="display:flex;gap:3px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':'')+'</div>';
-    html+='</div>';
-    // 人数＋本指名内訳（本指名か否かで表示を決める）
-    const honCount=hn.length; // 本指名人数（追加指名も含む）
-    const freeCount=Math.max(0,s.guests-honCount); // 残りはフリー
-    let guestStr=s.guests+'名';
-    if(honCount>0&&freeCount>0)guestStr+=' (本'+honCount+' F'+freeCount+')';
-    else if(honCount>0)guestStr+=' (本'+honCount+')';
-    else guestStr+=' (F'+s.guests+')';
-    html+='<div style="font-size:11px;color:#999;margin-bottom:3px;">'+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")+" · "+guestStr+'</div>';
-    // 本指名・場内指名 をテーブル番号の横ではなくここに表示
-    if(hn.length||bn.length){
-      html+='<div style="font-size:10px;margin-bottom:2px;">';
-      hn.forEach(n=>{html+='<span style="color:#ff4444;margin-right:4px;">本'+n+'</span>';});
-      bn.forEach(n=>{html+='<span style="color:#4ade80;margin-right:4px;">場'+n+'</span>';});
-      html+='</div>';
-    }
-    html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:13px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
-    if(ac.length){
-      html+='<div style="margin-top:5px;">';
-      ac.forEach(a=>{
-        const col=ASSIGN_TYPES[a.type]?.col||"#888";
-        const sfx=TYPE_SFX[a.type]||"?";
-        const el=Date.now()-a.startTime;
-        html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
-        html+='<span style="font-size:11px;font-weight:700;color:'+col+';">'+sfx+' '+a.castName+'</span>';
-        html+='<span data-timer="'+a.startTime+'" style="font-size:10px;font-family:monospace;color:'+col+';">'+ts(el).slice(3)+'</span>';
-        html+='</div>';
-      });
-      html+='</div>';
-    } else {
-      html+='<div style="font-size:10px;color:#444;margin-top:5px;">付け回しなし</div>';
-    }
-    html+='</div>';
-  });
-  html+='</div>';
+  // ===== 2カラムレイアウト: 左=キャストゾーン 右=テーブルゾーン =====
+  const isMob=DEV==="mobile";
+  html+='<div style="display:grid;grid-template-columns:'+(isMob?"1fr":"minmax(160px,200px) 1fr")+';gap:12px;align-items:start;">';
 
-  // 待機・休憩パネル
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
-  // --- 待機 ---
-  html+='<div class="glass" style="border-radius:8px;padding:12px;">';
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-  html+='<div class="st">待機中 <span style="color:#4ade80;font-size:13px;">'+waiting.length+'</span></div>';
-  html+='</div>';
-  if(!waiting.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
+  // ===== 左: 待機・休憩ゾーン（ドラッグソース & ドロップゾーン）=====
+  html+='<div>';
+  // 待機ゾーン（テーブルからドロップで戻る）
+  html+='<div id="dz-waiting" class="glass" style="border-radius:10px;padding:10px;margin-bottom:10px;min-height:60px;transition:background .2s;" ondragover="dzOver(event,\'waiting\')" ondragleave="dzLeave(\'waiting\')" ondrop="dzDrop(event,\'waiting\')">';
+  html+='<div style="font-size:11px;font-weight:700;color:#4ade80;letter-spacing:.08em;margin-bottom:8px;">待機 '+waiting.length+'</div>';
+  if(!waiting.length)html+='<div style="font-size:11px;color:#333;text-align:center;padding:6px 0;">なし</div>';
   waiting.forEach(sh=>{
-    // 最後のstatusLogエントリから現在の待機時間（endTime=nullのもの=現在進行中の待機）
     const logs=sh.statusLog||[];
     const lastLog=logs.filter(l=>l.status==="waiting"&&!l.endTime).pop();
-    const waitElapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
-    // このキャストの直前のアサインタイプ
-    const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
-    const lastType=lastA?.type||null;
-    const lastCol=lastType?(ASSIGN_TYPES[lastType]?.col||"#888"):"#555";
-    const lastLbl=lastType?(TYPE_SFX[lastType]||"?"):"—";
-    html+='<div data-cid8="'+sh.castId+'" onclick="openCastStatusModal(this.dataset.cid8)" style="padding:10px;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:8px;margin-bottom:8px;cursor:pointer;touch-action:manipulation;">';
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-    html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
-    html+='</div>';
-    html+='<div data-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:13px;font-family:monospace;color:#4ade80;margin-top:4px;">'+ts(waitElapsed).slice(3)+'</div>';
-    html+='</div>';
+    const el=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
+    html+=castChip(sh.castId,sh.castName,"waiting",null,el,(lastLog?lastLog.startTime:sh.clockIn));
   });
   html+='</div>';
-  // --- 休憩 ---
-  html+='<div class="glass" style="border-radius:8px;padding:12px;">';
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
-  html+='<div class="st">休憩中 <span style="color:#ffa500;font-size:13px;">'+brk.length+'</span></div>';
-  html+='</div>';
-  if(!brk.length){html+='<div style="font-size:12px;color:#444;">なし</div>';}
+  // 休憩ゾーン
+  html+='<div id="dz-break" class="glass" style="border-radius:10px;padding:10px;min-height:60px;transition:background .2s;" ondragover="dzOver(event,\'break\')" ondragleave="dzLeave(\'break\')" ondrop="dzDrop(event,\'break\')">';
+  html+='<div style="font-size:11px;font-weight:700;color:#ffa500;letter-spacing:.08em;margin-bottom:8px;">休憩 '+brk.length+'</div>';
+  if(!brk.length)html+='<div style="font-size:11px;color:#333;text-align:center;padding:6px 0;">なし</div>';
   brk.forEach(sh=>{
     const logs=sh.statusLog||[];
     const lastLog=logs.filter(l=>l.status==="break"&&!l.endTime).pop();
-    const brkElapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
-    const lastA=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(sh.castId)&&a.endTime).sort((a,b)=>b.endTime-a.endTime)[0];
-    const lastType=lastA?.type||null;
-    const lastCol=lastType?(ASSIGN_TYPES[lastType]?.col||"#888"):"#555";
-    const lastLbl=lastType?(TYPE_SFX[lastType]||"?"):"—";
-    html+='<div data-cid9="'+sh.castId+'" onclick="openCastStatusModal(this.dataset.cid9)" style="padding:10px;background:rgba(255,165,0,.05);border:1px solid rgba(255,165,0,.15);border-radius:8px;margin-bottom:8px;cursor:pointer;touch-action:manipulation;">';
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-    html+='<span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
-    html+=(lastType?'<span style="font-size:11px;padding:2px 6px;border:1px solid '+lastCol+';color:'+lastCol+';border-radius:3px;">'+lastLbl+'</span>':"");
+    const el=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
+    html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:sh.clockIn));
+  });
+  html+='</div>';
+  html+='</div>';
+
+  // ===== 右: テーブルゾーン =====
+  const tblCols=isMob?"repeat(auto-fill,minmax(140px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(160px,1fr))":"repeat(auto-fill,minmax(180px,1fr))";
+  html+='<div style="display:grid;grid-template-columns:'+tblCols+';gap:10px;align-content:start;">';
+  S.tables.forEach(t=>{
+    const s=S.sessions[t.id];
+    const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
+    const rv=s?rem(s.setEndTime):null;
+    const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
+    const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+    const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
+    const hn=s?(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
+    const isActive=!!s;
+    // テーブルカード（ドロップゾーン）
+    html+='<div id="dz-tbl-'+t.id+'" '
+      +'style="border-radius:10px;padding:10px;min-height:100px;transition:all .2s;cursor:'+(isActive?"pointer":"default")+';'
+      +'background:'+(isActive?"rgba(255,255,255,.05)":"rgba(255,255,255,.02)")+';'
+      +'border:1px solid '+(isActive?"rgba(212,160,23,.3)":"rgba(255,255,255,.06)")+';'
+      +(isV(t.id)?"border-color:rgba(124,77,255,.3);":"")+'" '
+      +(isActive?'ondragover="dzOver(event,\'tbl\',\''+t.id+'\')" ondragleave="dzLeave(\'tbl\',\''+t.id+'\')" ondrop="dzDrop(event,\'tbl\',\''+t.id+'\')" ':'' )
+      +'onclick="if(!event.defaultPrevented&&\''+t.id+'\')sv(\'tableDetail\',\''+t.id+'\')">';
+    // テーブル名行
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">';
+    html+='<span style="font-size:13px;font-weight:700;color:'+(isActive?"#e8dcc8":"#444")+';">'+t.label+'</span>';
+    if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;">VIP</span>';
     html+='</div>';
-    html+='<div data-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:13px;font-family:monospace;color:#ffa500;margin-top:4px;">'+ts(brkElapsed).slice(3)+'</div>';
+    if(isActive&&s){
+      // 残り時間
+      html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+      // 本指名表示
+      if(hn.length)html+='<div style="font-size:10px;color:#ff4444;margin-top:2px;">本'+hn.join("・")+'</div>';
+      // ついているキャストチップ
+      if(ac.length){
+        html+='<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
+        ac.forEach(a=>{
+          const el=Date.now()-(a.attachedAt||a.startTime);
+          html+=castChip(a.castId,a.castName,"active",a,el,(a.attachedAt||a.startTime));
+        });
+        html+='</div>';
+      } else {
+        html+='<div style="font-size:10px;color:#333;margin-top:6px;text-align:center;padding:4px;border:1px dashed rgba(255,255,255,.08);border-radius:4px;">ドロップ</div>';
+      }
+    } else {
+      html+='<div style="font-size:11px;color:#333;margin-top:8px;">空席</div>';
+    }
     html+='</div>';
   });
   html+='</div>';
+  html+='</div>';
+
+  // ＋付け回しボタン（フローティング）
+  html+='<div style="position:sticky;bottom:16px;text-align:right;margin-top:12px;pointer-events:none;">';
+  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\',useNow:true};om(\'tsuke\')" style="pointer-events:auto;padding:10px 20px;font-size:14px;font-weight:700;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,.4);touch-action:manipulation;">＋ 付け回し</button>';
   html+='</div>';
 
   html+='</div>';
   return html;
 }
 
+// キャストチップ（ドラッグ可能なカード）
+function castChip(castId,castName,zone,assign,elapsed,timerBase){
+  const isActive=zone==="active";
+  const isWaiting=zone==="waiting";
+  const isBreak=zone==="break";
+  const col=isActive?(ASSIGN_TYPES[assign?.type]?.col||"#888"):isWaiting?"#4ade80":"#ffa500";
+  const sfx=isActive?(TYPE_SFX[assign?.type]||"?"):"";
+  const aid=assign?.id||"";
+  return '<div draggable="true" '
+    +'data-cast-id="'+castId+'" data-cast-name="'+castName+'" data-zone="'+zone+'" data-assign-id="'+aid+'" '
+    +'onclick="event.stopPropagation();chipTap(\''+castId+'\',\''+zone+'\',\''+aid+'\')" '
+    +'ondragstart="chipDragStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
+    +'ondragend="chipDragEnd(event)" '
+    +'ontouchstart="chipTouchStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
+    +'ontouchmove="chipTouchMove(event)" '
+    +'ontouchend="chipTouchEnd(event)" '
+    +'style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:grab;user-select:none;touch-action:none;'
+    +'background:'+(isActive?"rgba(0,0,0,.3)":"isWaiting"?"rgba(74,222,128,.08)":"rgba(255,165,0,.08)")+';'
+    +'background:'+(isActive?"rgba(0,0,0,.3)":isWaiting?"rgba(74,222,128,.08)":"rgba(255,165,0,.08)")+';'
+    +'border:1px solid '+col+'44;">'
+    +'<div style="display:flex;align-items:center;gap:6px;min-width:0;">'
+    +(isActive?'<span style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
+    +'<span style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
+    +'</div>'
+    +'<span data-timer="'+timerBase+'" style="font-size:11px;font-family:monospace;color:'+col+';flex-shrink:0;">'+ts(elapsed).slice(3)+'</span>'
+    +'</div>';
+}
+
+// チップタップ（クリック）時の処理
+function chipTap(castId,zone,assignId){
+  if(zone==="active"&&assignId){openAssignActionModal(assignId);}
+  else{openCastStatusModal(castId);}
+}
+
+// ===== ドラッグ&ドロップ（マウス）=====
+function chipDragStart(e,castId,castName,zone,assignId){
+  _dnd={dragging:true,castId,castName,fromZone:zone,assignId,ghost:null};
+  e.dataTransfer.effectAllowed="move";
+  e.dataTransfer.setData("text/plain",castId);
+  e.currentTarget.style.opacity=".4";
+}
+function chipDragEnd(e){
+  e.currentTarget.style.opacity="";
+  // ドロップゾーンのハイライトを全解除
+  document.querySelectorAll("[id^='dz-']").forEach(el=>{el.style.background="";el.style.boxShadow="";});
+  _dnd.dragging=false;
+}
+function dzOver(e,zone,tableId){
+  e.preventDefault();e.stopPropagation();
+  e.dataTransfer.dropEffect="move";
+  const el=document.getElementById(zone==="tbl"?"dz-tbl-"+tableId:zone==="waiting"?"dz-waiting":"dz-break");
+  if(el){el.style.background=zone==="waiting"?"rgba(74,222,128,.15)":zone==="break"?"rgba(255,165,0,.15)":"rgba(167,139,250,.15)";
+    el.style.boxShadow=zone==="waiting"?"0 0 0 2px #4ade8066":zone==="break"?"0 0 0 2px #ffa50066":"0 0 0 2px #a78bfa66";}
+}
+function dzLeave(zone,tableId){
+  const el=document.getElementById(zone==="tbl"?"dz-tbl-"+tableId:zone==="waiting"?"dz-waiting":"dz-break");
+  if(el){el.style.background="";el.style.boxShadow="";}
+}
+function dzDrop(e,zone,tableId){
+  e.preventDefault();e.stopPropagation();
+  dzLeave(zone,tableId);
+  if(!_dnd.dragging||!_dnd.castId)return;
+  const {castId,castName,fromZone,assignId}=_dnd;
+  _dnd.dragging=false;
+  _dndExecute(castId,castName,fromZone,assignId,zone,tableId);
+}
+
+// ===== タッチDnD（iPad対応）=====
+let _touch={active:false,castId:null,castName:null,fromZone:null,assignId:null,ghost:null};
+function chipTouchStart(e,castId,castName,zone,assignId){
+  const t=e.touches[0];
+  _touch={active:true,castId,castName,fromZone:zone,assignId,ghost:null,startX:t.clientX,startY:t.clientY,moved:false};
+  // ゴーストを作成
+  const src=e.currentTarget.cloneNode(true);
+  src.style.cssText="position:fixed;pointer-events:none;z-index:9999;opacity:.85;width:160px;border-radius:8px;padding:8px 12px;background:#1a1a2e;border:1px solid rgba(212,160,23,.5);color:#e8dcc8;font-size:13px;font-weight:700;transform:scale(1.05);transition:none;left:"+(t.clientX-80)+"px;top:"+(t.clientY-20)+"px;";
+  document.body.appendChild(src);
+  _touch.ghost=src;
+}
+function chipTouchMove(e){
+  if(!_touch.active)return;
+  e.preventDefault();
+  const t=e.touches[0];
+  if(_touch.ghost){_touch.ghost.style.left=(t.clientX-80)+"px";_touch.ghost.style.top=(t.clientY-20)+"px";}
+  _touch.moved=true;
+  // ドロップ候補ハイライト
+  document.querySelectorAll("[id^='dz-']").forEach(el=>{
+    const r=el.getBoundingClientRect();
+    const over=t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom;
+    el.style.background=over?(el.id.includes("waiting")?"rgba(74,222,128,.15)":el.id.includes("break")?"rgba(255,165,0,.15)":"rgba(167,139,250,.15)"):"";
+    el.style.boxShadow=over?(el.id.includes("waiting")?"0 0 0 2px #4ade8066":el.id.includes("break")?"0 0 0 2px #ffa50066":"0 0 0 2px #a78bfa66"):"";
+  });
+}
+function chipTouchEnd(e){
+  if(!_touch.active)return;
+  if(_touch.ghost){_touch.ghost.remove();_touch.ghost=null;}
+  document.querySelectorAll("[id^='dz-']").forEach(el=>{el.style.background="";el.style.boxShadow="";});
+  if(!_touch.moved){_touch.active=false;return;} // タップは chipTap で処理
+  const t=e.changedTouches[0];
+  let zone=null,tableId=null;
+  document.querySelectorAll("[id^='dz-']").forEach(el=>{
+    const r=el.getBoundingClientRect();
+    if(t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom){
+      if(el.id==="dz-waiting")zone="waiting";
+      else if(el.id==="dz-break")zone="break";
+      else if(el.id.startsWith("dz-tbl-")){zone="tbl";tableId=el.id.replace("dz-tbl-","");}
+    }
+  });
+  const {castId,castName,fromZone,assignId}=_touch;
+  _touch.active=false;
+  if(zone)_dndExecute(castId,castName,fromZone,assignId,zone,tableId);
+}
+
+// ===== DnD実行処理 =====
+function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
+  // 同じゾーンへのドロップは無視（ただし待機→同テーブルなど）
+  if(fromZone===toZone&&(toZone!=="tbl"||(fromZone==="tbl")))return;
+  if(toZone==="waiting"){
+    // テーブル or 休憩 → 待機
+    if(assignId)endAssign(assignId);
+    else if(fromZone==="break")moveToWaiting(castId);
+  } else if(toZone==="break"){
+    // テーブル or 待機 → 休憩
+    if(assignId){endAssign(assignId);}
+    moveToBreak(castId);
+  } else if(toZone==="tbl"&&tableId){
+    // 待機 or 休憩 or テーブル → テーブル
+    const tblSession=S.sessions[tableId];
+    if(!tblSession)return; // 空席は不可
+    if(assignId&&fromZone==="tbl"){
+      // テーブル→別テーブル: 一旦終了してからタイプ選択
+      endAssign(assignId);
+    }
+    // タイプ選択モーダルを開く（Nowモード）
+    tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true};
+    md="tsuke";rModal();
+  }
+}
 // ===== 付け回し履歴画面 =====
 function rAssignHistory(){
   const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
