@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.42</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.43</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1143,7 +1143,14 @@ function rTableDetail(){
   // hhmm2tsの秒切り捨て分を考慮して60秒のマージンを設ける
   const sessionStart=s?s.startTime:null;
   const allA=Object.values(S.assignments||{})
-    .filter(a=>a.tableId===tid&&(sessionStart===null||a.startTime>=(sessionStart-60000)))
+    .filter(a=>{
+      if(a.tableId!==tid)return false;
+      if(sessionStart===null)return true;
+      // sessionIdがある場合はそれで一致判定（最も確実）
+      if(a.sessionId!=null)return a.sessionId===sessionStart;
+      // sessionIdがない古いデータはstartTimeで判定（広めのマージン）
+      return a.startTime>=(sessionStart-3600000); // 1時間以内
+    })
     .sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
   const doneA=allA.filter(a=>a.endTime);
@@ -2303,11 +2310,18 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">本指名キャストを選択</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">¥3,000/名</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+cb+'</div>'+(ci.honShimeis.length?'<div style="margin-top:12px;padding:8px 12px;background:rgba(184,150,12,.1);border-radius:4px;font-size:12px;color:#d4a017;">合計 ¥'+fmt(3000*ci.honShimeis.length)+'（'+ci.honShimeis.length+'名）</div>':"")+'<button class="btn gbg" onclick="closeM()" style="margin-top:12px;width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">確定</button></div></div>';
   }
   else if(md==="et"&&s){
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
-      +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+      +'<h3 style="margin-bottom:8px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'
       +'<div style="font-size:12px;color:#888;margin-bottom:12px;">現在: '+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>'
-      +'<input type="time" class="ip" id="eti" step="300" value="'+etv+'" onchange="etv=this.value" style="margin-bottom:16px;font-size:18px;text-align:center;"/>'
-      +'<div style="font-size:11px;color:#666;margin-bottom:16px;">※セット終了予定時刻も自動で更新されます</div>'
+      +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">'
+      +'<button class="btn" onclick="etv=adjustHHMM(etv,-5);document.getElementById(\'eti\').value=etv" style="width:48px;height:48px;font-size:20px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;touch-action:manipulation;">−</button>'
+      +'<input type="time" class="ip" id="eti" step="300" value="'+etv+'" onchange="etv=this.value" style="flex:1;font-size:22px;text-align:center;height:48px;padding:0;"/>'
+      +'<button class="btn" onclick="etv=adjustHHMM(etv,5);document.getElementById(\'eti\').value=etv" style="width:48px;height:48px;font-size:20px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;touch-action:manipulation;">＋</button>'
+      +'</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">'
+      +(()=>{let btns="";[-30,-15,-10,-5,5,10,15,30].forEach(d=>{const lbl=(d>0?"+":"")+d+"分";btns+='<button class="btn" onclick="etv=adjustHHMM(etv,'+d+');document.getElementById(\'eti\').value=etv" style="flex:1;min-width:44px;padding:7px 2px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;touch-action:manipulation;">'+lbl+'</button>';});return btns;})()
+      +'</div>'
+      +'<div style="font-size:11px;color:#666;margin-bottom:14px;">※セット終了予定時刻も自動で更新されます</div>'
       +'<div style="display:flex;gap:10px;">'
       +'<button class="btn gbg" onclick="applyET()" style="flex:1;padding:12px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">変更する</button>'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button>'
@@ -2390,8 +2404,15 @@ function rModal(){
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
         +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
         +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+(name||"不明")+'</div>'
-        +'<div class="st" style="margin-bottom:6px;">'+(isIn?"出勤時刻":"退勤時刻")+'</div>'
-        +'<input type="time" id="shift-time" class="ip" step="900" value="'+shiftMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="shiftMd.time=this.value" onchange="shiftMd.time=this.value"/>'
+        +'<div class="st" style="margin-bottom:8px;">'+(isIn?"出勤時刻":"退勤時刻")+'</div>'
+        +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">'
+        +'<button class="btn" onclick="shiftMd.time=adjustHHMM(shiftMd.time,-15);rModal()" style="width:48px;height:48px;font-size:20px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;touch-action:manipulation;">−</button>'
+        +'<input type="time" id="shift-time" class="ip" step="900" value="'+shiftMd.time+'" style="flex:1;font-size:22px;text-align:center;height:48px;padding:0;" oninput="shiftMd.time=this.value" onchange="shiftMd.time=this.value"/>'
+        +'<button class="btn" onclick="shiftMd.time=adjustHHMM(shiftMd.time,15);rModal()" style="width:48px;height:48px;font-size:20px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;touch-action:manipulation;">＋</button>'
+        +'</div>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px;">'
+        +(()=>{let btns="";[-60,-30,-15,15,30,60].forEach(d=>{const lbl=(d>0?"+":"")+d+"分";btns+='<button class="btn" onclick="shiftMd.time=adjustHHMM(shiftMd.time,'+d+');rModal()" style="flex:1;min-width:52px;padding:8px 4px;font-size:12px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;touch-action:manipulation;">'+lbl+'</button>';});return btns;})()
+        +'</div>'
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="confirmShiftTime()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">登録する</button>'
         +'<button class="btn" onclick="shiftMd.step=\'cast\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
@@ -2798,12 +2819,19 @@ let tsukeMd={step:"cast",castId:null,type:null,time:"",useNow:true};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 function roundHHMM(stepMin){
-  // 現在時刻をstepMin分刻みに丸める
   const d=new Date();
   const total=d.getHours()*60+d.getMinutes();
   const rounded=Math.round(total/stepMin)*stepMin;
   const h=Math.floor(rounded/60)%24;const m=rounded%60;
   return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+}
+function adjustHHMM(hhmm,deltaMins){
+  // HH:MM を deltaMins 分増減して返す
+  if(!hhmm||!hhmm.includes(":"))hhmm=roundHHMM(1);
+  const [h,m]=hhmm.split(":").map(Number);
+  let total=h*60+m+deltaMins;
+  total=((total%1440)+1440)%1440; // 24時間循環
+  return String(Math.floor(total/60)).padStart(2,"0")+":"+String(total%60).padStart(2,"0");
 }
 function hhmm2ts(hhmm){
   // HH:MM を当日または翌日のtimestampに変換
