@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.40</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.41</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -278,7 +278,7 @@ function startSession(){
   const si=items.find(i=>i.isSet);
   S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[]};
   save("sessions",S.sessions);
-  vw="order";ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};etv="";
+  vw="order";ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};etv=roundHHMM(5);
   render();
 }
 function addExt(ext,wsc){
@@ -1282,7 +1282,7 @@ function rCI(){
   });
   html+='</div>';
   // 時刻
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">入店時刻（変更する場合のみ）</div><div style="display:flex;align-items:center;gap:10px;"><input type="time" class="ip" style="flex:1;font-size:'+(isTabletPlus?"16px":"14px")+';" value="'+etv+'" onchange="etv=this.value"/><button class="btn" onclick="etv=\'\';render()" style="padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;white-space:nowrap;">現在時刻</button></div></div>';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">入店時刻（変更する場合のみ）</div><div style="display:flex;align-items:center;gap:10px;"><input type="time" step="300" class="ip" style="flex:1;font-size:'+(isTabletPlus?"16px":"14px")+';" value="'+etv+'" onchange="etv=this.value"/><button class="btn" onclick="etv=\'\';render()" style="padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;white-space:nowrap;">現在時刻</button></div></div>';
   // 本指名
   const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">♛ '+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:14px;padding:2px;">×</button></span>';}).join("");
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:10px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:'+(isTabletPlus?"9px 18px":"7px 14px")+';background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:'+(isTabletPlus?"14px":"12px")+';">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:12px;color:#d4a017;">本指名料 ¥3,000 × '+ci.honShimeis.length+'名 = ¥'+fmt(3000*ci.honShimeis.length)+'</div>':"")+'</div>';
@@ -1426,7 +1426,7 @@ function odq(id){qv=1;const d=S.menus.drinks.find(d=>d.id===id);if(d){qm={id:d.i
 function ofdq(){qv=1;qm={id:"fd_add",label:"フリードリンク",price:2000};om("qty");}
 function oet(){
   const s=S.sessions[at];const t=new Date(s.startTime);
-  etv=String(t.getHours()).padStart(2,"0")+":"+String(t.getMinutes()).padStart(2,"0");
+  etv=roundHHMM(5);
   om("et");
 }
 
@@ -2306,7 +2306,7 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
       +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'
       +'<div style="font-size:12px;color:#888;margin-bottom:12px;">現在: '+new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>'
-      +'<input type="time" class="ip" id="eti" value="'+etv+'" onchange="etv=this.value" style="margin-bottom:16px;font-size:18px;text-align:center;"/>'
+      +'<input type="time" class="ip" id="eti" step="300" value="'+etv+'" onchange="etv=this.value" style="margin-bottom:16px;font-size:18px;text-align:center;"/>'
       +'<div style="font-size:11px;color:#666;margin-bottom:16px;">※セット終了予定時刻も自動で更新されます</div>'
       +'<div style="display:flex;gap:10px;">'
       +'<button class="btn gbg" onclick="applyET()" style="flex:1;padding:12px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">変更する</button>'
@@ -2355,7 +2355,7 @@ function rModal(){
         const onIds=getOndutyIds();
         sc().forEach(c=>{
           const already=onIds.has(c.id);
-          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:14px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.3)")+';color:'+(already?"#444":"#e8dcc8")+';border-radius:8px;font-size:14px;font-weight:700;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
+          castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=roundHHMM(15);rModal()" style="padding:14px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.3)")+';color:'+(already?"#444":"#e8dcc8")+';border-radius:8px;font-size:14px;font-weight:700;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
             +'<div style="font-size:15px;margin-bottom:3px;">'+c.name+'</div>'
             +(already?'<div style="font-size:10px;color:#4ade80;opacity:.8;">✓ 出勤中</div>':'<div style="font-size:10px;color:#4ade8077;">タップして選択</div>')
             +'</button>';
@@ -2367,7 +2367,7 @@ function rModal(){
         } else {
           onduty.forEach(sh=>{
             const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';shiftMd.time=nowHHMM();rModal()" style="padding:14px 8px;background:rgba(255,80,80,.08);border:2px solid rgba(255,80,80,.3);color:#e8dcc8;border-radius:8px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'
+            castBtns+='<button class="btn" data-sid="'+sh.id+'" onclick="shiftMd.shiftId=this.dataset.sid;shiftMd.step=\'time\';shiftMd.time=roundHHMM(15);rModal()" style="padding:14px 8px;background:rgba(255,80,80,.08);border:2px solid rgba(255,80,80,.3);color:#e8dcc8;border-radius:8px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'
               +'<div style="font-size:15px;margin-bottom:3px;">'+sh.castName+'</div>'
               +'<div style="font-size:10px;color:#ff6b6b;">'+inT+'〜</div></button>';
           });
@@ -2391,7 +2391,7 @@ function rModal(){
         +'<h3 style="margin-bottom:4px;font-size:16px;color:'+(isIn?"#4ade80":"#ff6b6b")+';">'+title+'</h3>'
         +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+(name||"不明")+'</div>'
         +'<div class="st" style="margin-bottom:6px;">'+(isIn?"出勤時刻":"退勤時刻")+'</div>'
-        +'<input type="time" id="shift-time" class="ip" value="'+shiftMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="shiftMd.time=this.value" onchange="shiftMd.time=this.value"/>'
+        +'<input type="time" id="shift-time" class="ip" step="900" value="'+shiftMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="shiftMd.time=this.value" onchange="shiftMd.time=this.value"/>'
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="confirmShiftTime()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">登録する</button>'
         +'<button class="btn" onclick="shiftMd.step=\'cast\';rModal()" style="flex:1;padding:13px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">← 戻る</button>'
@@ -2404,9 +2404,9 @@ function rModal(){
         +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">シフト編集</h3>'
         +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:16px;">'+sh.castName+'</div>'
         +'<div class="st" style="margin-bottom:6px;">出勤時刻</div>'
-        +'<input type="time" id="se-in" class="ip" value="'+inHHMM+'" style="font-size:16px;margin-bottom:12px;width:100%;max-width:200px;display:block;"/>'
+        +'<input type="time" id="se-in" class="ip" step="900" value="'+inHHMM+'" style="font-size:16px;margin-bottom:12px;width:100%;max-width:200px;display:block;"/>'
         +'<div class="st" style="margin-bottom:6px;">退勤時刻（未退勤の場合は空欄）</div>'
-        +'<input type="time" id="se-out" class="ip" value="'+outHHMM+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;"/>'
+        +'<input type="time" id="se-out" class="ip" step="900" value="'+outHHMM+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;"/>'
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="saveShiftEdit()" style="flex:2;padding:12px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存する</button>'
         +'<button class="btn" onclick="deleteShift(shiftMd.shiftId)" style="flex:1;padding:12px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;">削除</button>'
@@ -2459,7 +2459,7 @@ function rModal(){
       const targetTid=tsukeMd.tableId||at||"";
       const tlbl=ASSIGN_TYPES[tsukeMd.type]?.label||"";
       const tcol=ASSIGN_TYPES[tsukeMd.type]?.col||"#a78bfa";
-      if(!tsukeMd.time)tsukeMd.time=nowHHMM();
+      if(!tsukeMd.time)tsukeMd.time=roundHHMM(5);
       // テーブル選択UI（リスト画面から来た場合でtableIdが未設定の場合）
       let tblSel="";
       if(!tsukeMd.tableId&&!at){
@@ -2481,9 +2481,9 @@ function rModal(){
         // Now/時刻指定トグル
         +'<div style="display:flex;gap:8px;margin-bottom:14px;">'
         +'<button class="btn" onclick="tsukeMd.useNow=true;rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(tsukeMd.useNow?'linear-gradient(135deg,#b8960c,#e8c84a)':'rgba(255,255,255,.06)')+';border:2px solid '+(tsukeMd.useNow?'#b8960c':'rgba(255,255,255,.1)')+';color:'+(tsukeMd.useNow?'#1a1200':'#888')+';">⚡ Now</button>'
-        +'<button class="btn" onclick="tsukeMd.useNow=false;if(!tsukeMd.time)tsukeMd.time=nowHHMM();rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(!tsukeMd.useNow?'rgba(167,139,250,.2)':'rgba(255,255,255,.06)')+';border:2px solid '+(!tsukeMd.useNow?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(!tsukeMd.useNow?'#a78bfa':'#888')+';">🕐 時刻指定</button>'
+        +'<button class="btn" onclick="tsukeMd.useNow=false;if(!tsukeMd.time)tsukeMd.time=roundHHMM(5);rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(!tsukeMd.useNow?'rgba(167,139,250,.2)':'rgba(255,255,255,.06)')+';border:2px solid '+(!tsukeMd.useNow?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(!tsukeMd.useNow?'#a78bfa':'#888')+';">🕐 時刻指定</button>'
         +'</div>'
-        +(!tsukeMd.useNow?'<input type="time" id="tsuke-time" class="ip" value="'+tsukeMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="tsukeMd.time=this.value" onchange="tsukeMd.time=this.value"/>':'')
+        +(!tsukeMd.useNow?'<input type="time" id="tsuke-time" class="ip" step="300" value="'+tsukeMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="tsukeMd.time=this.value" onchange="tsukeMd.time=this.value"/>':'')
         +(tsukeMd.useNow?'<div style="font-size:12px;color:#888;margin-bottom:14px;padding:8px 12px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;">確定した瞬間からカウント開始</div>':'')
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="confirmTsuke()" style="flex:2;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">確定</button>'
@@ -2797,6 +2797,14 @@ let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
 let tsukeMd={step:"cast",castId:null,type:null,time:"",useNow:true};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
+function roundHHMM(stepMin){
+  // 現在時刻をstepMin分刻みに丸める
+  const d=new Date();
+  const total=d.getHours()*60+d.getMinutes();
+  const rounded=Math.round(total/stepMin)*stepMin;
+  const h=Math.floor(rounded/60)%24;const m=rounded%60;
+  return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+}
 function hhmm2ts(hhmm){
   // HH:MM を当日または翌日のtimestampに変換
   if(!hhmm||!hhmm.includes(":"))return Date.now();
@@ -2858,7 +2866,7 @@ function confirmShiftTime(){
   }
 }
 function openShiftMd(mode){
-  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:nowHHMM()};
+  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:roundHHMM(15)};
   md="shift";rModal();
 }
 function editShift(sid){
