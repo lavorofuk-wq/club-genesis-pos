@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.41</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.42</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2949,8 +2949,10 @@ function startAssign(castId,tableId,type,time){
   const sessionId=S.sessions[tableId]?.startTime||null;
   // attachedAt = 実際に付けた瞬間のtimestamp（カウントアップ基準）
   // startTime = 入力された開始時刻（記録・表示用）
-  const attachedAt=Date.now();
-  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:hhmm2ts(time||nowHHMM()),attachedAt,endTime:null,sessionId};
+  // 時刻指定モード: attachedAt = startTime（指定時刻からカウントアップ開始）
+  const startTs=hhmm2ts(time||nowHHMM());
+  const attachedAt=startTs;
+  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt,endTime:null,sessionId};
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
   if(window._db){
