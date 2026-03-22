@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.45</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.46</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1262,7 +1262,10 @@ function saveAssignTimeEdit(){
   const a=S.assignments[window._editAid];if(!a)return;
   const sEl=document.getElementById("eat-start");
   const eEl=document.getElementById("eat-end");
-  if(sEl&&sEl.value)a.startTime=hhmm2ts(sEl.value);
+  if(sEl&&sEl.value){
+    a.startTime=hhmm2ts(sEl.value);
+    a.attachedAt=a.startTime; // カウントアップ基準も同期
+  }
   if(eEl&&eEl.value)a.endTime=hhmm2ts(eEl.value);
   else if(eEl&&eEl.value==="")a.endTime=null;
   save("assignments",S.assignments);closeM();render();
@@ -2710,12 +2713,29 @@ function rModal(){
       const eHHMM=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
       const col=ASSIGN_TYPES[a.type]?.col||"#888";
       const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;">'
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
         +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">時刻変更</h3>'
-        +'<div style="margin-bottom:16px;"><span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span><span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span></div>'
+        +'<div style="margin-bottom:14px;"><span style="font-size:11px;padding:2px 7px;border:1px solid '+col+';color:'+col+';border-radius:3px;margin-right:8px;">'+lbl+'</span><span style="font-size:15px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span></div>'
         +'<div class="st" style="margin-bottom:6px;">開始時刻</div>'
-        +'<input type="time" id="eat-start" class="ip" value="'+sHHMM+'" style="font-size:16px;margin-bottom:12px;width:100%;max-width:200px;display:block;"/>'
-        +(a.endTime?'<div class="st" style="margin-bottom:6px;">終了時刻</div><input type="time" id="eat-end" class="ip" value="'+eHHMM+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;"/>':"")
+        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
+        +'<button class="btn" onclick="const el=document.getElementById(\'eat-start\');el.value=adjustHHMM(el.value,-1);" style="width:40px;height:40px;font-size:16px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:6px;touch-action:manipulation;">−</button>'
+        +'<input type="time" id="eat-start" class="ip" value="'+sHHMM+'" style="flex:1;font-size:16px;text-align:center;height:40px;padding:0;"/>'
+        +'<button class="btn" onclick="const el=document.getElementById(\'eat-start\');el.value=adjustHHMM(el.value,1);" style="width:40px;height:40px;font-size:16px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:6px;touch-action:manipulation;">＋</button>'
+        +'</div>'
+        +'<div style="display:flex;gap:5px;margin-bottom:12px;">'
+        +([-10,-5,-1,1,5,10].map(d=>'<button class="btn" onclick="const el=document.getElementById(\'eat-start\');el.value=adjustHHMM(el.value,'+d+');" style="flex:1;padding:5px 2px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:5px;touch-action:manipulation;">'+(d>0?"+":"")+d+'</button>').join(""))
+        +'</div>'
+        +(a.endTime
+          ?'<div class="st" style="margin-bottom:6px;">終了時刻</div>'
+          +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
+          +'<button class="btn" onclick="const el=document.getElementById(\'eat-end\');el.value=adjustHHMM(el.value,-1);" style="width:40px;height:40px;font-size:16px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:6px;touch-action:manipulation;">−</button>'
+          +'<input type="time" id="eat-end" class="ip" value="'+eHHMM+'" style="flex:1;font-size:16px;text-align:center;height:40px;padding:0;"/>'
+          +'<button class="btn" onclick="const el=document.getElementById(\'eat-end\');el.value=adjustHHMM(el.value,1);" style="width:40px;height:40px;font-size:16px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:6px;touch-action:manipulation;">＋</button>'
+          +'</div>'
+          +'<div style="display:flex;gap:5px;margin-bottom:14px;">'
+          +([-10,-5,-1,1,5,10].map(d=>'<button class="btn" onclick="const el=document.getElementById(\'eat-end\');el.value=adjustHHMM(el.value,'+d+');" style="flex:1;padding:5px 2px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:5px;touch-action:manipulation;">'+(d>0?"+":"")+d+'</button>').join(""))
+          +'</div>'
+          :"")
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn gbg" onclick="saveAssignTimeEdit()" style="flex:2;padding:12px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">保存する</button>'
         +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">キャンセル</button>'
