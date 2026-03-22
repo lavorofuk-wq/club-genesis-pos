@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.47</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.48</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -304,7 +304,9 @@ function addBanai(cid){
   // フリーでつけていた同キャストのアサインを「場内指名」に自動変更
   const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
   if(freeA){freeA.type="banai";save("assignments",S.assignments);}
-  save("sessions",S.sessions);closeM();renderOrderPartial();
+  save("sessions",S.sessions);
+  renderOrderPartial(); // 先にオーダー更新
+  closeM();             // 後でモーダルを閉じる
 }
 function applyET(){
   const v=document.getElementById("eti")?.value||etv;
@@ -2319,7 +2321,7 @@ function rModal(){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
     let alh="";
     if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">☆ '+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
-    let cb="";sc().forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
+    let cb="";sc().forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥1,500/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
   else if(md==="hsc"){
