@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.43</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.44</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -571,7 +571,7 @@ function sv(v,extra){
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["order","checkin","tableDetail","assignHistory"].includes(v))at=null;render();
 }
-function tc2(id){at=id;vw=S.sessions[id]?"order":"checkin";render();}
+function tc2(id){at=id;if(!S.sessions[id]){vw="checkin";etv=roundHHMM(5);}else{vw="order";}render();}
 
 // ===== HOME & 営業日管理 =====
 function rHome(){
@@ -1289,7 +1289,21 @@ function rCI(){
   });
   html+='</div>';
   // 時刻
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">入店時刻（変更する場合のみ）</div><div style="display:flex;align-items:center;gap:10px;"><input type="time" step="300" class="ip" style="flex:1;font-size:'+(isTabletPlus?"16px":"14px")+';" value="'+etv+'" onchange="etv=this.value"/><button class="btn" onclick="etv=\'\';render()" style="padding:8px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;white-space:nowrap;">現在時刻</button></div></div>';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
+  html+='<div class="st" style="margin-bottom:10px;">入店時刻</div>';
+  html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
+  html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),-5);render()" style="width:44px;height:44px;font-size:18px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;flex-shrink:0;touch-action:manipulation;">−</button>';
+  html+='<input type="time" step="300" class="ip" style="flex:1;font-size:'+(isTabletPlus?"20px":"18px")+';text-align:center;height:44px;padding:0;" value="'+(etv||roundHHMM(5))+'" onchange="etv=this.value"/>';
+  html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),5);render()" style="width:44px;height:44px;font-size:18px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;flex-shrink:0;touch-action:manipulation;">＋</button>';
+  html+='</div>';
+  html+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;">';
+  [-30,-15,-10,-5,5,10,15,30].forEach(d=>{
+    const lbl=(d>0?"+":"")+d+"分";
+    html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),'+d+');render()" style="flex:1;min-width:42px;padding:6px 2px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;touch-action:manipulation;">'+lbl+'</button>';
+  });
+  html+='</div>';
+  html+='<button class="btn" onclick="etv=roundHHMM(5);render()" style="font-size:11px;color:#666;background:none;padding:2px 0;">↺ 現在時刻にリセット</button>';
+  html+='</div>';
   // 本指名
   const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">♛ '+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:14px;padding:2px;">×</button></span>';}).join("");
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:10px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:'+(isTabletPlus?"9px 18px":"7px 14px")+';background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:'+(isTabletPlus?"14px":"12px")+';">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:12px;color:#d4a017;">本指名料 ¥3,000 × '+ci.honShimeis.length+'名 = ¥'+fmt(3000*ci.honShimeis.length)+'</div>':"")+'</div>';
@@ -2834,12 +2848,15 @@ function adjustHHMM(hhmm,deltaMins){
   return String(Math.floor(total/60)).padStart(2,"0")+":"+String(total%60).padStart(2,"0");
 }
 function hhmm2ts(hhmm){
-  // HH:MM を当日または翌日のtimestampに変換
+  // HH:MM を営業日に合わせたtimestampに変換
+  // 営業時間: 20:00〜翌3:00 → 0:00〜3:00は翌日
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
   const d=new Date();
   d.setSeconds(0,0);
   d.setHours(h,m,0,0);
+  // 深夜0:00〜6:00 は翌日扱い（前日夜から続く営業日のため）
+  if(h<6){d.setDate(d.getDate()+1);}
   return d.getTime();
 }
 function getOnduty(){
