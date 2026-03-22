@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.44</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.45</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2848,15 +2848,20 @@ function adjustHHMM(hhmm,deltaMins){
   return String(Math.floor(total/60)).padStart(2,"0")+":"+String(total%60).padStart(2,"0");
 }
 function hhmm2ts(hhmm){
-  // HH:MM を営業日に合わせたtimestampに変換
-  // 営業時間: 20:00〜翌3:00 → 0:00〜3:00は翌日
+  // HH:MM を現在の営業日内のtimestampに変換
+  // 営業時間: 前日20:00〜翌3:00
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const d=new Date();
-  d.setSeconds(0,0);
-  d.setHours(h,m,0,0);
-  // 深夜0:00〜6:00 は翌日扱い（前日夜から続く営業日のため）
-  if(h<6){d.setDate(d.getDate()+1);}
+  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の20:00
+  const d=new Date(bizStart);
+  if(h>=20){
+    // 20:00〜23:59 → 営業日開始日（bizStartと同日）
+    d.setHours(h,m,0,0);
+  } else {
+    // 0:00〜19:59 → 翌日（bizStart+1日）
+    d.setDate(d.getDate()+1);
+    d.setHours(h,m,0,0);
+  }
   return d.getTime();
 }
 function getOnduty(){
@@ -3046,14 +3051,14 @@ function moveToWaiting(castId){
 function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   if(!a.endTime){
-    setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
+    setCastStatus(a.castId,"waiting");
   }
   delete S.assignments[aid];
   if(window._db){
     window._db.ref("pos").update({assignments:S.assignments,shifts:S.shifts})
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  render();
+  closeM();render();
 }
 
 // ===== 出勤画面 =====
