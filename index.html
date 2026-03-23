@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.52</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.53</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1875,6 +1875,7 @@ function clearAllAssignments(){
 function sst(t){stab=t;render();}
 function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
 function ac2(){if(!ncn.trim())return;S.casts=[...S.casts,{id:Date.now(),name:ncn.trim()}];save("casts",S.casts);ncn="";render();}
+function dc2(id){if(!confirm("このキャストを削除しますか？"))return;S.casts=S.casts.filter(c=>c.id!==id);save("casts",S.casts);render();}
 function uml(k,id,v){if(v.trim()){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,label:v.trim()}:x);save("menus",S.menus);}}
 function ump(k,id,v){const p=parseInt(v,10);if(p>0){S.menus[k]=S.menus[k].map(x=>x.id===id?x.type==="percent"?{...x,value:p}:{...x,price:p}:x);save("menus",S.menus);}}
 function umm(k,id,v){const m=parseInt(v,10);if(m>0){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,minutes:m}:x);save("menus",S.menus);}}
