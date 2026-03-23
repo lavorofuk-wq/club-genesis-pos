@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.54</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.55</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -901,16 +901,28 @@ function rList(){
       +(isActive?'ondragover="dzOver(event,\'tbl\',\''+t.id+'\')" ondragleave="dzLeave(\'tbl\',\''+t.id+'\')" ondrop="dzDrop(event,\'tbl\',\''+t.id+'\')" ':'' )
       +'onclick="if(!event.defaultPrevented&&\''+t.id+'\')sv(\'tableDetail\',\''+t.id+'\')">';
     // テーブル名行：テーブル名＋人数＋バッジ
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
+    html+='<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">';
     html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">';
     html+='<span style="font-size:13px;font-weight:700;color:'+(isActive?"#e8dcc8":"#444")+';">'+t.label+'</span>';
     if(isActive&&s){
-      html+='<span style="font-size:11px;color:#aaa;">'+s.guests+'名</span>';
-      if(hn.length)html+='<span style="font-size:9px;color:#ff4444;padding:1px 4px;border:1px solid #ff444466;border-radius:2px;">本'+hn.length+'</span>';
-      if(bn.length)html+='<span style="font-size:9px;color:#4ade80;padding:1px 4px;border:1px solid #4ade8066;border-radius:2px;">場'+bn.length+'</span>';
+      const honCount=hn.length;
+      const freeCount=Math.max(0,s.guests-honCount);
+      if(!honCount&&!bn.length){
+        // 本指名も場内指名もない場合：F人数を表示
+        html+='<span style="font-size:11px;color:#38bdf8;">F'+s.guests+'</span>';
+      } else {
+        html+='<span style="font-size:11px;color:#aaa;">'+s.guests+'名</span>';
+        if(honCount)html+='<span style="font-size:9px;color:#ff4444;padding:1px 4px;border:1px solid #ff444466;border-radius:2px;">本'+honCount+'</span>';
+        if(bn.length)html+='<span style="font-size:9px;color:#4ade80;padding:1px 4px;border:1px solid #4ade8066;border-radius:2px;">場'+bn.length+'</span>';
+        if(freeCount>0)html+='<span style="font-size:9px;color:#38bdf8;padding:1px 4px;border:1px solid #38bdf866;border-radius:2px;">F'+freeCount+'</span>';
+      }
     }
     html+='</div>';
-    if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;">VIP</span>';
+    // 備考
+    if(isActive&&s&&s.note)html+='<span style="font-size:10px;color:#ffa500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">'+s.note+'</span>';
+    html+='</div>';
+    if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;flex-shrink:0;">VIP</span>';
     html+='</div>';
     if(isActive&&s){
       // 残り時間
