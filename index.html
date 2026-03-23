@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.53</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.54</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -174,7 +174,7 @@ const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブ�
 // ===== STATE =====
 let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
-let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};
+let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let now=Date.now();
 let priceHidden=false;
@@ -284,9 +284,9 @@ function startSession(){
   let st=Date.now();
   if(etv){const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);st=d.getTime();}
   const si=items.find(i=>i.isSet);
-  S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[]};
+  S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""};
   save("sessions",S.sessions);
-  vw="order";ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false};etv=roundHHMM(5);
+  vw="order";ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
   render();
 }
 function addExt(ext,wsc){
@@ -812,8 +812,11 @@ function rFloor(){
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
       +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
+      +'<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">'
       +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>'
-      +'<div style="display:flex;gap:4px;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+(s?'<span class="tag ta2">使用中</span>':"")+'</div>'
+      +(s&&s.note?'<span style="font-size:10px;color:#ffa500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;">'+s.note+'</span>':"")
+      +'</div>'
+      +'<div style="display:flex;gap:4px;flex-shrink:0;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+(s?'<span class="tag ta2">使用中</span>':"")+'</div>'
       +'</div>'+inn+'</div>';
     }catch(e){
       // データ不整合のテーブルは空席として表示
@@ -1342,6 +1345,7 @@ function rCI(){
     html+='<button class="btn" data-key="'+k+'" onclick="to2(this.dataset.key)" style="padding:'+(isTabletPlus?"10px 18px":"8px 14px")+';border-radius:6px;background:'+(ci[k]?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:1px solid '+(ci[k]?"#b8960c":"rgba(255,255,255,.08)")+';color:'+(ci[k]?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"14px":"13px")+';touch-action:manipulation;">'+l+'</button>';
   });
   html+='</div></div>';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st" style="margin-bottom:8px;">備考（任意）</div><input type="text" class="ip" placeholder="例: VIP希望、誕生日など" maxlength="40" value="'+ci.note+'" oninput="ci.note=this.value" style="font-size:'+(isTabletPlus?"15px":"14px")+';"/></div>';
   html+='<button class="btn gbg" onclick="startSession()" '+(ci.setMenu?"":"disabled")+' style="width:100%;padding:'+(isTabletPlus?"16px":"14px")+';font-size:'+(isTabletPlus?"18px":"16px")+';font-weight:700;letter-spacing:.1em;border-radius:6px;touch-action:manipulation;'+(ci.setMenu?"":"opacity:.5;cursor:not-allowed;")+'">入店スタート</button>';
   html+='</div>';
   return html;
