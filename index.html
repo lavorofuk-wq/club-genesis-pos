@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.56</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.57</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -157,6 +157,7 @@
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
+      <button class="btn" id="admin-btn" onclick="toggleAdminMode()" title="管理モード" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">🔒</button>
       <button class="btn" id="end-biz-btn" onclick="om('endBizDay')" style="display:none;padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;">営業終了</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
@@ -565,10 +566,15 @@ function updateNav(){
   const endBtn=document.getElementById("end-biz-btn");
   if(endBtn)endBtn.style.display=inBiz?"block":"none";
   if(!inBiz)return;
+  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
   [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nhl","histlog"],["ns","settings"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
+    if(v==="settings"){el.style.display=isAdmin?"":"none";return;}
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
+  // 管理ボタンの表示更新
+  const ab=document.getElementById("admin-btn");
+  if(ab){ab.textContent=isAdmin?"🔓管理":"🔒";ab.style.background=isAdmin?"rgba(212,160,23,.15)":"rgba(255,255,255,.05)";ab.style.color=isAdmin?"#d4a017":"#888";ab.style.borderColor=isAdmin?"rgba(212,160,23,.3)":"rgba(255,255,255,.1)";}
 }
 function render(){
   updateNav();
@@ -592,6 +598,8 @@ function render(){
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
+  // 設定タブは管理モード時のみアクセス可
+  if(v==="settings"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settingsは営業日に関係なく常時アクセス可
   const alwaysOk=["home","histlog","history","shifts","settings"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
@@ -1749,8 +1757,25 @@ function getBizDayEnd(t){
 
 
 function rSettings(){
+  const pwEnabled=localStorage.getItem("genesis_pw_enabled")!=="0";
+  const currentPW=localStorage.getItem("genesis_pw")||"genesis0127";
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">設定</h2>';
+  // パスワード設定
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;">';
+  html+='<div class="st" style="margin-bottom:12px;">パスワード設定</div>';
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
+  html+='<div><div style="font-size:13px;color:#e8dcc8;">パスワード認証</div><div style="font-size:11px;color:#666;margin-top:2px;">OFFにすると認証なしでアクセス可能</div></div>';
+  html+='<button class="btn" onclick="togglePWEnabled()" style="padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;background:'+(pwEnabled?"rgba(74,222,128,.15)":"rgba(255,255,255,.08)")+';border:1px solid '+(pwEnabled?"rgba(74,222,128,.3)":"rgba(255,255,255,.15)")+';color:'+(pwEnabled?"#4ade80":"#666")+';touch-action:manipulation;">'+(pwEnabled?"ON":"OFF")+'</button>';
+  html+='</div>';
+  html+='<div class="st" style="margin-bottom:8px;">パスワードを変更</div>';
+  html+='<div style="display:flex;gap:8px;">';
+  html+='<input type="text" id="pw-new1" class="ip" placeholder="新しいパスワード" style="flex:1;font-size:14px;"/>';
+  html+='<input type="text" id="pw-new2" class="ip" placeholder="確認" style="flex:1;font-size:14px;"/>';
+  html+='<button class="btn gbg" onclick="changePW()" style="padding:8px 14px;font-size:13px;font-weight:700;white-space:nowrap;touch-action:manipulation;">変更</button>';
+  html+='</div>';
+  html+='<div style="font-size:11px;color:#555;margin-top:6px;">現在: <span style="color:#888;letter-spacing:.05em;">'+currentPW+'</span></div>';
+  html+='</div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:20px;">';
   [["cast","キャスト"],["menus","メニュー料金"],["special","特殊メニュー"],["tables","テーブル"]].forEach(([k,l])=>{
     html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(this.dataset.stab)">'+l+'</button>';
@@ -1906,6 +1931,21 @@ function sst(t){stab=t;render();}
 function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
 function ac2(){if(!ncn.trim())return;S.casts=[...S.casts,{id:Date.now(),name:ncn.trim()}];save("casts",S.casts);ncn="";render();}
 function dc2(id){if(!confirm("このキャストを削除しますか？"))return;S.casts=S.casts.filter(c=>c.id!==id);save("casts",S.casts);render();}
+function changePW(){
+  const v1=document.getElementById("pw-new1")?.value.trim();
+  const v2=document.getElementById("pw-new2")?.value.trim();
+  if(!v1){alert("新しいパスワードを入力してください");return;}
+  if(v1!==v2){alert("パスワードが一致しません");return;}
+  if(v1.length<4){alert("4文字以上で設定してください");return;}
+  localStorage.setItem("genesis_pw",v1);
+  alert("パスワードを変更しました："+v1);
+  render();
+}
+function togglePWEnabled(){
+  const cur=localStorage.getItem("genesis_pw_enabled")!=="0";
+  localStorage.setItem("genesis_pw_enabled",cur?"0":"1");
+  render();
+}
 function uml(k,id,v){if(v.trim()){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,label:v.trim()}:x);save("menus",S.menus);}}
 function ump(k,id,v){const p=parseInt(v,10);if(p>0){S.menus[k]=S.menus[k].map(x=>x.id===id?x.type==="percent"?{...x,value:p}:{...x,price:p}:x);save("menus",S.menus);}}
 function umm(k,id,v){const m=parseInt(v,10);if(m>0){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,minutes:m}:x);save("menus",S.menus);}}
@@ -3240,17 +3280,38 @@ function tickOrder(){
 // ===== PWA =====
 if("serviceWorker"in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
 
+// ===== 管理モード =====
+function toggleAdminMode(){
+  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+  if(isAdmin){
+    // OFFにする
+    sessionStorage.removeItem("genesis_admin");
+    if(vw==="settings"){vw="floor";render();}else render();
+  }else{
+    // ONにする（アクセスコード入力）
+    const code=prompt("管理モードのアクセスコードを入力してください");
+    if(code==="gen"){
+      sessionStorage.setItem("genesis_admin","1");
+      render();
+    }else if(code!==null){
+      alert("アクセスコードが違います");
+    }
+  }
+}
+
 // ===== BOOT =====
 // ===== パスワード認証 =====
 (function(){
-  const PW="genesis0127";
   const KEY="genesis_auth";
+  const PW_ENABLED=localStorage.getItem("genesis_pw_enabled")!=="0";
+  const PW=localStorage.getItem("genesis_pw")||"genesis0127";
   const pwScreen=document.getElementById("pw-screen");
   const app=document.getElementById("app");
   const loading=document.getElementById("loading");
-  if(sessionStorage.getItem(KEY)==="1"){
-    // 認証済み：パスワード画面を非表示
+  if(!PW_ENABLED||sessionStorage.getItem(KEY)==="1"){
+    // パスワード無効 or 認証済み：パスワード画面を非表示
     pwScreen.style.display="none";
+    if(!PW_ENABLED)sessionStorage.setItem(KEY,"1"); // 無効時は自動認証
   }else{
     // 未認証：アプリとローディングを隠してパスワード画面を表示
     pwScreen.style.display="flex";
