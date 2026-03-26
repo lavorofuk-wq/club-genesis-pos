@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.63</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.64</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -604,6 +604,7 @@ function render(){
     else if(vw==="history")m.innerHTML=rHist();
     else if(vw==="shifts")m.innerHTML=rShifts();
     else if(vw==="settings")m.innerHTML=rSettings();
+    else if(vw==="backupDetail")m.innerHTML=rBackupDetail();
   }catch(e){
     console.error("render error:",vw,e);
     m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エラー: '+e.message+'<br><button class="btn" onclick="sv(\'home\')" style="margin-top:12px;padding:8px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">ホームへ戻る</button></div>';
@@ -614,7 +615,7 @@ function sv(v,extra){
   // 設定タブは管理モード時のみアクセス可
   if(v==="settings"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settingsは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","shifts","settings"];
+  const alwaysOk=["home","histlog","history","shifts","settings","backupDetail"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["order","checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -1924,14 +1925,16 @@ function rSettings(){
     html+='<div style="font-size:11px;color:#888;margin-top:2px;">'+d+'&nbsp;|&nbsp;営業日 '+dayCount+'件&nbsp;|&nbsp;当日会計 '+histCount+'件</div>';
     html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+latestBk.label+'</div>';
     html+='</div>';
-    html+='<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="padding:6px 14px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">復旧</button>';
+    html+='<div style="display:flex;gap:6px;">'
+    +'<button class="btn" onclick="sv(\'backupDetail\')" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:12px;touch-action:manipulation;">詳細</button>'
+    +'<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="padding:6px 12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">復旧</button>'
+    +'</div>';
     html+='</div></div>';
   }else{
     html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（手動保存または営業終了時に自動保存されます）</div>';
   }
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
   html+='<button class="btn" onclick="manualFirebaseBackup()" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">💾 今すぐ更新</button>';
-  html+='<button class="btn" onclick="exportBackupJSON()" style="padding:8px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">📥 JSONで書き出し</button>';
   html+='</div>';
   html+='</div>';
 
@@ -2019,6 +2022,71 @@ function deleteFirebaseBackup(key){
 }
 
 // JSON書き出し
+// バックアップ詳細画面（営業日ごとに削除可能）
+function rBackupDetail(){
+  const latestBk=S.backups?.latest||null;
+  let html='<div style="max-width:680px;margin:0 auto;">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
+  html+='<button class="btn" onclick="sv(\'settings\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 設定</button>';
+  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#38bdf8;">💾 バックアップ詳細</h2>';
+  html+='</div>';
+  if(!latestBk){
+    html+='<div style="color:#555;font-size:14px;padding:20px 0;">バックアップデータがありません</div></div>';
+    return html;
+  }
+  // バックアップ情報
+  const d=new Date(latestBk.ts).toLocaleString("ja-JP");
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
+  html+='<div style="font-size:12px;color:#888;">保存日時: '+d+'</div>';
+  html+='<div style="font-size:12px;color:#888;margin-top:2px;">'+latestBk.label+'</div>';
+  html+='</div>';
+  // 営業日一覧
+  const days=Object.values(latestBk.bizDays||{}).sort((a,b)=>b.date.localeCompare(a.date));
+  html+='<div class="glass" style="border-radius:8px;overflow:hidden;margin-bottom:14px;">';
+  html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">';
+  html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">営業日データ（'+days.length+'件）</span>';
+  html+='<span style="font-size:11px;color:#666;">削除するとバックアップから除去されます</span>';
+  html+='</div>';
+  if(!days.length){
+    html+='<div style="padding:16px;font-size:13px;color:#555;">営業日データなし</div>';
+  }else{
+    html+='<div style="padding:8px 12px;">';
+    days.forEach(day=>{
+      const sales=(day.history||[]).reduce((a,h)=>a+(h.total||0),0);
+      const histCount=(day.history||[]).length;
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<div>';
+      html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+day.date+'</div>';
+      html+='<div style="font-size:11px;color:#666;margin-top:1px;">会計 '+histCount+'件 &nbsp;|&nbsp; 売上 ¥'+day.date.replace(/-/g,'')+'</div>';
+      html+='<div style="font-size:11px;color:#555;margin-top:1px;">売上: ¥'+Number(sales).toLocaleString('ja-JP')+'&nbsp;/&nbsp;会計'+histCount+'件</div>';
+      html+='</div>';
+      html+='<button class="btn" data-dayid="'+day.id+'" onclick="deleteBackupBizDay(this.dataset.dayid)" style="padding:5px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.25);color:#ff6b6b;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">削除</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+  html+='</div>';
+  html+='<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="width:100%;padding:12px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">このバックアップからPOSを復旧</button>';
+  html+='</div>';
+  return html;
+}
+
+// バックアップ内の特定営業日を削除
+async function deleteBackupBizDay(dayId){
+  const latestBk=S.backups?.latest;
+  if(!latestBk||!latestBk.bizDays?.[dayId]){alert("データが見つかりません");return;}
+  const day=latestBk.bizDays[dayId];
+  if(!confirm("バックアップから「"+day.date+"」の営業日データを削除します。\nこの操作は取り消せません。\n\nよろしいですか？"))return;
+  delete latestBk.bizDays[dayId];
+  if(window._db){
+    try{
+      await window._db.ref("backup/latest").set(latestBk);
+      sbs(true,"削除完了 ✓");
+      render();
+    }catch(e){sbs(false,"削除エラー");alert("削除に失敗しました："+e.message);}
+  }
+}
+
 function exportBackupJSON(){
   const data={
     exportedAt:Date.now(),
