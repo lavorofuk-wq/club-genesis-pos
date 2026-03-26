@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.57</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.58</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -177,7 +177,7 @@ const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2"
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -266,6 +266,12 @@ function initFB(){
     S.assignments=d.assignments||{};
     S.bizDays=d.bizDays||{};
     S.activeBizDay=d.activeBizDay||null;
+    if(d.config){
+      S.config={password:d.config.password||'genesis0127',pwEnabled:d.config.pwEnabled!==false};
+      // 起動時認証用にキャッシュ（Firebase接続前の認証に使用）
+      localStorage.setItem("genesis_pw_cache",S.config.password);
+      localStorage.setItem("genesis_pw_enabled_cache",S.config.pwEnabled?"1":"0");
+    }
     sbs(true,"同期済み ✓");
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
@@ -1757,8 +1763,8 @@ function getBizDayEnd(t){
 
 
 function rSettings(){
-  const pwEnabled=localStorage.getItem("genesis_pw_enabled")!=="0";
-  const currentPW=localStorage.getItem("genesis_pw")||"genesis0127";
+  const pwEnabled=S.config.pwEnabled!==false;
+  const currentPW=S.config.password||'genesis0127';
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">設定</h2>';
   // パスワード設定
@@ -1937,13 +1943,21 @@ function changePW(){
   if(!v1){alert("新しいパスワードを入力してください");return;}
   if(v1!==v2){alert("パスワードが一致しません");return;}
   if(v1.length<4){alert("4文字以上で設定してください");return;}
-  localStorage.setItem("genesis_pw",v1);
-  alert("パスワードを変更しました："+v1);
+  S.config.password=v1;
+  if(window._db){
+    window._db.ref("pos/config").update({password:v1})
+      .then(()=>{sbs(true,"パスワード変更済み ✓");alert("パスワードを変更しました："+v1);})
+      .catch(()=>sbs(false,"保存エラー"));
+  }
   render();
 }
 function togglePWEnabled(){
-  const cur=localStorage.getItem("genesis_pw_enabled")!=="0";
-  localStorage.setItem("genesis_pw_enabled",cur?"0":"1");
+  const cur=S.config.pwEnabled!==false;
+  S.config.pwEnabled=!cur;
+  if(window._db){
+    window._db.ref("pos/config").update({pwEnabled:!cur})
+      .then(()=>sbs(true,"設定保存済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
   render();
 }
 function uml(k,id,v){if(v.trim()){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,label:v.trim()}:x);save("menus",S.menus);}}
@@ -3303,8 +3317,9 @@ function toggleAdminMode(){
 // ===== パスワード認証 =====
 (function(){
   const KEY="genesis_auth";
-  const PW_ENABLED=localStorage.getItem("genesis_pw_enabled")!=="0";
-  const PW=localStorage.getItem("genesis_pw")||"genesis0127";
+  // 起動時: Firebaseキャッシュ→localStorage→デフォルトの順で参照
+  const PW_ENABLED=localStorage.getItem("genesis_pw_enabled_cache")!=="0";
+  const PW=localStorage.getItem("genesis_pw_cache")||"genesis0127";
   const pwScreen=document.getElementById("pw-screen");
   const app=document.getElementById("app");
   const loading=document.getElementById("loading");
