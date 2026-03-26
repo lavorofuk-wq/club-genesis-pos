@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.55</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.56</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -162,6 +162,10 @@
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
   </header>
+  <!-- オフライン警告バナー -->
+  <div id="offline-banner" style="display:none;position:sticky;top:0;z-index:900;background:rgba(255,80,80,.95);color:#fff;font-size:13px;font-weight:700;text-align:center;padding:8px 16px;letter-spacing:.05em;">
+    ⚠️ オフライン — データは同期されていません。接続を確認してください。
+  </div>
   <main id="m"></main>
 </div>
 <div id="md"></div>
@@ -231,6 +235,16 @@ function togglePriceHide(){
 function initFB(){
   const db=window._db;
   sbs(false,"接続中…");
+
+  // ===== 接続状態監視 =====
+  db.ref(".info/connected").on("value",(snap)=>{
+    const connected=snap.val()===true;
+    const banner=document.getElementById("offline-banner");
+    if(banner)banner.style.display=connected?"none":"block";
+    if(connected){sbs(true,"接続中 ✓");}
+    else{sbs(false,"⚠ オフライン");}
+  });
+
   db.ref("pos").on("value",(snap)=>{
     const d=snap.val();
     if(!d){sbs(true,"同期済み ✓");render();return;}
