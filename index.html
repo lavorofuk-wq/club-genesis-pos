@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.66</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.67</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -173,7 +173,7 @@
 <script>
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
-const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
+const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
@@ -256,7 +256,11 @@ function initFB(){
     const d=snap.val();
     if(!d){sbs(true,"同期済み ✓");render();return;}
     if(d.casts)S.casts=d.casts;
-    if(d.menus)S.menus=d.menus;
+    if(d.menus){
+      S.menus=d.menus;
+      // 酒類カテゴリが未定義の場合は空配列で初期化
+      ['champagne','wine','whisky','shochu','brandy'].forEach(k=>{if(!S.menus[k])S.menus[k]=[];});
+    }
     if(d.tables)S.tables=d.tables;
     // オーダー中テーブルのitemsは自分のローカル状態を優先（Firebase同期タイミング問題を防ぐ）
     const prevSession=at&&vw==="order"?S.sessions[at]:null;
@@ -1163,73 +1167,95 @@ function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
 // ===== 付け回し履歴画面 =====
 function rAssignHistory(){
   const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
-  let html='<div style="max-width:680px;margin:0 auto;">';
+  let html='<div style="max-width:780px;margin:0 auto;">';
   html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
   html+='<button class="btn" onclick="sv(\'list\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← リスト</button>';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">付け回し履歴</h2>';
   html+='</div>';
-  if(!allA.length){
-    html+='<div style="color:#555;font-size:14px;padding:20px 0;">付け回しデータがありません</div></div>';
-    return html;
-  }
+  if(!allA.length){html+='<div style="color:#555;font-size:14px;padding:20px 0;">付け回しデータがありません</div></div>';return html;}
+
+  // タイプ別フィルタータブ
+  const typeKeys=["all",...Object.keys(ASSIGN_TYPES)];
+  const curFilter=window._assignHistFilter||"all";
+  html+='<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;">';
+  typeKeys.forEach(k=>{
+    const lbl=k==="all"?"すべて":(ASSIGN_TYPES[k]?.label||k);
+    const col=k==="all"?"#888":(ASSIGN_TYPES[k]?.col||"#888");
+    const isAc=curFilter===k;
+    html+='<button class="btn" data-fk="'+k+'" onclick="window._assignHistFilter=this.dataset.fk;render()" style="padding:5px 12px;border-radius:16px;font-size:12px;font-weight:700;touch-action:manipulation;background:'+(isAc?"rgba(255,255,255,.12)":"rgba(255,255,255,.04)")+';border:1px solid '+(isAc?col+"99":"rgba(255,255,255,.08)")+';color:'+(isAc?col:"#555")+';">'+lbl+'</button>';
+  });
+  html+='</div>';
+
+  // フィルタリング
+  const filtered=curFilter==="all"?allA:allA.filter(a=>a.type===curFilter);
+
   // テーブルごとにグループ化
   const byTable={};
-  allA.forEach(a=>{
+  filtered.forEach(a=>{
     if(!byTable[a.tableId])byTable[a.tableId]=[];
     byTable[a.tableId].push(a);
   });
+
   S.tables.forEach(t=>{
     const tas=byTable[t.id];if(!tas||!tas.length)return;
-    // sessionIdでサブグループ化（nullは個別扱い）
+    // sessionIdでグループ化
     const sessionGroups={};
     tas.forEach(a=>{
       const sid=a.sessionId||("nosid_"+a.startTime);
       if(!sessionGroups[sid])sessionGroups[sid]=[];
       sessionGroups[sid].push(a);
     });
-    // sessionIdを時刻順にソート
     const sortedSids=Object.keys(sessionGroups).sort((a,b)=>{
       const aa=sessionGroups[a][0];const bb=sessionGroups[b][0];
       return (aa.sessionId||aa.startTime)-(bb.sessionId||bb.startTime);
     });
-    html+='<div style="margin-bottom:16px;">';
-    sortedSids.forEach((sid,gi)=>{
+
+    html+='<div style="margin-bottom:20px;">';
+    sortedSids.forEach(sid=>{
       const group=sessionGroups[sid].sort((a,b)=>a.startTime-b.startTime);
-      const sessionStart=group[0].sessionId||group[0].startTime;
-      const sessionLabel=new Date(sessionStart).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+" 入店";
-      html+='<div class="glass" style="border-radius:8px;margin-bottom:8px;overflow:hidden;">';
-      html+='<div style="padding:8px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;gap:8px;">';
-      html+='<span style="font-size:13px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
-      html+='<span style="font-size:11px;color:#888;">'+sessionLabel+'</span>';
-      html+='<span style="font-size:11px;color:#666;background:rgba(255,255,255,.06);padding:1px 6px;border-radius:10px;margin-left:auto;">'+group.length+'件</span>';
+      const sess=S.sessions[t.id]||null;
+      const sessionTs=group[0].sessionId||group[0].startTime;
+      const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      // セッション情報（ゲスト数・指名・備考）
+      const guests=sess?.guests||"?";
+      const honNames=(sess?.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+      const banaiNames=(sess?.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+      const note=sess?.note||"";
+
+      // セッションヘッダー
+      html+='<div class="glass" style="border-radius:10px;margin-bottom:6px;overflow:hidden;">';
+      html+='<div style="padding:10px 14px;background:rgba(212,160,23,.08);border-bottom:2px solid rgba(212,160,23,.2);display:flex;align-items:center;flex-wrap:wrap;gap:8px;">';
+      html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
+      html+='<span style="font-size:12px;color:#888;">🕐 '+inTime+'〜</span>';
+      html+='<span style="font-size:12px;color:#aaa;">👥 '+guests+'名</span>';
+      if(honNames.length)html+='<span style="font-size:11px;color:#ff4444;background:rgba(255,68,68,.1);padding:2px 8px;border-radius:10px;">本: '+honNames.join("・")+'</span>';
+      if(banaiNames.length)html+='<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.1);padding:2px 8px;border-radius:10px;">場: '+banaiNames.join("・")+'</span>';
+      if(note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:2px 8px;border-radius:10px;">📝 '+note+'</span>';
+      html+='<span style="margin-left:auto;font-size:11px;color:#555;">'+group.length+'件</span>';
       html+='</div>';
-      html+='<div style="padding:8px 12px;">';
-      const tas=group;
-      tas.forEach(a=>{
-      const col=ASSIGN_TYPES[a.type]?.col||"#888";
-      const sfx=TYPE_SFX[a.type]||"?";
-      const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-      const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-      const dur=a.endTime?fmtDur(a.endTime-a.startTime):null;
-      html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);">';
-      // タイプバッジ（固定幅）
-      html+='<span style="flex-shrink:0;font-size:11px;font-weight:700;padding:3px 8px;border:1px solid '+col+'99;color:'+col+';border-radius:4px;min-width:28px;text-align:center;">'+sfx+'</span>';
-      // キャスト名＋時刻（flex:1で残り幅を使う）
-      html+='<div style="flex:1;min-width:0;">';
-      html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+a.castName+'</div>';
-      html+='<div style="font-size:11px;color:#666;margin-top:1px;">'+sT+' → '+eT+(dur?' ('+dur+')':'')+'</div>';
-      html+='</div>';
-      // 継続中タイマー
-      if(!a.endTime){
-        html+='<span style="flex-shrink:0;font-size:12px;font-family:monospace;color:'+col+';">'+ts(Date.now()-a.startTime).slice(3)+'</span>';
-      }
-      // 削除ボタン（固定幅）
-      html+='<button class="btn" data-daid="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.daid)" style="flex-shrink:0;padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
-      html+='</div>';
+
+      // アサイン行（見やすいカード形式）
+      group.forEach(a=>{
+        const col=ASSIGN_TYPES[a.type]?.col||"#888";
+        const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
+        const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
+        const dur=a.endTime?fmtDur(a.endTime-a.startTime):null;
+        html+='<div style="display:grid;grid-template-columns:auto 1fr auto auto auto;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.04);">';
+        // タイプバッジ
+        html+='<span style="font-size:11px;font-weight:700;padding:4px 10px;border:1px solid '+col+'99;color:'+col+';border-radius:12px;white-space:nowrap;background:'+col+'15;">'+lbl+'</span>';
+        // キャスト名
+        html+='<span style="font-size:14px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
+        // スタート〜アウト
+        html+='<div style="text-align:right;font-size:12px;color:#888;white-space:nowrap;">'+sT+'<br>→ '+eT+'</div>';
+        // 所要時間
+        html+='<span style="font-size:11px;color:#666;white-space:nowrap;">'+(dur?"("+dur+")":"")+'</span>';
+        // 削除ボタン
+        html+='<button class="btn" data-daid="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.daid)" style="padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+        html+='</div>';
+      });
+      html+='</div>'; // end glass
     });
-      html+='</div>';
-      html+='</div></div>';
-    }); // end sortedSids
     html+='</div>';
   });
   html+='</div>';
@@ -1306,21 +1332,33 @@ function rTableDetail(){
   // ===== 付け回し履歴 =====
   if(doneA.length){
     html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;">';
-    html+='<div class="st" style="margin-bottom:10px;">付け回し履歴 ('+doneA.length+'件)</div>';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">';
+    html+='<div class="st">付け回し履歴 ('+doneA.length+'件)</div>';
+    html+='</div>';
+    // タイプ別小計
+    const typeSummary={};
+    doneA.forEach(a=>{if(!typeSummary[a.type])typeSummary[a.type]=0;typeSummary[a.type]++;});
+    html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">';
+    Object.entries(typeSummary).forEach(([type,cnt])=>{
+      const col=ASSIGN_TYPES[type]?.col||"#888";
+      const lbl=ASSIGN_TYPES[type]?.label||type;
+      html+='<span style="font-size:11px;padding:2px 9px;background:'+col+'15;border:1px solid '+col+'55;color:'+col+';border-radius:10px;">'+lbl+' '+cnt+'件</span>';
+    });
+    html+='</div>';
     [...doneA].reverse().forEach(a=>{
       const col=ASSIGN_TYPES[a.type]?.col||"#555";const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
       const worked=a.endTime-a.startTime;
       const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
       const eT=new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-      html+='<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-      html+='<div><span style="font-size:10px;padding:1px 5px;border:1px solid '+col+'66;color:'+col+';border-radius:3px;margin-right:6px;">'+lbl+'</span><span style="font-size:13px;color:#bbb;">'+a.castName+'</span></div>';
-      html+='<div style="display:flex;gap:5px;">';
-      html+='<button class="btn" data-aidct2="'+a.id+'" onclick="event.stopPropagation();openChangeType(this.dataset.aidct2)" style="padding:2px 7px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:3px;font-size:10px;touch-action:manipulation;">タイプ</button>';
-      html+='<button class="btn" data-eid2="'+a.id+'" onclick="event.stopPropagation();openEditAssignTime(this.dataset.eid2)" style="padding:2px 7px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻</button>';
-      html+='<button class="btn" data-aid5="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.aid5)" style="padding:2px 7px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
-      html+='</div></div>';
-      html+='<div style="font-size:11px;color:#555;margin-top:3px;">'+sT+' → '+eT+' ('+fmtDur(worked)+')</div>';
+      html+='<div style="display:grid;grid-template-columns:auto 1fr auto auto;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<span style="font-size:11px;font-weight:700;padding:3px 9px;border:1px solid '+col+'88;color:'+col+';border-radius:10px;background:'+col+'12;">'+lbl+'</span>';
+      html+='<span style="font-size:13px;color:#e8dcc8;font-weight:600;">'+a.castName+'</span>';
+      html+='<span style="font-size:11px;color:#555;white-space:nowrap;">'+sT+' → '+eT+'<br><span style="color:#444;">('+fmtDur(worked)+')</span></span>';
+      html+='<div style="display:flex;gap:4px;">';
+      html+='<button class="btn" data-aidct2="'+a.id+'" onclick="event.stopPropagation();openChangeType(this.dataset.aidct2)" style="padding:3px 7px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:3px;font-size:10px;touch-action:manipulation;">タイプ</button>';
+      html+='<button class="btn" data-eid2="'+a.id+'" onclick="event.stopPropagation();openEditAssignTime(this.dataset.eid2)" style="padding:3px 7px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:3px;font-size:10px;touch-action:manipulation;">時刻</button>';
+      html+='<button class="btn" data-aid5="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.aid5)" style="padding:3px 7px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>';
+      html+='</div>';
       html+='</div>';
     });
     html+='</div>';
@@ -1443,23 +1481,44 @@ function rOrder(){
   const btnH=isTabletPlus?"44px":"40px";
   const btnFs=isTabletPlus?"14px":"13px";
 
+  // 出勤中キャストのみ（場内指名・キャストDrink用）
+  const ondutyIds=getOndutyIds();
+
   // ドリンクボタン（均一サイズ）
   let dkBtns='<button class="menu-btn" onclick="ofdq()" style="background:rgba(0,180,255,.1);border-color:rgba(0,180,255,.3);color:#38bdf8;">フリードリンク<br><small>¥2,000</small></button>';
   S.menus.drinks.forEach(d=>{
     dkBtns+='<button class="menu-btn" data-did="'+d.id+'" onclick="odq(this.dataset.did)">'+d.label+'<br><small>¥'+fmt(d.price)+'</small></button>';
   });
 
-  // 特殊メニューボタン（均一サイズ）
+  // 酒類カテゴリボタン
+  const liquorCats=[
+    ["champagne","🥂 シャンパン","rgba(255,215,0,.12)","rgba(255,215,0,.35)","#ffd700"],
+    ["wine","🍷 ワイン","rgba(180,0,80,.12)","rgba(180,0,80,.35)","#ff6b9d"],
+    ["whisky","🥃 ウイスキー","rgba(200,140,60,.12)","rgba(200,140,60,.35)","#f0a040"],
+    ["shochu","🍶 焼酎","rgba(180,200,220,.08)","rgba(180,200,220,.25)","#b0c8dc"],
+    ["brandy","🍯 ブランデー","rgba(160,90,30,.12)","rgba(160,90,30,.35)","#c87820"],
+  ];
+  liquorCats.forEach(([key,lbl,bg,border,col])=>{
+    const items=(S.menus[key]||[]);
+    dkBtns+='<button class="menu-btn" data-lcat="'+key+'" onclick="om(\'liquor_\'+this.dataset.lcat)" style="background:'+bg+';border-color:'+border+';color:'+col+';">'+lbl+'<br><small>'+(items.length?items.length+'種':'未設定')+'</small></button>';
+  });
+
+  // オーダーボタン（場内指名・キャストDrink・延長・VIP・カスタム）
+  let orBtns='';
+  // 場内指名：出勤中キャストがいる場合のみ
+  if(ondutyIds.size>0)orBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥1,500</small></button>';
+  // キャストDrink：出勤中キャストがいる場合のみ
+  if(ondutyIds.size>0)orBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink<br><small>各種</small></button>';
+  orBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
+  if(isV(at))orBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料<br><small>追加</small></button>';
+  orBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
+
+  // 特殊メニューボタン（セット追加・本指名・テーブルチェンジ・割引・概算）
   let spBtns='';
   spBtns+='<button class="menu-btn" onclick="om(\'add-set\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">セット追加<br><small>+延長/入替</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'add-hon\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">本指名追加<br><small>¥3,000</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥1,500</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink<br><small>各種</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
-  if(isV(at))spBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料<br><small>追加</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'disc\')" style="background:rgba(255,80,80,.1);border-color:rgba(255,80,80,.3);color:#ff6b6b;">割引<br><small>各種</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'tc\')" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.25);color:#38bdf8;">テーブル<br><small>チェンジ</small></button>';
+  spBtns+='<button class="menu-btn" onclick="om(\'disc\')" style="background:rgba(255,80,80,.1);border-color:rgba(255,80,80,.3);color:#ff6b6b;">割引<br><small>各種</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'est\')" style="background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.25);color:#ffd700;">📊 概算<br><small>シミュレーション</small></button>';
 
   // レイアウト: tablet/desktopは2カラム、mobileは縦積み
@@ -1469,7 +1528,7 @@ function rOrder(){
     // 左カラム（スクロール可能コンテンツ）
     html+='<div style="overflow-y:auto;max-height:calc(100vh - 90px);padding-bottom:16px;" id="order-left-col">';
     html+=orderHeader(tl,s,isTabletPlus);
-    html+=orderMenuSection(dkBtns,spBtns);
+    html+=orderMenuSection(dkBtns,orBtns,spBtns);
     html+='</div>';
     // 右カラム（sticky）
     html+='<div style="position:sticky;top:16px;">';
@@ -1490,7 +1549,7 @@ function rOrder(){
       +'</div>';
     html+='<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:12px;" id="order-summary">'+buildOrderSummary(s)+'</div>';
     html+='<button class="btn gbg" onclick="om(\'co\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:6px;margin-bottom:12px;touch-action:manipulation;">会計・精算</button>';
-    html+=orderMenuSection(dkBtns,spBtns);
+    html+=orderMenuSection(dkBtns,orBtns,spBtns);
     html+='</div>';
     return html;
   }
@@ -1504,14 +1563,18 @@ function orderHeader(tl,s,big){
     +(isV(at)?'<span class="tag tv2">VIP</span>':"")
     +'</div>';
 }
-function orderMenuSection(dkBtns,spBtns){
+function orderMenuSection(dkBtns,orBtns,spBtns){
   const cols=DEV==="desktop"?"repeat(auto-fill,minmax(120px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(110px,1fr))":"repeat(3,1fr)";
   return '<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;">'
     +'<div class="st">ドリンク</div>'
     +'<div style="display:grid;grid-template-columns:'+cols+';gap:8px;margin-bottom:4px;">'+dkBtns+'</div>'
     +'</div>'
     +'<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;">'
-    +'<div class="st">特殊メニュー・操作</div>'
+    +'<div class="st">オーダー</div>'
+    +'<div style="display:grid;grid-template-columns:'+cols+';gap:8px;">'+orBtns+'</div>'
+    +'</div>'
+    +'<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:12px;">'
+    +'<div class="st">特殊メニュー</div>'
     +'<div style="display:grid;grid-template-columns:'+cols+';gap:8px;">'+spBtns+'</div>'
     +'</div>';
 }
@@ -1549,7 +1612,13 @@ function orderRightCol(s,td,tc3,urg,ovr,vr,hv,big){
     +'<button class="btn gbg" onclick="om(\'co\')" style="width:100%;padding:14px;font-size:16px;font-weight:700;letter-spacing:.05em;border-radius:6px;touch-action:manipulation;">会計</button>';
 }
 
-function odq(id){qv=1;const d=S.menus.drinks.find(d=>d.id===id);if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}}
+function odq(id){
+  qv=1;
+  // drinks + 酒類カテゴリ全て検索
+  const allMenuItems=[...(S.menus.drinks||[]),...(S.menus.champagne||[]),...(S.menus.wine||[]),...(S.menus.whisky||[]),...(S.menus.shochu||[]),...(S.menus.brandy||[])];
+  const d=allMenuItems.find(d=>d.id===id);
+  if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}
+}
 function ofdq(){qv=1;qm={id:"fd_add",label:"フリードリンク",price:2000};om("qty");}
 function oet(){
   const s=S.sessions[at];const t=new Date(s.startTime);
@@ -1903,6 +1972,24 @@ function rSettings(){
     html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
     html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
+    // 酒類メニュー
+    const liquorCatDefs=[["champagne","🥂 シャンパン"],["wine","🍷 ワイン"],["whisky","🥃 ウイスキー"],["shochu","🍶 焼酎"],["brandy","🍯 ブランデー"]];
+    liquorCatDefs.forEach(([k,lbl])=>{
+      const ni=nmi[k]||{label:"",price:""};
+      html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">'+lbl+'</div>';
+      (S.menus[k]||[]).forEach(item=>{
+        html+='<div class="ir" style="gap:8px;">';
+        html+='<input class="ip" value="'+item.label+'" data-k="'+k+'" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
+        html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="'+k+'" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+        html+='<button class="btn" data-k="'+k+'" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
+        html+='</div>';
+      });
+      html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
+      html+='<input class="ip" placeholder="銘柄名" data-k="'+k+'" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+      html+='<button class="btn gbg" data-k="'+k+'" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
+      html+='</div></div>';
+    });
     html+='</div>';
   }
   html+='</div>';
@@ -1998,8 +2085,13 @@ function rBackupDetail(){
     return html;
   }
   html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">各営業日データは独立して保存されています。削除してもPOSデータには影響しません。</div>';
+  html+='<div style="display:flex;gap:8px;margin-bottom:14px;">';
+  html+='<button class="btn gbg" onclick="restoreAllBackup()" style="flex:1;padding:10px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">🔄 全件まとめて復旧</button>';
+  html+='</div>';
+  // まとめて復旧ボタン
+  html+='<button class="btn" onclick="restoreAllBackups()" style="width:100%;padding:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;margin-bottom:12px;">⟳ 全件まとめてPOSに復旧（'+bkDays.length+'営業日）</button>';
   html+='<div class="glass" style="border-radius:8px;overflow:hidden;margin-bottom:14px;">';
-  html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.07);display:flex;align-items:center;justify-content:space-between;">';
+  html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.07);">';
   html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">保存済み営業日（'+bkDays.length+'件）</span>';
   html+='</div>';
   html+='<div style="padding:8px 12px;">';
@@ -2036,11 +2128,32 @@ async function deleteBackupBizDay(date){
   }
 }
 
+// バックアップを全件一括復旧（bizDaysにマージ）
+async function restoreAllBackup(){
+  const bkDays=Object.values((S.backups||{}).bizDays||{});
+  if(!bkDays.length){alert("バックアップデータがありません");return;}
+  if(!confirm("バックアップの全営業日データ（"+bkDays.length+"件）をPOSのbizDaysにマージ復旧します。\n既存の同日データは上書きされます。\nよろしいですか？"))return;
+  bkDays.forEach(bk=>{
+    const date=bk.date;
+    if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
+    S.bizDays[date].history=bk.history||[];
+    S.bizDays[date].shifts=bk.shifts||{};
+    S.bizDays[date].assignments=bk.assignments||{};
+  });
+  if(window._db){
+    try{
+      await window._db.ref("pos/bizDays").set(S.bizDays);
+      sbs(true,"一括復旧完了 ✓");
+      alert("全"+bkDays.length+"件の復旧が完了しました。");
+      render();
+    }catch(e){sbs(false,"復旧エラー");alert("復旧に失敗："+e.message);}
+  }
+}
+
 // バックアップの特定営業日データをPOSに復旧（bizDaysにマージ）
 function restoreFromBackupDay(date){
   const bk=(S.backups?.bizDays||{})[date];if(!bk)return;
   if(!confirm("「"+date+"」のバックアップデータをPOS（bizDays）に復旧します。\n会計: "+(bk.history||[]).length+"件\n\n既存の同日データに上書きされます。よろしいですか？"))return;
-  // bizDaysに復旧
   if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
   S.bizDays[date].history=bk.history||[];
   S.bizDays[date].shifts=bk.shifts||{};
@@ -2049,6 +2162,32 @@ function restoreFromBackupDay(date){
     window._db.ref("pos/bizDays/"+date).set(S.bizDays[date])
       .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+date+"」の復旧が完了しました。");render();})
       .catch(()=>sbs(false,"復旧エラー"));
+  }
+}
+
+// バックアップ全件をまとめてPOSに復旧
+async function restoreAllBackups(){
+  const bkDays=Object.values((S.backups||{}).bizDays||{});
+  if(!bkDays.length){alert("バックアップデータがありません");return;}
+  const total=bkDays.reduce((a,d)=>a+(d.history||[]).length,0);
+  if(!confirm("バックアップ全件をPOS（bizDays）に復旧します。\n\n"+bkDays.length+"営業日 / 会計"+total+"件\n\n既存の各日データに上書きされます（バックアップにない日は影響なし）。\n\nよろしいですか？"))return;
+  // 全日分をbizDaysにマージ
+  const updates={};
+  bkDays.forEach(bk=>{
+    const date=bk.date;
+    if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
+    S.bizDays[date].history=bk.history||[];
+    S.bizDays[date].shifts=bk.shifts||{};
+    S.bizDays[date].assignments=bk.assignments||{};
+    updates["pos/bizDays/"+date]=S.bizDays[date];
+  });
+  if(window._db){
+    try{
+      await window._db.ref().update(updates);
+      sbs(true,"全件復旧完了 ✓");
+      alert("全"+bkDays.length+"営業日の復旧が完了しました。");
+      render();
+    }catch(e){sbs(false,"復旧エラー");alert("復旧に失敗しました："+e.message);}
   }
 }
 
@@ -2606,6 +2745,28 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
       +'</div></div>';
   }
+  else if(md&&md.startsWith("liquor_")&&s){
+    // 酒類カテゴリモーダル
+    const liquorKey=md.replace("liquor_","");
+    const liquorLabels={champagne:"🥂 シャンパン",wine:"🍷 ワイン",whisky:"🥃 ウイスキー",shochu:"🍶 焼酎",brandy:"🍯 ブランデー"};
+    const liquorCols={champagne:"#ffd700",wine:"#ff6b9d",whisky:"#f0a040",shochu:"#b0c8dc",brandy:"#c87820"};
+    const items=S.menus[liquorKey]||[];
+    const lbl=liquorLabels[liquorKey]||liquorKey;
+    const col=liquorCols[liquorKey]||"#aaa";
+    let btns="";
+    items.forEach(item=>{
+      btns+='<button class="btn" data-iid="'+item.id+'" onclick="odq(this.dataset.iid)" style="padding:16px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);color:#e8dcc8;border-radius:8px;font-size:14px;font-weight:600;text-align:center;touch-action:manipulation;">'+item.label+'<div style="font-size:12px;color:'+col+';margin-top:4px;">¥'+fmt(item.price)+'</div></button>';
+    });
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
+      +'<h3 style="margin-bottom:4px;font-size:18px;color:'+col+';">'+lbl+'</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">設定タブから追加・編集できます</div>'
+      +(items.length
+        ?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;max-height:60vh;overflow-y:auto;margin-bottom:16px;">'+btns+'</div>'
+        :'<div style="font-size:14px;color:#555;padding:20px;text-align:center;margin-bottom:16px;">メニュー未設定<br><span style="font-size:12px;">設定タブの「酒類」から追加してください</span></div>'
+      )
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">閉じる</button>'
+      +'</div></div>';
+  }
   else if(md==="ext"&&s){
     // SC込みボタン表示条件：
     // ・入店時にSCを取っている（hasSC）
@@ -2925,40 +3086,47 @@ function rModal(){
     }
   }
   else if(md==="castStatus"){
-    // キャスト選択→待機/休憩/テーブルへ付ける
     const castId=window._statusCastId;
     const sh=getShiftByCastId(castId);
     if(!sh){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
     else{
       const status=sh.status||"waiting";
-      const statusLbl=status==="break"?"休憩中":"待機中";
-      const statusBg=status==="break"?"rgba(255,165,0,.08)":"rgba(74,222,128,.08)";
+      const statusLbl=status==="break"?"🟡 休憩中":"🟢 待機中";
+      const statusBg=status==="break"?"rgba(255,165,0,.1)":"rgba(74,222,128,.1)";
       const statusCol=status==="break"?"#ffa500":"#4ade80";
       const logs=sh.statusLog||[];
       const lastLog=logs.filter(l=>l.status===status&&!l.endTime).pop();
       const elapsed=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
-      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
-        +'<div style="padding:14px;background:'+statusBg+';border:1px solid '+statusCol+'33;border-radius:8px;margin-bottom:16px;text-align:center;">'
-        +'<div style="font-size:20px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+sh.castName+'</div>'
-        +'<div style="font-size:12px;color:'+statusCol+';margin-bottom:6px;">'+statusLbl+'</div>'
-        +'<div data-modal-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:22px;font-family:monospace;font-weight:700;color:'+statusCol+';">'+ts(elapsed).slice(3)+'</div>'
+      const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const activeTables=S.tables.filter(t=>S.sessions[t.id]);
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
+        // キャスト名・状態
+        +'<div style="text-align:center;padding:18px;background:'+statusBg+';border:2px solid '+statusCol+'44;border-radius:12px;margin-bottom:18px;">'
+        +'<div style="font-size:24px;font-weight:700;color:#e8dcc8;letter-spacing:.05em;margin-bottom:6px;">'+sh.castName+'</div>'
+        +'<div style="font-size:14px;color:'+statusCol+';margin-bottom:10px;">'+statusLbl+'&nbsp;&nbsp;入店: '+inT+'〜</div>'
+        +'<div data-modal-timer="'+(lastLog?lastLog.startTime:sh.clockIn)+'" style="font-size:32px;font-family:monospace;font-weight:700;color:'+statusCol+';">'+ts(elapsed).slice(3)+'</div>'
         +'</div>'
         // テーブルへ付ける
-        +'<div class="st" style="margin-bottom:8px;">テーブルへ付ける</div>'
-        +(()=>{
-          const activeTables=S.tables.filter(t=>S.sessions[t.id]);
-          if(!activeTables.length)return '<div style="font-size:12px;color:#444;margin-bottom:12px;">入店中のテーブルなし</div>';
-          return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">'
-            +activeTables.map(t=>'<button class="btn" data-tid10="'+t.id+'" onclick="tsukeMd={step:\'type\',castId:\''+castId+'\',type:null,tableId:this.dataset.tid10,time:\'\'};om(\'tsuke\')" style="padding:8px 12px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">'+t.label+'</button>').join("")
-            +'</div>';
-        })()
+        +'<div class="st" style="margin-bottom:10px;">テーブルへ付ける</div>'
+        +(activeTables.length
+          ?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px;">'
+            +activeTables.map(t=>{
+              const ts2=S.sessions[t.id];
+              const guests=ts2?.guests||"";
+              return '<button class="btn" data-tid10="'+t.id+'" onclick="tsukeMd={step:\'type\',castId:\''+castId+'\',type:null,tableId:this.dataset.tid10,time:\'\'};om(\'tsuke\')" style="padding:12px 8px;background:rgba(167,139,250,.1);border:2px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+t.label+'<div style="font-size:10px;color:#a78bfa88;margin-top:2px;">'+guests+'名</div></button>';
+            }).join("")
+            +'</div>'
+          :'<div style="font-size:12px;color:#444;margin-bottom:16px;padding:10px;background:rgba(255,255,255,.03);border-radius:6px;text-align:center;">入店中のテーブルなし</div>'
+        )
         // 状態変更
-        +'<div class="st" style="margin-bottom:8px;">状態を変更</div>'
-        +'<div style="display:flex;gap:8px;margin-bottom:10px;">'
-        +(status!=="waiting"?'<button class="btn" data-cid10="'+castId+'" onclick="moveToWaiting(this.dataset.cid10);closeM()" style="flex:1;padding:10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">→ 待機</button>':"")
-        +(status!=="break"?'<button class="btn" data-cid11="'+castId+'" onclick="moveToBreak(this.dataset.cid11);closeM()" style="flex:1;padding:10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">→ 休憩</button>':"")
+        +'<div class="st" style="margin-bottom:10px;">状態を変更</div>'
+        +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">'
+        +(status!=="waiting"?'<button class="btn" data-cid10="'+castId+'" onclick="moveToWaiting(this.dataset.cid10);closeM()" style="padding:14px;background:rgba(74,222,128,.12);border:2px solid rgba(74,222,128,.3);color:#4ade80;border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">🟢 待機へ</button>':"<div></div>")
+        +(status!=="break"?'<button class="btn" data-cid11="'+castId+'" onclick="moveToBreak(this.dataset.cid11);closeM()" style="padding:14px;background:rgba(255,165,0,.1);border:2px solid rgba(255,165,0,.3);color:#ffa500;border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">🟡 休憩へ</button>':"<div></div>")
         +'</div>'
-        +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">📋 履歴を見る</button>'
+        // 退勤登録
+        +'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15)};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">🔴 退勤登録</button>'
+        +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">📋 付け回し履歴</button>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
         +'</div></div>';
     }
@@ -3245,6 +3413,14 @@ function clockOut(shiftId,time){
   if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
   save("shifts",S.shifts);closeM();render();
 }
+function cancelClockOut(shiftId){
+  if(!confirm("退勤をキャンセルして出勤状態に戻します。よろしいですか？"))return;
+  const sh=S.shifts[shiftId];if(!sh)return;
+  delete sh.clockOut;
+  // statusをwaitingに戻す
+  sh.status="waiting";
+  save("shifts",S.shifts);closeM();render();
+}
 function confirmShiftTime(){
   const el=document.getElementById("shift-time");
   const t=(el&&el.value)?el.value:nowHHMM();
@@ -3461,7 +3637,10 @@ function rShifts(){
       html+='<span style="color:#666;margin-left:10px;">'+inT+' → '+outT+'</span>';
       html+='<span style="color:#888;margin-left:8px;">('+fmtDur(worked)+')</span>';
       html+='</div>';
+      html+='<div style="display:flex;gap:6px;">';
+      html+='<button class="btn" data-sid="'+sh.id+'" onclick="cancelClockOut(this.dataset.sid)" style="padding:4px 10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);color:#4ade80;border-radius:4px;font-size:11px;touch-action:manipulation;">退勤取消</button>';
       html+='<button class="btn" data-sid="'+sh.id+'" onclick="editShift(this.dataset.sid)" style="padding:4px 8px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:11px;touch-action:manipulation;">編集</button>';
+      html+='</div>';
       html+='</div>';
     });
     html+='</div>';
