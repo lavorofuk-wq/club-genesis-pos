@@ -145,15 +145,15 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.64</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.65</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
       <button class="nb" id="nli" onclick="sv('list')">リスト</button>
       <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">売上</button>
-      <button class="nb" id="nhl" onclick="sv('histlog')">記録</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
+      <button class="nb" id="nm" onclick="sv('admin')">管理</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
@@ -580,9 +580,9 @@ function updateNav(){
   if(endBtn)endBtn.style.display=inBiz?"block":"none";
   if(!inBiz)return;
   const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
-  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nhl","histlog"],["ns","settings"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
-    if(v==="settings"){el.style.display=isAdmin?"":"none";return;}
+    if(v==="admin"){el.style.display=isAdmin?"":"none";el.className="nb"+(vw==="admin"?" ac":"");return;}
     el.className="nb"+((v==="floor"&&["floor","order","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
   // 管理ボタンの表示更新
@@ -593,8 +593,7 @@ function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
   try{
-    if(vw==="histlog")m.innerHTML=rHistLog();
-    else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings"].includes(vw)))m.innerHTML=rHome();
+    if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin"].includes(vw)))m.innerHTML=rHome();
     else if(vw==="floor")m.innerHTML=rFloor();
     else if(vw==="list")m.innerHTML=rList();
     else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -604,7 +603,9 @@ function render(){
     else if(vw==="history")m.innerHTML=rHist();
     else if(vw==="shifts")m.innerHTML=rShifts();
     else if(vw==="settings")m.innerHTML=rSettings();
+    else if(vw==="admin")m.innerHTML=rAdmin();
     else if(vw==="backupDetail")m.innerHTML=rBackupDetail();
+    else if(vw==="histlog")m.innerHTML=rHistLog();
   }catch(e){
     console.error("render error:",vw,e);
     m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エラー: '+e.message+'<br><button class="btn" onclick="sv(\'home\')" style="margin-top:12px;padding:8px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">ホームへ戻る</button></div>';
@@ -612,10 +613,10 @@ function render(){
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
-  // 設定タブは管理モード時のみアクセス可
-  if(v==="settings"&&sessionStorage.getItem("genesis_admin")!=="1")return;
-  // home・histlog・history・shifts・settingsは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","shifts","settings","backupDetail"];
+  // 管理タブは管理モード時のみアクセス可
+  if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
+  // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
+  const alwaysOk=["home","histlog","history","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["order","checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -817,12 +818,15 @@ async function endBizDay(){
   S.bizDays[id]=day;
   S.activeBizDay=null;
   if(window._db){
-    // バックアップを固定キー"latest"に常時上書き保存
+    // バックアップを固定キー"latest"に常時更新
+    // 既存バックアップのbizDaysをベースにマージ（POSで削除した日も保持）
+    const existingBk=(S.backups||{}).latest||{};
+    const mergedBizDays={...(existingBk.bizDays||{}),...S.bizDays};
     const snap={
       ts:Date.now(),
       date:day.date,
       label:day.date+" 営業終了",
-      bizDays:JSON.parse(JSON.stringify(S.bizDays)),
+      bizDays:JSON.parse(JSON.stringify(mergedBizDays)),
       history:JSON.parse(JSON.stringify(S.history||[])),
       shifts:JSON.parse(JSON.stringify(S.shifts||{})),
       assignments:JSON.parse(JSON.stringify(S.assignments||{}))
@@ -1550,6 +1554,7 @@ function oet(){
 // ===== HISTORY / SETTINGS は省略なし =====
 function rHist(){
   let html='<div style="max-width:720px;margin:0 auto;">';
+  html+='<button class="btn" onclick="sv(\'home\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;margin-bottom:16px;touch-action:manipulation;">🏠 ホーム</button>';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">会計履歴</h2>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
   html+='<div class="st">期間フィルター・エクスポート</div>';
@@ -1610,7 +1615,10 @@ function rHist(){
       html+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">';
       html+='<button class="btn" data-phid="'+h.id+'" onclick="printHistReceipt(parseInt(this.dataset.phid))" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">🖨 印刷</button>';
       html+='<button class="btn" data-ehid="'+h.id+'" onclick="editHistPay(parseInt(this.dataset.ehid))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:12px;">💳 支払変更</button>';
-      html+='<button class="btn" data-dhid="'+h.id+'" onclick="cdh(parseInt(this.dataset.dhid))" style="padding:6px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button>';
+      // 削除は当営業日のS.historyにある会計のみ可能
+      if((S.history||[]).some(sh=>sh.id===h.id)){
+        html+='<button class="btn" data-dhid="'+h.id+'" onclick="cdh(parseInt(this.dataset.dhid))" style="padding:6px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button>';
+      }
       html+='</div></div>';
     }
     html+='</div>';
@@ -1786,25 +1794,9 @@ function getBizDayEnd(t){
 
 
 function rSettings(){
-  const pwEnabled=S.config.pwEnabled!==false;
-  const currentPW=S.config.password||'genesis0127';
   let html='<div style="max-width:680px;margin:0 auto;">';
+  html+='<button class="btn" onclick="sv(\'home\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;margin-bottom:16px;touch-action:manipulation;">🏠 ホーム</button>';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">設定</h2>';
-  // パスワード設定
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;">';
-  html+='<div class="st" style="margin-bottom:12px;">パスワード設定</div>';
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
-  html+='<div><div style="font-size:13px;color:#e8dcc8;">パスワード認証</div><div style="font-size:11px;color:#666;margin-top:2px;">OFFにすると認証なしでアクセス可能</div></div>';
-  html+='<button class="btn" onclick="togglePWEnabled()" style="padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;background:'+(pwEnabled?"rgba(74,222,128,.15)":"rgba(255,255,255,.08)")+';border:1px solid '+(pwEnabled?"rgba(74,222,128,.3)":"rgba(255,255,255,.15)")+';color:'+(pwEnabled?"#4ade80":"#666")+';touch-action:manipulation;">'+(pwEnabled?"ON":"OFF")+'</button>';
-  html+='</div>';
-  html+='<div class="st" style="margin-bottom:8px;">パスワードを変更</div>';
-  html+='<div style="display:flex;gap:8px;">';
-  html+='<input type="text" id="pw-new1" class="ip" placeholder="新しいパスワード" style="flex:1;font-size:14px;"/>';
-  html+='<input type="text" id="pw-new2" class="ip" placeholder="確認" style="flex:1;font-size:14px;"/>';
-  html+='<button class="btn gbg" onclick="changePW()" style="padding:8px 14px;font-size:13px;font-weight:700;white-space:nowrap;touch-action:manipulation;">変更</button>';
-  html+='</div>';
-  html+='<div style="font-size:11px;color:#555;margin-top:6px;">現在: <span style="color:#888;letter-spacing:.05em;">'+currentPW+'</span></div>';
-  html+='</div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:20px;">';
   [["cast","キャスト"],["menus","メニュー料金"],["special","特殊メニュー"],["tables","テーブル"]].forEach(([k,l])=>{
     html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(this.dataset.stab)">'+l+'</button>';
@@ -1909,9 +1901,37 @@ function rSettings(){
     html+='</div></div>';
     html+='</div>';
   }
-  // ===== バックアップ管理 =====
+  html+='</div>';
+  return html;
+}
+
+// ===== 管理タブ =====
+function rAdmin(){
+  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+  if(!isAdmin)return '<div style="padding:20px;color:#666;">管理モードが必要です</div>';
+  const pwEnabled=S.config.pwEnabled!==false;
+  const currentPW=S.config.password||'genesis0127';
   const latestBk=S.backups?.latest||null;
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(56,189,248,.2);">';
+  let html='<div style="max-width:680px;margin:0 auto;">';
+  html+='<button class="btn" onclick="sv(\'home\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;margin-bottom:16px;touch-action:manipulation;">🏠 ホーム</button>';
+  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;margin-bottom:16px;">管理</h2>';
+  // パスワード設定
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;">';
+  html+='<div class="st" style="margin-bottom:12px;">パスワード設定</div>';
+  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
+  html+='<div><div style="font-size:13px;color:#e8dcc8;">パスワード認証</div><div style="font-size:11px;color:#666;margin-top:2px;">OFFにすると認証なしでアクセス可能</div></div>';
+  html+='<button class="btn" onclick="togglePWEnabled()" style="padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;background:'+(pwEnabled?"rgba(74,222,128,.15)":"rgba(255,255,255,.08)")+';border:1px solid '+(pwEnabled?"rgba(74,222,128,.3)":"rgba(255,255,255,.15)")+';color:'+(pwEnabled?"#4ade80":"#666")+';touch-action:manipulation;">'+(pwEnabled?"ON":"OFF")+'</button>';
+  html+='</div>';
+  html+='<div class="st" style="margin-bottom:8px;">パスワードを変更</div>';
+  html+='<div style="display:flex;gap:8px;">';
+  html+='<input type="text" id="pw-new1" class="ip" placeholder="新しいパスワード" style="flex:1;font-size:14px;"/>';
+  html+='<input type="text" id="pw-new2" class="ip" placeholder="確認" style="flex:1;font-size:14px;"/>';
+  html+='<button class="btn gbg" onclick="changePW()" style="padding:8px 14px;font-size:13px;font-weight:700;white-space:nowrap;touch-action:manipulation;">変更</button>';
+  html+='</div>';
+  html+='<div style="font-size:11px;color:#555;margin-top:6px;">現在: <span style="color:#888;letter-spacing:.05em;">'+currentPW+'</span></div>';
+  html+='</div>';
+  // バックアップ管理
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;border:1px solid rgba(56,189,248,.2);">';
   html+='<div class="st" style="color:#38bdf8;margin-bottom:4px;">💾 バックアップ管理</div>';
   html+='<div style="font-size:11px;color:#666;margin-bottom:14px;">営業終了・手動保存のたびに常に最新状態へ上書き更新されます。</div>';
   if(latestBk){
@@ -1920,32 +1940,27 @@ function rSettings(){
     const histCount=(latestBk.history||[]).length;
     html+='<div style="padding:10px 12px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:6px;margin-bottom:12px;">';
     html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
-    html+='<div>';
-    html+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;">最新バックアップ</div>';
+    html+='<div><div style="font-size:13px;font-weight:700;color:#e8dcc8;">最新バックアップ</div>';
     html+='<div style="font-size:11px;color:#888;margin-top:2px;">'+d+'&nbsp;|&nbsp;営業日 '+dayCount+'件&nbsp;|&nbsp;当日会計 '+histCount+'件</div>';
-    html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+latestBk.label+'</div>';
-    html+='</div>';
-    html+='<div style="display:flex;gap:6px;">'
-    +'<button class="btn" onclick="sv(\'backupDetail\')" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:12px;touch-action:manipulation;">詳細</button>'
-    +'<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="padding:6px 12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">復旧</button>'
-    +'</div>';
-    html+='</div></div>';
+    html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+latestBk.label+'</div></div>';
+    html+='<div style="display:flex;gap:6px;">';
+    html+='<button class="btn" onclick="sv(\'backupDetail\')" style="padding:6px 12px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#aaa;border-radius:4px;font-size:12px;touch-action:manipulation;">詳細</button>';
+    html+='<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="padding:6px 12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">復旧</button>';
+    html+='</div></div></div>';
   }else{
-    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（手動保存または営業終了時に自動保存されます）</div>';
+    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし</div>';
   }
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
   html+='<button class="btn" onclick="manualFirebaseBackup()" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">💾 今すぐ更新</button>';
   html+='</div>';
-  html+='</div>';
-
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(255,80,80,.2);">';
+  // 緊急リセット
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;border:1px solid rgba(255,80,80,.2);">';
   html+='<div class="st" style="color:#ff6b6b;margin-bottom:8px;">緊急リセット</div>';
   html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">フロアが開かない等の不具合時に使用。進行中のセッションが全て消えます。</div>';
   html+='<button class="btn" onclick="clearAllSessions()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:13px;font-weight:600;">セッションデータをクリア</button>';
   html+='</div>';
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:12px;border:1px solid rgba(255,165,0,.2);">';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;border:1px solid rgba(255,165,0,.2);">';
   html+='<div class="st" style="color:#ffa500;margin-bottom:8px;">リストタブ緊急リセット</div>';
-  html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">付け回しが正常に動かない等の不具合時に使用。全ての付け回しデータが消え、全キャストが待機状態に戻ります。出勤データには影響しません。</div>';
+  html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">付け回しが正常に動かない等の不具合時に使用。</div>';
   html+='<button class="btn" onclick="clearAllAssignments()" style="padding:8px 16px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:4px;font-size:13px;font-weight:600;">付け回しデータをクリア</button>';
   html+='</div>';
   html+='</div>';
@@ -2027,7 +2042,7 @@ function rBackupDetail(){
   const latestBk=S.backups?.latest||null;
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
-  html+='<button class="btn" onclick="sv(\'settings\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 設定</button>';
+  html+='<button class="btn" onclick="sv(\'admin\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 管理</button>';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#38bdf8;">💾 バックアップ詳細</h2>';
   html+='</div>';
   if(!latestBk){
@@ -3421,6 +3436,7 @@ function rShifts(){
   const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
 
   let html='<div style="max-width:720px;margin:0 auto;">';
+  html+='<button class="btn" onclick="sv(\'home\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;margin-bottom:16px;touch-action:manipulation;">🏠 ホーム</button>';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
 
   // アクションボタン
