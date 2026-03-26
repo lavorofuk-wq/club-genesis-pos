@@ -816,18 +816,17 @@ async function endBizDay(){
   S.bizDays[id]=day;
   S.activeBizDay=null;
   if(window._db){
-    // 営業終了時にバックアップノードに保存（pos/ とは別の backup/ ノード）
-    const snapKey=day.date+"_"+Date.now();
+    // バックアップを固定キー"latest"に常時上書き保存
     const snap={
       ts:Date.now(),
       date:day.date,
-      label:day.date+" 営業終了バックアップ",
+      label:day.date+" 営業終了",
       bizDays:JSON.parse(JSON.stringify(S.bizDays)),
       history:JSON.parse(JSON.stringify(S.history||[])),
       shifts:JSON.parse(JSON.stringify(S.shifts||{})),
       assignments:JSON.parse(JSON.stringify(S.assignments||{}))
     };
-    await window._db.ref("backup/"+snapKey).set(snap).catch(e=>console.warn("backup error",e));
+    await window._db.ref("backup/latest").set(snap).catch(e=>console.warn("backup error",e));
     await window._db.ref("pos").update({
       bizDays:S.bizDays,
       activeBizDay:null,
@@ -1910,34 +1909,30 @@ function rSettings(){
     html+='</div>';
   }
   // ===== バックアップ管理 =====
-  const bkList=Object.entries(S.backups||{}).sort((a,b)=>b[1].ts-a[1].ts);
+  const latestBk=S.backups?.latest||null;
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(56,189,248,.2);">';
   html+='<div class="st" style="color:#38bdf8;margin-bottom:4px;">💾 バックアップ管理</div>';
-  html+='<div style="font-size:11px;color:#666;margin-bottom:14px;">営業終了ごとに自動保存（backup/ノード）。POSデータとは独立しています。</div>';
-  if(!bkList.length){
-    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（営業終了時に自動保存されます）</div>';
-  }else{
-    html+='<div style="margin-bottom:12px;max-height:280px;overflow-y:auto;">';
-    bkList.forEach(([key,bk])=>{
-      const d=new Date(bk.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
-      const dayCount=Object.keys(bk.bizDays||{}).length;
-      const histCount=(bk.history||[]).length;
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px;margin-bottom:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:6px;">';
-      html+='<div style="min-width:0;flex:1;margin-right:8px;">';
-      html+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;">'+bk.label+'</div>';
-      html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+d+' &nbsp;|&nbsp; 営業日 '+dayCount+'件 &nbsp;|&nbsp; 当日会計 '+histCount+'件</div>';
-      html+='</div>';
-      html+='<div style="display:flex;gap:6px;flex-shrink:0;">';
-      html+='<button class="btn" data-bkkey="'+key+'" onclick="restoreFromFirebaseBackup(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">復旧</button>';
-      html+='<button class="btn" data-bkkey2="'+key+'" onclick="deleteFirebaseBackup(this.dataset.bkkey2)" style="padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
-      html+='</div>';
-      html+='</div>';
-    });
+  html+='<div style="font-size:11px;color:#666;margin-bottom:14px;">営業終了・手動保存のたびに常に最新状態へ上書き更新されます。</div>';
+  if(latestBk){
+    const d=new Date(latestBk.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    const dayCount=Object.keys(latestBk.bizDays||{}).length;
+    const histCount=(latestBk.history||[]).length;
+    html+='<div style="padding:10px 12px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:6px;margin-bottom:12px;">';
+    html+='<div style="display:flex;align-items:center;justify-content:space-between;">';
+    html+='<div>';
+    html+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;">最新バックアップ</div>';
+    html+='<div style="font-size:11px;color:#888;margin-top:2px;">'+d+'&nbsp;|&nbsp;営業日 '+dayCount+'件&nbsp;|&nbsp;当日会計 '+histCount+'件</div>';
+    html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+latestBk.label+'</div>';
     html+='</div>';
+    html+='<button class="btn" onclick="restoreFromFirebaseBackup(\'latest\')" style="padding:6px 14px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">復旧</button>';
+    html+='</div></div>';
+  }else{
+    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（手動保存または営業終了時に自動保存されます）</div>';
   }
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  html+='<button class="btn" onclick="manualFirebaseBackup()" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">💾 今すぐバックアップ</button>';
+  html+='<button class="btn" onclick="manualFirebaseBackup()" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">💾 今すぐ更新</button>';
   html+='<button class="btn" onclick="exportBackupJSON()" style="padding:8px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">📥 JSONで書き出し</button>';
+  html+='<label style="padding:8px 14px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#a78bfa;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">📤 JSONから復元<input type="file" accept=".json" onchange="importBackupJSON(this)" style="display:none;"/></label>';
   html+='</div>';
   html+='</div>';
 
@@ -1958,8 +1953,7 @@ function rSettings(){
 // 今すぐFirebaseにバックアップ
 async function manualFirebaseBackup(){
   if(!window._db){alert("Firebaseに接続されていません");return;}
-  const label=(S.activeBizDay||"手動")+" 手動バックアップ "+new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-  const snapKey=(S.activeBizDay||"manual")+"_"+Date.now();
+  const label=(S.activeBizDay||new Date().toLocaleDateString("sv-SE"))+" 手動 "+new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
   const snap={
     ts:Date.now(),
     date:S.activeBizDay||new Date().toLocaleDateString("sv-SE"),
@@ -1970,9 +1964,10 @@ async function manualFirebaseBackup(){
     assignments:JSON.parse(JSON.stringify(S.assignments||{}))
   };
   try{
-    await window._db.ref("backup/"+snapKey).set(snap);
+    await window._db.ref("backup/latest").set(snap);
     sbs(true,"バックアップ完了 ✓");
-    alert("バックアップを保存しました：\n"+label);
+    alert("バックアップを更新しました：\n"+label);
+    render();
   }catch(e){
     sbs(false,"保存エラー");
     alert("保存に失敗しました："+e.message);
@@ -1981,7 +1976,7 @@ async function manualFirebaseBackup(){
 
 // Firebaseバックアップから復旧（POSデータに上書き）
 function restoreFromFirebaseBackup(key){
-  const bk=S.backups[key];if(!bk)return;
+  const bk=(S.backups||{})[key];if(!bk)return;
   const d=new Date(bk.ts).toLocaleString("ja-JP");
   const dayCount=Object.keys(bk.bizDays||{}).length;
   const histCount=(bk.history||[]).length;
