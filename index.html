@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.58</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.60</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -272,7 +272,10 @@ function initFB(){
       localStorage.setItem("genesis_pw_cache",S.config.password);
       localStorage.setItem("genesis_pw_enabled_cache",S.config.pwEnabled?"1":"0");
     }
+    // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
     sbs(true,"同期済み ✓");
+    // 自動バックアップ（Firebase同期のたびにlocalStorageに保存）
+    saveLocalBackup();
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
       at=null;vw="floor";closeM();render();return;
@@ -777,6 +780,11 @@ function exportDayCSV(dayId){
 }
 
 async function startBizDay(dateStr){
+  // 他端末が既に営業を開始していた場合はブロック
+  if(S.activeBizDay){
+    alert("既に「"+S.activeBizDay+"」の営業が進行中です。\n営業終了後に新しい営業を開始してください。");
+    closeM();vw="floor";render();return;
+  }
   const id=dateStr;
   const day={id,date:dateStr,startedAt:Date.now(),endedAt:null,history:[],shifts:{},assignments:{}};
   S.bizDays[id]=day;
@@ -1886,6 +1894,36 @@ function rSettings(){
     html+='</div></div>';
     html+='</div>';
   }
+  // ===== バックアップ管理 =====
+  const backups=getLocalBackups();
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(56,189,248,.2);">';
+  html+='<div class="st" style="color:#38bdf8;margin-bottom:8px;">💾 バックアップ</div>';
+  html+='<div style="font-size:12px;color:#666;margin-bottom:14px;">Firebase同期のたびに自動でこの端末に保存されます。手動でJSONファイルとして書き出し・復元も可能です。</div>';
+  // 自動バックアップ一覧
+  if(backups.length){
+    html+='<div class="st" style="font-size:11px;margin-bottom:6px;">自動バックアップ（最新'+backups.length+'件）</div>';
+    html+='<div style="margin-bottom:12px;">';
+    backups.slice(0,5).forEach((bk,i)=>{
+      const d=new Date(bk.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+      const days=Object.keys(bk.bizDays||{}).length;
+      const hist=(bk.history||[]).length;
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<div><div style="font-size:12px;color:#e8dcc8;">'+d+'</div><div style="font-size:10px;color:#555;">営業日'+days+'件 / 当日会計'+hist+'件</div></div>';
+      html+='<button class="btn" data-bki="'+i+'" onclick="restoreFromLocalBackup(parseInt(this.dataset.bki))" style="padding:4px 10px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:11px;touch-action:manipulation;">復元</button>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }else{
+    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（Firebase同期後に自動保存されます）</div>';
+  }
+  // 手動操作ボタン
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+  html+='<button class="btn" onclick="exportBackupJSON()" style="padding:8px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">📥 JSONで書き出し</button>';
+  html+='<label style="padding:8px 14px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#a78bfa;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">📤 JSONから復元<input type="file" accept=".json" onchange="importBackupJSON(this)" style="display:none;"/></label>';
+  html+='<button class="btn" onclick="clearLocalBackups()" style="padding:8px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#666;border-radius:4px;font-size:11px;touch-action:manipulation;">キャッシュ削除</button>';
+  html+='</div>';
+  html+='</div>';
+
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(255,80,80,.2);">';
   html+='<div class="st" style="color:#ff6b6b;margin-bottom:8px;">緊急リセット</div>';
   html+='<div style="font-size:12px;color:#666;margin-bottom:12px;">フロアが開かない等の不具合時に使用。進行中のセッションが全て消えます。</div>';
@@ -1899,6 +1937,105 @@ function rSettings(){
   html+='</div>';
   return html;
 }
+// ===== バックアップ =====
+const BACKUP_KEY="genesis_backups";
+const BACKUP_MAX=5;
+
+function saveLocalBackup(){
+  try{
+    const bk={
+      ts:Date.now(),
+      bizDays:JSON.parse(JSON.stringify(S.bizDays||{})),
+      history:JSON.parse(JSON.stringify(S.history||[])),
+      shifts:JSON.parse(JSON.stringify(S.shifts||{})),
+      assignments:JSON.parse(JSON.stringify(S.assignments||{})),
+      activeBizDay:S.activeBizDay||null
+    };
+    let list=getLocalBackups();
+    list.unshift(bk);
+    if(list.length>BACKUP_MAX)list=list.slice(0,BACKUP_MAX);
+    localStorage.setItem(BACKUP_KEY,JSON.stringify(list));
+  }catch(e){console.warn("backup save error:",e);}
+}
+
+function getLocalBackups(){
+  try{return JSON.parse(localStorage.getItem(BACKUP_KEY)||"[]");}
+  catch(e){return [];}
+}
+
+function clearLocalBackups(){
+  if(!confirm("この端末のバックアップキャッシュを削除します。よろしいですか？"))return;
+  localStorage.removeItem(BACKUP_KEY);
+  render();
+}
+
+function exportBackupJSON(){
+  const data={
+    exportedAt:Date.now(),
+    exportedAtStr:new Date().toLocaleString("ja-JP"),
+    bizDays:S.bizDays||{},
+    history:S.history||[],
+    shifts:S.shifts||{},
+    assignments:S.assignments||{},
+    activeBizDay:S.activeBizDay||null,
+    casts:S.casts||[],
+  };
+  const json=JSON.stringify(data,null,2);
+  const blob=new Blob([json],{type:"application/json;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="genesis_backup_"+new Date().toLocaleDateString("sv-SE")+".json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importBackupJSON(input){
+  const file=input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.bizDays&&!data.history){alert("有効なバックアップファイルではありません");return;}
+      const dayCount=Object.keys(data.bizDays||{}).length;
+      const histCount=(data.history||[]).length;
+      if(!confirm("バックアップから復元します。\n\n営業日データ: "+dayCount+"件\n当日会計データ: "+histCount+"件\n\n既存の bizDays には差分マージ（上書き）されます。\nよろしいですか？"))return;
+      // bizDaysは差分マージ
+      const merged={...S.bizDays,...(data.bizDays||{})};
+      S.bizDays=merged;
+      // historyは会計件数が多い方を採用
+      if((data.history||[]).length>(S.history||[]).length)S.history=data.history;
+      if(window._db){
+        window._db.ref("pos").update({
+          bizDays:S.bizDays,
+          history:S.history.length>0?S.history:null
+        }).then(()=>{sbs(true,"復元完了 ✓");alert("復元が完了しました。");render();})
+          .catch(()=>sbs(false,"復元エラー"));
+      }else{render();}
+    }catch(err){alert("ファイルの読み込みに失敗しました："+err.message);}
+  };
+  reader.readAsText(file);
+  input.value=""; // 同じファイルを再選択できるようにリセット
+}
+
+function restoreFromLocalBackup(idx){
+  const list=getLocalBackups();
+  const bk=list[idx];if(!bk)return;
+  const d=new Date(bk.ts).toLocaleString("ja-JP");
+  const dayCount=Object.keys(bk.bizDays||{}).length;
+  if(!confirm("【"+d+"】のバックアップから復元します。\n営業日データ: "+dayCount+"件\n\nbizDaysに差分マージされます。よろしいですか？"))return;
+  const merged={...S.bizDays,...(bk.bizDays||{})};
+  S.bizDays=merged;
+  if((bk.history||[]).length>(S.history||[]).length)S.history=bk.history;
+  if(window._db){
+    window._db.ref("pos").update({
+      bizDays:S.bizDays,
+      history:S.history.length>0?S.history:null
+    }).then(()=>{sbs(true,"復元完了 ✓");alert("復元が完了しました。");render();})
+      .catch(()=>sbs(false,"復元エラー"));
+  }else{render();}
+}
+
 function clearAllSessions(){
   if(!confirm("進行中のセッションを全て削除します。よろしいですか？"))return;
   S.sessions={};
@@ -1944,9 +2081,14 @@ function changePW(){
   if(v1!==v2){alert("パスワードが一致しません");return;}
   if(v1.length<4){alert("4文字以上で設定してください");return;}
   S.config.password=v1;
+  const newConfig={password:v1,pwEnabled:S.config.pwEnabled!==false};
   if(window._db){
-    window._db.ref("pos/config").update({password:v1})
-      .then(()=>{sbs(true,"パスワード変更済み ✓");alert("パスワードを変更しました："+v1);})
+    window._db.ref("pos/config").set(newConfig)
+      .then(()=>{
+        localStorage.setItem("genesis_pw_cache",v1);
+        sbs(true,"パスワード変更済み ✓");
+        alert("パスワードを変更しました："+v1+"\n全端末に反映されます");
+      })
       .catch(()=>sbs(false,"保存エラー"));
   }
   render();
@@ -1954,9 +2096,14 @@ function changePW(){
 function togglePWEnabled(){
   const cur=S.config.pwEnabled!==false;
   S.config.pwEnabled=!cur;
+  const newConfig={password:S.config.password||'genesis0127',pwEnabled:!cur};
   if(window._db){
-    window._db.ref("pos/config").update({pwEnabled:!cur})
-      .then(()=>sbs(true,"設定保存済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    window._db.ref("pos/config").set(newConfig)
+      .then(()=>{
+        localStorage.setItem("genesis_pw_enabled_cache",(!cur)?"1":"0");
+        sbs(true,"設定保存済み ✓");
+      })
+      .catch(()=>sbs(false,"保存エラー"));
   }
   render();
 }
