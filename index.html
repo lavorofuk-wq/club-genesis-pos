@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.60</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.61</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -177,7 +177,7 @@ const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2"
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true}};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true},backups:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -246,6 +246,12 @@ function initFB(){
     else{sbs(false,"⚠ オフライン");}
   });
 
+  // ===== バックアップノード購読 =====
+  db.ref("backup").on("value",(snap)=>{
+    S.backups=snap.val()||{};
+    if(vw==="settings")render();
+  });
+
   db.ref("pos").on("value",(snap)=>{
     const d=snap.val();
     if(!d){sbs(true,"同期済み ✓");render();return;}
@@ -274,8 +280,6 @@ function initFB(){
     }
     // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
     sbs(true,"同期済み ✓");
-    // 自動バックアップ（Firebase同期のたびにlocalStorageに保存）
-    saveLocalBackup();
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&vw==="order"&&!S.sessions[at]){
       at=null;vw="floor";closeM();render();return;
@@ -805,7 +809,6 @@ async function startBizDay(dateStr){
 async function endBizDay(){
   const id=S.activeBizDay;if(!id)return;
   const day=S.bizDays[id];if(!day)return;
-  // 現在のデータを営業日に保存
   day.endedAt=Date.now();
   day.history=[...S.history];
   day.shifts={...S.shifts};
@@ -813,6 +816,18 @@ async function endBizDay(){
   S.bizDays[id]=day;
   S.activeBizDay=null;
   if(window._db){
+    // 営業終了時にバックアップノードに保存（pos/ とは別の backup/ ノード）
+    const snapKey=day.date+"_"+Date.now();
+    const snap={
+      ts:Date.now(),
+      date:day.date,
+      label:day.date+" 営業終了バックアップ",
+      bizDays:JSON.parse(JSON.stringify(S.bizDays)),
+      history:JSON.parse(JSON.stringify(S.history||[])),
+      shifts:JSON.parse(JSON.stringify(S.shifts||{})),
+      assignments:JSON.parse(JSON.stringify(S.assignments||{}))
+    };
+    await window._db.ref("backup/"+snapKey).set(snap).catch(e=>console.warn("backup error",e));
     await window._db.ref("pos").update({
       bizDays:S.bizDays,
       activeBizDay:null,
@@ -1895,32 +1910,34 @@ function rSettings(){
     html+='</div>';
   }
   // ===== バックアップ管理 =====
-  const backups=getLocalBackups();
+  const bkList=Object.entries(S.backups||{}).sort((a,b)=>b[1].ts-a[1].ts);
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-top:16px;border:1px solid rgba(56,189,248,.2);">';
-  html+='<div class="st" style="color:#38bdf8;margin-bottom:8px;">💾 バックアップ</div>';
-  html+='<div style="font-size:12px;color:#666;margin-bottom:14px;">Firebase同期のたびに自動でこの端末に保存されます。手動でJSONファイルとして書き出し・復元も可能です。</div>';
-  // 自動バックアップ一覧
-  if(backups.length){
-    html+='<div class="st" style="font-size:11px;margin-bottom:6px;">自動バックアップ（最新'+backups.length+'件）</div>';
-    html+='<div style="margin-bottom:12px;">';
-    backups.slice(0,5).forEach((bk,i)=>{
+  html+='<div class="st" style="color:#38bdf8;margin-bottom:4px;">💾 バックアップ管理</div>';
+  html+='<div style="font-size:11px;color:#666;margin-bottom:14px;">営業終了ごとに自動保存（backup/ノード）。POSデータとは独立しています。</div>';
+  if(!bkList.length){
+    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（営業終了時に自動保存されます）</div>';
+  }else{
+    html+='<div style="margin-bottom:12px;max-height:280px;overflow-y:auto;">';
+    bkList.forEach(([key,bk])=>{
       const d=new Date(bk.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
-      const days=Object.keys(bk.bizDays||{}).length;
-      const hist=(bk.history||[]).length;
-      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-      html+='<div><div style="font-size:12px;color:#e8dcc8;">'+d+'</div><div style="font-size:10px;color:#555;">営業日'+days+'件 / 当日会計'+hist+'件</div></div>';
-      html+='<button class="btn" data-bki="'+i+'" onclick="restoreFromLocalBackup(parseInt(this.dataset.bki))" style="padding:4px 10px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:11px;touch-action:manipulation;">復元</button>';
+      const dayCount=Object.keys(bk.bizDays||{}).length;
+      const histCount=(bk.history||[]).length;
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px;margin-bottom:6px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:6px;">';
+      html+='<div style="min-width:0;flex:1;margin-right:8px;">';
+      html+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;">'+bk.label+'</div>';
+      html+='<div style="font-size:10px;color:#555;margin-top:2px;">'+d+' &nbsp;|&nbsp; 営業日 '+dayCount+'件 &nbsp;|&nbsp; 当日会計 '+histCount+'件</div>';
+      html+='</div>';
+      html+='<div style="display:flex;gap:6px;flex-shrink:0;">';
+      html+='<button class="btn" data-bkkey="'+key+'" onclick="restoreFromFirebaseBackup(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">復旧</button>';
+      html+='<button class="btn" data-bkkey2="'+key+'" onclick="deleteFirebaseBackup(this.dataset.bkkey2)" style="padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+      html+='</div>';
       html+='</div>';
     });
     html+='</div>';
-  }else{
-    html+='<div style="font-size:12px;color:#444;margin-bottom:12px;">バックアップなし（Firebase同期後に自動保存されます）</div>';
   }
-  // 手動操作ボタン
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+  html+='<button class="btn" onclick="manualFirebaseBackup()" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">💾 今すぐバックアップ</button>';
   html+='<button class="btn" onclick="exportBackupJSON()" style="padding:8px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">📥 JSONで書き出し</button>';
-  html+='<label style="padding:8px 14px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#a78bfa;border-radius:4px;font-size:13px;font-weight:600;cursor:pointer;touch-action:manipulation;">📤 JSONから復元<input type="file" accept=".json" onchange="importBackupJSON(this)" style="display:none;"/></label>';
-  html+='<button class="btn" onclick="clearLocalBackups()" style="padding:8px 14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#666;border-radius:4px;font-size:11px;touch-action:manipulation;">キャッシュ削除</button>';
   html+='</div>';
   html+='</div>';
 
@@ -1938,37 +1955,76 @@ function rSettings(){
   return html;
 }
 // ===== バックアップ =====
-const BACKUP_KEY="genesis_backups";
-const BACKUP_MAX=5;
-
-function saveLocalBackup(){
+// 今すぐFirebaseにバックアップ
+async function manualFirebaseBackup(){
+  if(!window._db){alert("Firebaseに接続されていません");return;}
+  const label=(S.activeBizDay||"手動")+" 手動バックアップ "+new Date().toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+  const snapKey=(S.activeBizDay||"manual")+"_"+Date.now();
+  const snap={
+    ts:Date.now(),
+    date:S.activeBizDay||new Date().toLocaleDateString("sv-SE"),
+    label,
+    bizDays:JSON.parse(JSON.stringify(S.bizDays||{})),
+    history:JSON.parse(JSON.stringify(S.history||[])),
+    shifts:JSON.parse(JSON.stringify(S.shifts||{})),
+    assignments:JSON.parse(JSON.stringify(S.assignments||{}))
+  };
   try{
-    const bk={
-      ts:Date.now(),
-      bizDays:JSON.parse(JSON.stringify(S.bizDays||{})),
-      history:JSON.parse(JSON.stringify(S.history||[])),
-      shifts:JSON.parse(JSON.stringify(S.shifts||{})),
-      assignments:JSON.parse(JSON.stringify(S.assignments||{})),
-      activeBizDay:S.activeBizDay||null
-    };
-    let list=getLocalBackups();
-    list.unshift(bk);
-    if(list.length>BACKUP_MAX)list=list.slice(0,BACKUP_MAX);
-    localStorage.setItem(BACKUP_KEY,JSON.stringify(list));
-  }catch(e){console.warn("backup save error:",e);}
+    await window._db.ref("backup/"+snapKey).set(snap);
+    sbs(true,"バックアップ完了 ✓");
+    alert("バックアップを保存しました：\n"+label);
+  }catch(e){
+    sbs(false,"保存エラー");
+    alert("保存に失敗しました："+e.message);
+  }
 }
 
-function getLocalBackups(){
-  try{return JSON.parse(localStorage.getItem(BACKUP_KEY)||"[]");}
-  catch(e){return [];}
+// Firebaseバックアップから復旧（POSデータに上書き）
+function restoreFromFirebaseBackup(key){
+  const bk=S.backups[key];if(!bk)return;
+  const d=new Date(bk.ts).toLocaleString("ja-JP");
+  const dayCount=Object.keys(bk.bizDays||{}).length;
+  const histCount=(bk.history||[]).length;
+  if(!confirm(
+    "【"+bk.label+"】\n"+d+"\n\n"+
+    "このバックアップをPOSに復旧します。\n"+
+    "営業日データ: "+dayCount+"件\n"+
+    "当日会計データ: "+histCount+"件\n\n"+
+    "※ bizDaysは差分マージ（既存データは保持）\n"+
+    "※ 当日historyはバックアップ件数が多い方を採用\n\n"+
+    "実行しますか？"
+  ))return;
+  // bizDaysは差分マージ（既存を保持しつつ不足分を補完）
+  S.bizDays={...S.bizDays,...(bk.bizDays||{})};
+  // historyはより多い方を採用
+  if((bk.history||[]).length>(S.history||[]).length)S.history=bk.history;
+  if(window._db){
+    window._db.ref("pos").update({
+      bizDays:S.bizDays,
+      history:S.history.length>0?S.history:null
+    }).then(()=>{
+      sbs(true,"復旧完了 ✓");
+      alert("復旧が完了しました。");
+      render();
+    }).catch(()=>sbs(false,"復旧エラー"));
+  }
 }
 
-function clearLocalBackups(){
-  if(!confirm("この端末のバックアップキャッシュを削除します。よろしいですか？"))return;
-  localStorage.removeItem(BACKUP_KEY);
-  render();
+// Firebaseバックアップを削除（アクセスコード必要）
+function deleteFirebaseBackup(key){
+  const bk=S.backups[key];if(!bk)return;
+  const code=prompt("バックアップを削除するにはアクセスコードを入力してください");
+  if(code===null)return;
+  if(code!=="gen"){alert("アクセスコードが違います");return;}
+  if(!confirm("【"+bk.label+"】を削除します。この操作は取り消せません。"))return;
+  if(window._db){
+    window._db.ref("backup/"+key).remove()
+      .then(()=>{sbs(true,"削除完了 ✓");delete S.backups[key];render();})
+      .catch(()=>sbs(false,"削除エラー"));
+  }
 }
 
+// JSON書き出し
 function exportBackupJSON(){
   const data={
     exportedAt:Date.now(),
@@ -1978,7 +2034,7 @@ function exportBackupJSON(){
     shifts:S.shifts||{},
     assignments:S.assignments||{},
     activeBizDay:S.activeBizDay||null,
-    casts:S.casts||[],
+    casts:S.casts||[]
   };
   const json=JSON.stringify(data,null,2);
   const blob=new Blob([json],{type:"application/json;charset=utf-8;"});
@@ -1988,52 +2044,6 @@ function exportBackupJSON(){
   a.download="genesis_backup_"+new Date().toLocaleDateString("sv-SE")+".json";
   a.click();
   URL.revokeObjectURL(url);
-}
-
-function importBackupJSON(input){
-  const file=input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    try{
-      const data=JSON.parse(e.target.result);
-      if(!data.bizDays&&!data.history){alert("有効なバックアップファイルではありません");return;}
-      const dayCount=Object.keys(data.bizDays||{}).length;
-      const histCount=(data.history||[]).length;
-      if(!confirm("バックアップから復元します。\n\n営業日データ: "+dayCount+"件\n当日会計データ: "+histCount+"件\n\n既存の bizDays には差分マージ（上書き）されます。\nよろしいですか？"))return;
-      // bizDaysは差分マージ
-      const merged={...S.bizDays,...(data.bizDays||{})};
-      S.bizDays=merged;
-      // historyは会計件数が多い方を採用
-      if((data.history||[]).length>(S.history||[]).length)S.history=data.history;
-      if(window._db){
-        window._db.ref("pos").update({
-          bizDays:S.bizDays,
-          history:S.history.length>0?S.history:null
-        }).then(()=>{sbs(true,"復元完了 ✓");alert("復元が完了しました。");render();})
-          .catch(()=>sbs(false,"復元エラー"));
-      }else{render();}
-    }catch(err){alert("ファイルの読み込みに失敗しました："+err.message);}
-  };
-  reader.readAsText(file);
-  input.value=""; // 同じファイルを再選択できるようにリセット
-}
-
-function restoreFromLocalBackup(idx){
-  const list=getLocalBackups();
-  const bk=list[idx];if(!bk)return;
-  const d=new Date(bk.ts).toLocaleString("ja-JP");
-  const dayCount=Object.keys(bk.bizDays||{}).length;
-  if(!confirm("【"+d+"】のバックアップから復元します。\n営業日データ: "+dayCount+"件\n\nbizDaysに差分マージされます。よろしいですか？"))return;
-  const merged={...S.bizDays,...(bk.bizDays||{})};
-  S.bizDays=merged;
-  if((bk.history||[]).length>(S.history||[]).length)S.history=bk.history;
-  if(window._db){
-    window._db.ref("pos").update({
-      bizDays:S.bizDays,
-      history:S.history.length>0?S.history:null
-    }).then(()=>{sbs(true,"復元完了 ✓");alert("復元が完了しました。");render();})
-      .catch(()=>sbs(false,"復元エラー"));
-  }else{render();}
 }
 
 function clearAllSessions(){
