@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.69</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.70</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -233,6 +233,22 @@ function togglePriceHide(){
 }
 
 // ===== FIREBASE =====
+// Firebaseのconfig変更をリアルタイムでパスワード画面に反映
+function applyPWConfig(config){
+  const pwScreen=document.getElementById("pw-screen");
+  if(!pwScreen||pwScreen.style.display==="none")return;
+  const KEY="genesis_auth";
+  if(!config.pwEnabled){
+    // パスワード無効 → 強制入室
+    sessionStorage.setItem(KEY,"1");
+    pwScreen.style.display="none";
+    const loading=document.getElementById("loading");
+    const app=document.getElementById("app");
+    if(loading)loading.style.display="none";
+    if(app)app.style.display="block";
+    if(!window._fbInitDone){window._fbInitDone=true;render();initFB();}
+  }
+}
 function initFB(){
   const db=window._db;
   sbs(false,"接続中…");
@@ -278,9 +294,11 @@ function initFB(){
     S.activeBizDay=d.activeBizDay||null;
     if(d.config){
       S.config={password:d.config.password||'genesis0127',pwEnabled:d.config.pwEnabled!==false};
-      // 起動時認証用にキャッシュ（Firebase接続前の認証に使用）
+      // キャッシュ更新（次回起動時に使用）
       localStorage.setItem("genesis_pw_cache",S.config.password);
       localStorage.setItem("genesis_pw_enabled_cache",S.config.pwEnabled?"1":"0");
+      // パスワード無効化をリアルタイムで反映（他端末からの変更にも対応）
+      applyPWConfig(S.config);
     }
     // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
     sbs(true,"同期済み ✓");
@@ -2681,7 +2699,7 @@ function rModal(){
   else if(md==="cd"){
     // キャスト選択：大型グリッドUI（指名メニューと同じスタイル）
     let cb="";
-    sc().forEach(c=>{
+    const onIdsCD=getOndutyIds();sc().filter(c=>onIdsCD.has(c.id)).forEach(c=>{
       const sel=cdc===c.id;
       cb+='<button class="btn" data-cid="'+c.id+'" onclick="scc(parseInt(this.dataset.cid))" style="padding:16px 8px;background:'+(sel?"rgba(124,77,255,.3)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#7c4dff":"rgba(124,77,255,.3)")+';color:'+(sel?"#e0cfff":"#a78bfa")+';border-radius:8px;font-size:15px;font-weight:600;text-align:center;touch-action:manipulation;">'
         +(sel?"✓ ":"")+c.name
@@ -2764,7 +2782,7 @@ function rModal(){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
     let alh="";
     if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">☆ '+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
-    let cb="";sc().forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
+    const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥1,500/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
   else if(md==="hsc"){
@@ -3089,8 +3107,11 @@ function rModal(){
         +(status!=="waiting"?'<button class="btn" data-cid10="'+castId+'" onclick="moveToWaiting(this.dataset.cid10);closeM()" style="padding:14px;background:rgba(74,222,128,.12);border:2px solid rgba(74,222,128,.3);color:#4ade80;border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">🟢 待機へ</button>':"<div></div>")
         +(status!=="break"?'<button class="btn" data-cid11="'+castId+'" onclick="moveToBreak(this.dataset.cid11);closeM()" style="padding:14px;background:rgba(255,165,0,.1);border:2px solid rgba(255,165,0,.3);color:#ffa500;border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">🟡 休憩へ</button>':"<div></div>")
         +'</div>'
-        // 退勤登録
-        +'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15)};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">🔴 退勤登録</button>'
+        // 退勤登録 or 退勤取消
+        +(sh.clockOut
+          ?'<button class="btn" data-sid14="'+sh.id+'" onclick="cancelClockOut(this.dataset.sid14)" style="width:100%;padding:14px;background:rgba(74,222,128,.1);border:2px solid rgba(74,222,128,.3);color:#4ade80;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">↩ 退勤を取消して出勤に戻す</button>'
+          :'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15)};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">🔴 退勤登録</button>'
+        )
         +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">📋 付け回し履歴</button>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
         +'</div></div>';
@@ -3704,7 +3725,31 @@ function toggleAdminMode(){
   };
 })();
 
-function boot(){document.getElementById("loading").style.display="none";document.getElementById("app").style.display="block";render();initFB();}
+function boot(){
+  // Firebaseからconfigを先読みしてパスワード状態を最新化
+  if(window._db){
+    window._db.ref("pos/config").once("value").then(snap=>{
+      const cfg=snap.val();
+      if(cfg){
+        localStorage.setItem("genesis_pw_cache",cfg.password||"genesis0127");
+        localStorage.setItem("genesis_pw_enabled_cache",cfg.pwEnabled!==false?"1":"0");
+        // パスワード無効なら即入室
+        if(cfg.pwEnabled===false){
+          sessionStorage.setItem("genesis_auth","1");
+          document.getElementById("pw-screen").style.display="none";
+        }
+      }
+    }).catch(()=>{}).finally(()=>{
+      document.getElementById("loading").style.display="none";
+      document.getElementById("app").style.display="block";
+      render();initFB();
+    });
+  }else{
+    document.getElementById("loading").style.display="none";
+    document.getElementById("app").style.display="block";
+    render();initFB();
+  }
+}
 if(sessionStorage.getItem("genesis_auth")==="1"){
   if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none")document.getElementById("lmsg").textContent="接続失敗。再読み込みしてください。";},10000);}
 }
