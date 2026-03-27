@@ -145,7 +145,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.68</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.69</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1236,7 +1236,7 @@ function rAssignHistory(){
 
       // アサイン行をタイプ別エリアに分割
       const areaTypes=[
-        {key:"shimei", label:"本指名", col:"#d4a017", types:["shimei"]},
+        {key:"hon", label:"本指名", col:"#d4a017", types:["hon"]},
         {key:"free",   label:"フリー", col:"#38bdf8", types:["free","harem"]},
         {key:"help",   label:"ヘルプ", col:"#4ade80", types:["help"]},
         {key:"banai",  label:"場内指名", col:"#a78bfa", types:["banai"]},
@@ -1342,7 +1342,7 @@ function rTableDetail(){
     html+='<div class="st" style="margin-bottom:12px;">付け回し履歴 ('+doneA.length+'件)</div>';
     // タイプ別エリア定義
     const areaTypes=[
-      {key:"shimei", label:"本指名", col:"#d4a017", types:["shimei"]},
+      {key:"hon", label:"本指名", col:"#d4a017", types:["hon"]},
       {key:"free",   label:"フリー", col:"#38bdf8", types:["free","harem"]},
       {key:"help",   label:"ヘルプ", col:"#4ade80", types:["help"]},
       {key:"banai",  label:"場内指名", col:"#a78bfa", types:["banai"]},
