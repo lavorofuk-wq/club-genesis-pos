@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.73</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.74</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2319,6 +2319,7 @@ function testPrint(){
 }
 
 async function testPrintXML(ip){
+  const port=S.config.printerPort||443;
   const now2=new Date();
   const xml='<text lang="ja" smooth="true"/>'
     +'<text dh="true" dw="true" align="center"/>'+`<text>CLUB GENESIS\n</text>`
@@ -2329,15 +2330,15 @@ async function testPrintXML(ip){
     +`<text>接続: 正常\n</text>`
     +`<feed line="3"/>`
     +`<cut type="feed"/>`;
-  const url="http://"+ip+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
-  const soap=`<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${xml}</epos-print></s:Body></s:Envelope>`;
+  const url="https://"+ip+":"+port+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
+  const soap='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'+xml+'</epos-print></s:Body></s:Envelope>';
   try{
     const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
     if(!res.ok)throw new Error("HTTP "+res.status);
     sbs(true,"テスト印刷成功 ✓");
-    alert("テスト印刷成功！\nプリンターから出力されました。");
+    alert("テスト印刷成功！プリンターから出力されました。");
   }catch(e){
-    alert("接続失敗: "+e.message+"\n\n確認事項:\n・プリンターの電源ON\n・同じWi-Fiに接続済み\n・ePOS-Printが有効\n  (http://"+ip+"/webconfig)\n\nHTTPS→HTTPの通信はブラウザにブロックされる場合があります。\nSafariで http://"+ip+" を開いて許可してください。");
+    alert("接続失敗: "+e.message+"\n\nIP: "+ip+"\nポート: "+port+"\n\n確認事項:\n・プリンターの電源ON\n・同じWi-Fiに接続\n・Safariで https://"+ip+":"+port+" を一度開いて信頼済みにする");
   }
 }
 
@@ -2492,18 +2493,18 @@ function eposPrintSDK(ip,port,data,isEstimate){
   });
 }
 
-// ePOS-Print XML API方式（SDK不要・直接HTTP POST）
+// ePOS-Print XML API方式（SDK不要・直接HTTPS POST）
 async function eposPrintXML(ip,data,isEstimate){
+  const port=S.config.printerPort||443;
   const xml=buildEposXML(data,isEstimate);
-  const url="http://"+ip+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
-  const soap=`<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">${xml}</epos-print></s:Body></s:Envelope>`;
+  const url="https://"+ip+":"+port+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
+  const soap='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'+xml+'</epos-print></s:Body></s:Envelope>';
   try{
     const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
     if(!res.ok)throw new Error("HTTP "+res.status);
     sbs(true,"印刷完了 ✓");
   }catch(e){
     console.warn("ePOS-Print XML送信失敗:",e.message);
-    // 最終フォールバック：ブラウザ印刷
     printReceiptFallback(data,isEstimate);
   }
 }
