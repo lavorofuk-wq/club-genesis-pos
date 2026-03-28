@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.77</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.78</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2509,23 +2509,26 @@ async function eposPrintXML(ip,data,isEstimate){
   }
 }
 
-// ePOS-Print XML形式でレシートデータを構築（80mm = 42文字幅）
+// ePOS-Print XML形式でレシートデータを構築（80mm = 約42半角文字幅）
 function buildEposXML(data,isEstimate){
   const{tableLabel,guests,items,subtotal,discount,tax,total,rate,payMethod,receiptIssued,splits,startTime}=data;
   const hv=(items||[]).some(i=>i.isVipCharge);
   const now2=new Date();
-  const W=42; // 80mm幅 = 約42文字
+  const W=42; // 80mm幅（半角換算）
   const DIV="-".repeat(W);
   const DBL="=".repeat(W);
   let x="";
   const esc=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  // 左右に文字を配置（左ラベル・右金額で右揃え）
+  // 日本語=2幅、半角=1幅として計算
+  const sw=(s)=>[...String(s)].reduce((n,c)=>n+(c.charCodeAt(0)>127?2:1),0);
+  // 左ラベル・右金額で右揃え（表示幅ベース）
   const row=(label,amt,w=W)=>{
-    const la=String(label), ra=String(amt);
-    const sp=Math.max(1,w-la.length-ra.length);
-    return esc(la+" ".repeat(sp)+ra)+"\n";
+    const sp=Math.max(1,w-sw(label)-sw(amt));
+    return esc(label+" ".repeat(sp)+amt)+"\n";
   };
   const ln=(t,al="left")=>{x+=`<text align="${al}">${esc(t)}\n</text>`;};
+  // ラベルから末尾の金額表記を除去（例: "キャストDrink (みゆ) 3,000円" → "キャストDrink (みゆ)"）
+  const cleanLbl=(lbl)=>String(lbl).replace(/\s*[\d,]+円$/, "");
 
   x+='<text lang="ja" smooth="true"/>';
   // ヘッダー：CLUB GENESIS を大きく中央
@@ -2552,9 +2555,8 @@ function buildEposXML(data,isEstimate){
     x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;
   });
   ln(DIV);
-  // 明細（左ラベル・右金額）
   (items||[]).forEach(i=>{
-    const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+    const lb=i.qty>1?cleanLbl(i.label)+" ×"+i.qty:cleanLbl(i.label);
     const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
     x+=`<text>${row(lb,amt)}</text>`;
   });
@@ -2585,7 +2587,9 @@ function buildEposCommands(prn,data,isEstimate){
   const hv=(items||[]).some(i=>i.isVipCharge);
   const now2=new Date();
   const W=42;
-  const row=(label,amt,w=W)=>{const sp=Math.max(1,w-label.length-amt.length);return label+" ".repeat(sp)+amt;};
+  const sw=(s)=>[...String(s)].reduce((n,c)=>n+(c.charCodeAt(0)>127?2:1),0);
+  const row=(label,amt,w=W)=>{const sp=Math.max(1,w-sw(label)-sw(amt));return label+" ".repeat(sp)+amt;};
+  const cleanLbl=(lbl)=>String(lbl).replace(/\s*[\d,]+円$/, "");
 
   prn.addFeedLine(1);
   prn.addTextAlign(prn.ALIGN_CENTER);
@@ -2603,7 +2607,7 @@ function buildEposCommands(prn,data,isEstimate){
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":"")+"\n");});
   prn.addText("-".repeat(W)+"\n");
   (items||[]).forEach(i=>{
-    const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+    const lb=i.qty>1?cleanLbl(i.label)+" ×"+i.qty:cleanLbl(i.label);
     const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
     prn.addText(row(lb,amt)+"\n");
   });
