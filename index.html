@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.74</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.76</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2502,7 +2502,7 @@ async function eposPrintXML(ip,data,isEstimate){
   try{
     const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
     if(!res.ok)throw new Error("HTTP "+res.status);
-    sbs(true,"印刷完了 ✓");
+    sbs(true,"印刷しました ✓");
   }catch(e){
     console.warn("ePOS-Print XML送信失敗:",e.message);
     printReceiptFallback(data,isEstimate);
@@ -2596,7 +2596,7 @@ function printReceiptFallback(data,isEstimate){
 }
 
 function printReceipt(data, isEstimate){
-  // ePOS SDK利用可能ならePOS、なければブラウザprint
+  if(!confirm("レシートを印刷しますか？"))return;
   eposPrint(data,isEstimate);
 }
 
@@ -2608,6 +2608,7 @@ function printCheckout(){
 }
 
 function printEstimate(){
+  if(!confirm("概算を印刷しますか？"))return;
   const s=S.sessions[at];if(!s)return;
   const tl=S.tables.find(t=>t.id===at)?.label||"";
   const useVip=document.getElementById("est-vip")?.checked||false;
@@ -2616,39 +2617,80 @@ function printEstimate(){
   const r60=calcEstForMinutes(s,60,useVip);
   const rCustom=estCustomMin>0&&estCustomMin!==30&&estCustomMin!==60?calcEstForMinutes(s,estCustomMin,useVip):null;
   const now2=new Date();
-  const st=new Date(s.startTime);
-  const dur=Math.round((now2-st)/60000);
-  function estBlock(label,result){
-    return '<div style="margin-bottom:2mm;">'
-      +'<div style="font-size:9pt;font-weight:700;padding-bottom:1mm;margin-bottom:1mm;">'+label+'</div>'
-      +'<hr class="rcp-divider">'
-      +'<div style="font-size:18pt;font-weight:700;text-align:right;padding:1mm 0;">¥'+fmt(result.total)+'</div>'
-      +'</div>';
-  }
-  let blocks=estBlock("【現在の料金】",cur);
-  blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
-  blocks+=estBlock("【+30分延長"+(useVip?" +VIP室料":"")+"】",r30);
-  blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
-  blocks+=estBlock("【+60分延長"+(useVip?" +VIP室料":"")+"】",r60);
-  if(rCustom){
-    blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
-    blocks+=estBlock("【+"+estCustomMin+"分延長"+(useVip?" +VIP室料":"")+"】",rCustom);
-  }
-  const html='<div class="rcp-logo">CLUB GENESIS</div>'
-    +'<hr class="rcp-divider">'
-    +'<div class="rcp-meta">テーブル: <strong>'+tl+'</strong> &nbsp; '+s.guests+'名様</div>'
-    +'<div class="rcp-meta">発行: '+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</div>'
-    +'<hr class="rcp-divider">'
-    +blocks;
-  const el=document.getElementById("receipt-print-area");
-  if(!el)return;
-  el.innerHTML=html;el.style.display="block";
-  setTimeout(()=>{window.print();setTimeout(()=>{el.style.display="none";},500);},150);
+
+  // ePOS XML方式で概算印刷
+  const ip=S.config.printerIP||'192.168.150.200';
+  const port=S.config.printerPort||443;
+  let x='<text lang="ja" smooth="true"/>';
+  const e=(str)=>String(str).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const ln=(t,al="left")=>{x+=`<text align="${al}">${e(t)}\n</text>`;};
+
+  x+='<text dh="true" dw="true" align="center"/>'; ln("CLUB GENESIS");
+  x+='<text dh="false" dw="false"/>'; ln("概算シミュレーション","center");
+  x+='<feed line="1"/>';
+  x+='<text align="left"/>';
+  ln("テーブル: "+tl+"  "+s.guests+"名様");
+  ln("発行: "+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));
+  ln("--------------------------------");
+
+  const estLine=(label,result)=>{
+    ln(label);
+    x+='<text dw="true"/>'; ln("¥"+fmt(result.total),"right"); x+='<text dw="false"/>';
+    ln("--------------------------------");
+  };
+  estLine("【現在の料金】",cur);
+  estLine("【+30分延長"+(useVip?" +VIP":"")+"】",r30);
+  estLine("【+60分延長"+(useVip?" +VIP":"")+"】",r60);
+  if(rCustom)estLine("【+"+estCustomMin+"分延長"+(useVip?" +VIP":"")+"】",rCustom);
+
+  x+='<feed line="3"/><cut type="feed"/>';
+  const url="https://"+ip+":"+port+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
+  const soap='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'+x+'</epos-print></s:Body></s:Envelope>';
+  fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap})
+    .then(res=>{
+      if(!res.ok)throw new Error("HTTP "+res.status);
+      sbs(true,"印刷しました ✓");
+    })
+    .catch(err=>{
+      console.warn("概算印刷失敗:",err);
+      // フォールバック：ブラウザ印刷
+      const el=document.getElementById("receipt-print-area");
+      if(!el)return;
+      function estBlock(label,result){
+        return '<div style="margin-bottom:2mm;">'
+          +'<div style="font-size:9pt;font-weight:700;padding-bottom:1mm;margin-bottom:1mm;">'+label+'</div>'
+          +'<hr class="rcp-divider">'
+          +'<div style="font-size:18pt;font-weight:700;text-align:right;padding:1mm 0;">¥'+fmt(result.total)+'</div>'
+          +'</div>';
+      }
+      let blocks=estBlock("【現在の料金】",cur);
+      blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
+      blocks+=estBlock("【+30分延長"+(useVip?" +VIP室料":"")+"】",r30);
+      blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';
+      blocks+=estBlock("【+60分延長"+(useVip?" +VIP室料":"")+"】",r60);
+      if(rCustom){blocks+='<hr class="rcp-divider-solid" style="margin:1.5mm 0;">';blocks+=estBlock("【+"+estCustomMin+"分延長"+(useVip?" +VIP室料":"")+"】",rCustom);}
+      el.innerHTML='<div class="rcp-logo">CLUB GENESIS</div><hr class="rcp-divider">'
+        +'<div class="rcp-meta">テーブル: <strong>'+tl+'</strong> &nbsp; '+s.guests+'名様</div>'
+        +'<div class="rcp-meta">発行: '+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</div>'
+        +'<hr class="rcp-divider">'+blocks;
+      el.style.display="block";
+      setTimeout(()=>{window.print();setTimeout(()=>{el.style.display="none";},500);},150);
+    });
 }
 
 function printHistReceipt(hid){
-  const h=S.history.find(x=>x.id===hid);if(!h)return;
-  printReceipt({...h,tableLabel:h.tableLabel||""},false);
+  if(!confirm("レシートを印刷しますか？"))return;
+  // 当営業日 + 全過去営業日から検索
+  let h=S.history.find(x=>x.id===hid);
+  if(!h){
+    // bizDaysから検索
+    for(const day of Object.values(S.bizDays||{})){
+      h=(day.history||[]).find(x=>x.id===hid);
+      if(h)break;
+    }
+  }
+  if(!h){alert("履歴が見つかりません");return;}
+  eposPrint({...h,tableLabel:h.tableLabel||""},false);
 }
 
 // ===== RECEIPT PRINT END =====
