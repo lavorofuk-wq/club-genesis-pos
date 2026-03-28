@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.76</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.77</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -436,7 +436,7 @@ function addCD(cid,did){
   const c=S.casts.find(c=>c.id===cid);const d=S.menus.castDrinks.find(d=>d.id===did);
   if(!c||!d)return;
   const s=S.sessions[at];
-  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+") "+fmt(d.price)+"円",price:d.price,qty:1,castId:cid}];
+  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,castId:cid}];
   save("sessions",S.sessions);closeM();cds=0;cdc=null;renderOrderPartial();
 }
 function addCustom(){
@@ -2509,81 +2509,121 @@ async function eposPrintXML(ip,data,isEstimate){
   }
 }
 
-// ePOS-Print XML形式でレシートデータを構築
+// ePOS-Print XML形式でレシートデータを構築（80mm = 42文字幅）
 function buildEposXML(data,isEstimate){
-  const{tableLabel,guests,items,subtotal,discount,tax,total,rate,payMethod,receiptIssued,splits}=data;
+  const{tableLabel,guests,items,subtotal,discount,tax,total,rate,payMethod,receiptIssued,splits,startTime}=data;
   const hv=(items||[]).some(i=>i.isVipCharge);
   const now2=new Date();
+  const W=42; // 80mm幅 = 約42文字
+  const DIV="-".repeat(W);
+  const DBL="=".repeat(W);
   let x="";
-  const e=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const ln=(t,al="left")=>{x+=`<text align="${al}">${e(t)}\n</text>`;};
+  const esc=(s)=>String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  // 左右に文字を配置（左ラベル・右金額で右揃え）
+  const row=(label,amt,w=W)=>{
+    const la=String(label), ra=String(amt);
+    const sp=Math.max(1,w-la.length-ra.length);
+    return esc(la+" ".repeat(sp)+ra)+"\n";
+  };
+  const ln=(t,al="left")=>{x+=`<text align="${al}">${esc(t)}\n</text>`;};
 
   x+='<text lang="ja" smooth="true"/>';
-  x+='<text dh="true" dw="true" align="center"/>'; ln("CLUB GENESIS");
-  x+='<text dh="false" dw="false"/>'; ln("RECEIPT","center");
+  // ヘッダー：CLUB GENESIS を大きく中央
+  x+='<feed line="1"/>';
+  x+='<text dh="true" dw="true"/>'; ln("CLUB  GENESIS","center");
+  x+='<text dh="false" dw="false"/>';
+  ln("R  E  C  E  I  P  T","center");
   x+='<feed line="1"/>';
   x+='<text align="left"/>';
-  ln("--------------------------------");
-  ln("テーブル: "+tableLabel+"  "+guests+"名様");
+  ln(DIV);
+  // テーブル・入店時刻
+  ln("テーブル: "+tableLabel+"　"+guests+"名様");
+  if(startTime){
+    const st=new Date(startTime);
+    ln("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));
+  }
   ln("発行: "+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));
-  if(payMethod){const pm=payMethod==="card"?"カード":"現金";ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));}
-  if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";ln("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""));});
-  ln("--------------------------------");
-  (items||[]).forEach(i=>{
-    const lb=i.qty>1?i.label+" x"+i.qty:i.label;
-    const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
-    ln(lb+" ".repeat(Math.max(1,24-lb.length-amt.length))+amt);
+  if(payMethod){
+    const pm=payMethod==="card"?"カード":"現金";
+    ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));
+  }
+  if(splits&&splits.length>1)splits.forEach(sp=>{
+    const m=sp.method==="card"?"カード":"現金";
+    x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;
   });
-  ln("--------------------------------");
-  ln("小計"+" ".repeat(Math.max(1,18-fmt(subtotal).length))+"¥"+fmt(subtotal));
-  if(discount>0)ln("割引"+" ".repeat(Math.max(1,17-fmt(discount).length))+"-¥"+fmt(discount));
-  ln("税SC("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")"+" ".repeat(2)+"¥"+fmt(tax));
-  ln("================================");
-  x+='<text dw="true"/>'; ln("合 計"+" ".repeat(Math.max(1,10-fmt(total).length))+"¥"+fmt(total));
-  x+='<text dw="false"/>';
-  ln("================================");
+  ln(DIV);
+  // 明細（左ラベル・右金額）
+  (items||[]).forEach(i=>{
+    const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
+    const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
+    x+=`<text>${row(lb,amt)}</text>`;
+  });
+  ln(DIV);
+  // 小計・割引・税SC
+  x+=`<text>${row("小計","¥"+fmt(subtotal))}</text>`;
+  if(discount>0)x+=`<text>${row("割引","-¥"+fmt(discount))}</text>`;
+  x+=`<text>${row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))}</text>`;
+  ln(DBL);
+  // 合計：大きく・余白あり
   x+='<feed line="1"/>';
+  x+='<text dh="true" dw="true"/>'; x+=`<text>${row("合 計","¥"+fmt(total),Math.floor(W/2))}</text>`;
+  x+='<text dh="false" dw="false"/>';
+  x+='<feed line="1"/>';
+  ln(DBL);
+  x+='<feed line="2"/>';
   ln("ご来店ありがとうございました","center");
   ln("またのご来店をお待ちしております","center");
+  x+='<feed line="1"/>';
+  ln("CLUB GENESIS","center");
   x+='<feed line="4"/>';
   x+='<cut type="feed"/>';
   return x;
 }
 
 function buildEposCommands(prn,data,isEstimate){
-  const{tableLabel,guests,items,subtotal,discount,tax,total,rate,payMethod,receiptIssued,splits}=data;
+  const{tableLabel,guests,items,subtotal,discount,tax,total,rate,payMethod,receiptIssued,splits,startTime}=data;
   const hv=(items||[]).some(i=>i.isVipCharge);
   const now2=new Date();
+  const W=42;
+  const row=(label,amt,w=W)=>{const sp=Math.max(1,w-label.length-amt.length);return label+" ".repeat(sp)+amt;};
+
+  prn.addFeedLine(1);
   prn.addTextAlign(prn.ALIGN_CENTER);
   prn.addTextStyle(false,false,true,prn.COLOR_1);
-  prn.addTextSize(2,2); prn.addText("CLUB GENESIS\n");
+  prn.addTextSize(2,2); prn.addText("CLUB  GENESIS\n");
   prn.addTextSize(1,1); prn.addTextStyle(false,false,false,prn.COLOR_1);
-  prn.addText("RECEIPT\n"); prn.addFeedLine(1);
+  prn.addText("R  E  C  E  I  P  T\n");
+  prn.addFeedLine(1);
   prn.addTextAlign(prn.ALIGN_LEFT);
-  prn.addText("--------------------------------\n");
-  prn.addText("テーブル: "+tableLabel+"  "+guests+"名様\n");
+  prn.addText("-".repeat(W)+"\n");
+  prn.addText("テーブル: "+tableLabel+"　"+guests+"名様\n");
+  if(startTime){const st=new Date(startTime);prn.addText("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");}
   prn.addText("発行: "+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";prn.addText("お支払い: "+pm+(receiptIssued?" | 領収書:発行":"")+"\n");}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":"")+"\n");});
-  prn.addText("--------------------------------\n");
+  prn.addText("-".repeat(W)+"\n");
   (items||[]).forEach(i=>{
-    const lb=i.qty>1?i.label+" x"+i.qty:i.label;
+    const lb=i.qty>1?i.label+" ×"+i.qty:i.label;
     const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
-    const sp=Math.max(1,32-lb.length-amt.length);
-    prn.addText(lb+" ".repeat(sp)+amt+"\n");
+    prn.addText(row(lb,amt)+"\n");
   });
-  prn.addText("--------------------------------\n");
-  prn.addText("小計"+" ".repeat(Math.max(1,18-fmt(subtotal).length))+"¥"+fmt(subtotal)+"\n");
-  if(discount>0)prn.addText("割引"+" ".repeat(Math.max(1,17-fmt(discount).length))+"-¥"+fmt(discount)+"\n");
-  prn.addText("税SC("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")"+"  ¥"+fmt(tax)+"\n");
-  prn.addText("================================\n");
-  prn.addTextStyle(false,false,true,prn.COLOR_1); prn.addTextSize(2,1);
-  prn.addText("合 計"+" ".repeat(Math.max(1,12-fmt(total).length))+"¥"+fmt(total)+"\n");
+  prn.addText("-".repeat(W)+"\n");
+  prn.addText(row("小計","¥"+fmt(subtotal))+"\n");
+  if(discount>0)prn.addText(row("割引","-¥"+fmt(discount))+"\n");
+  prn.addText(row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))+"\n");
+  prn.addText("=".repeat(W)+"\n");
+  prn.addFeedLine(1);
+  prn.addTextStyle(false,false,true,prn.COLOR_1); prn.addTextSize(2,2);
+  prn.addText(row("合 計","¥"+fmt(total),Math.floor(W/2))+"\n");
   prn.addTextSize(1,1); prn.addTextStyle(false,false,false,prn.COLOR_1);
-  prn.addText("================================\n"); prn.addFeedLine(1);
+  prn.addFeedLine(1);
+  prn.addText("=".repeat(W)+"\n");
+  prn.addFeedLine(2);
   prn.addTextAlign(prn.ALIGN_CENTER);
   prn.addText("ご来店ありがとうございました\n");
   prn.addText("またのご来店をお待ちしております\n");
+  prn.addFeedLine(1);
+  prn.addText("CLUB GENESIS\n");
   prn.addFeedLine(4); prn.addCut(prn.CUT_FEED);
 }
 
@@ -3567,7 +3607,7 @@ function rModal(){
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+") "+fmt(p)+"円",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
