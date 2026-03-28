@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.78</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.79</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -2541,19 +2541,12 @@ function buildEposXML(data,isEstimate){
   ln(DIV);
   // テーブル・入店時刻
   ln("テーブル: "+tableLabel+"　"+guests+"名様");
-  if(startTime){
-    const st=new Date(startTime);
-    ln("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));
-  }
-  ln("発行: "+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));
-  if(payMethod){
-    const pm=payMethod==="card"?"カード":"現金";
-    ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));
-  }
-  if(splits&&splits.length>1)splits.forEach(sp=>{
-    const m=sp.method==="card"?"カード":"現金";
-    x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;
-  });
+  if(startTime){const st=new Date(startTime);ln("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));}
+  // 本指名キャスト名（例: 本指名（めい）（すず））
+  const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
+  if(honNames.length)ln("本指名 "+honNames.map(n=>"（"+n+"）").join(""));
+  if(payMethod){const pm=payMethod==="card"?"カード":"現金";ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));}
+  if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;});
   ln(DIV);
   (items||[]).forEach(i=>{
     const lb=i.qty>1?cleanLbl(i.label)+" ×"+i.qty:cleanLbl(i.label);
@@ -2602,7 +2595,8 @@ function buildEposCommands(prn,data,isEstimate){
   prn.addText("-".repeat(W)+"\n");
   prn.addText("テーブル: "+tableLabel+"　"+guests+"名様\n");
   if(startTime){const st=new Date(startTime);prn.addText("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");}
-  prn.addText("発行: "+now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");
+  const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
+  if(honNames.length)prn.addText("本指名 "+honNames.map(n=>"（"+n+"）").join("")+"\n");
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";prn.addText("お支払い: "+pm+(receiptIssued?" | 領収書:発行":"")+"\n");}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":"")+"\n");});
   prn.addText("-".repeat(W)+"\n");
