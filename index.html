@@ -912,40 +912,78 @@ async function endBizDay(){
 
 // ===== FLOOR =====
 function rFloor(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(160px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(220px,1fr))":"repeat(auto-fill,minmax(240px,1fr))";
-  let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:var(--text3);letter-spacing:.1em;">FLOOR MAP</span></div>';
-  html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;">';
+  const cols=DEV==="mobile"?"repeat(2,1fr)":DEV==="tablet"?"repeat(auto-fill,minmax(200px,1fr))":"repeat(auto-fill,minmax(220px,1fr))";
+  let html='<div style="display:grid;grid-template-columns:'+cols+';gap:10px;">';
   S.tables.forEach(t=>{
     try{
-    const s=S.sessions[t.id];const rv=rem(s?.setEndTime);const vr=rem(s?.vipEndTime);
-    const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
-    const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
-    const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
-    const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
-    let inn=s?
-      '<div style="font-size:12px;color:var(--text3);margin-bottom:4px;">'
-      +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
-      +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
-      +' · '+s.guests+'名</div>'
-      +((hn.length||bn.length)?'<div style="font-size:11px;color:var(--gold);margin-bottom:3px;">'+hn.map(n=>"♛ "+n).join(" ")+(bn.length?' <span style="color:#4ade80">'+bn.map(n=>"☆ "+n).join(" ")+'</span>':"")+' </div>':"")
-      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"var(--gold)")+'" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
-      +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:11px;color:var(--purple);margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
-      +'<div style="font-size:12px;color:var(--text3);margin-top:4px;">'+pAmt(ct(s).total)+'</div>'
-    :'<div style="font-size:12px;color:var(--text3);margin-top:10px;">空席</div>';
-    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
-      +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
-      +'<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">'
-      +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>'
-      +(s&&s.note?'<span style="font-size:10px;color:var(--gold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100px;">'+s.note+'</span>':"")
-      +'</div>'
-      +'<div style="display:flex;gap:4px;flex-shrink:0;">'+(isV(t.id)?'<span class="tag tv2">VIP</span>':"")+(s?'<span class="tag ta2">使用中</span>':"")+'</div>'
-      +'</div>'+inn+'</div>';
+      const s=S.sessions[t.id];
+      const rv=rem(s?.setEndTime);
+      const urg=rv!==null&&rv<600000&&rv>0;
+      const exp=rv!==null&&rv<=0;
+      const tc=exp?"#ff4444":urg?"#ff8c00":"var(--gold)";
+      const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
+      const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
+      const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
+      const vr=rem(s?.vipEndTime);
+
+      // カード全体
+      html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+'" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="padding:10px 12px;min-height:110px;cursor:pointer;touch-action:manipulation;">';
+
+      // 1行目: テーブル番号 + 人数 + VIPバッジ
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">';
+      html+='<div style="display:flex;align-items:center;gap:6px;">';
+      html+='<span style="font-size:15px;font-weight:700;color:var(--text);">'+t.label+'</span>';
+      if(s)html+='<span style="font-size:13px;color:var(--text3);">'+s.guests+'名</span>';
+      if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;padding:1px 5px;">VIP</span>';
+      html+='</div>';
+      if(s)html+='<span style="font-size:12px;font-weight:700;color:var(--gold);">'+pAmt(ct(s).total)+'</span>';
+      html+='</div>';
+
+      if(s){
+        // 2行目: 入店時刻 → セット終了時刻
+        const inT=new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        const endT=s.setEndTime?new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):null;
+        html+='<div style="font-size:11px;color:var(--text3);margin-bottom:4px;">';
+        html+=inT+(endT?' → <span style="color:'+tc+';">'+endT+'</span>':"");
+        html+='</div>';
+
+        // 3行目: 残り時間
+        html+='<div '+(s.setEndTime?'data-countdown="'+s.setEndTime+'"':'')+' style="font-size:16px;font-weight:700;color:'+tc+';"  class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>';
+
+        // VIP残り時間
+        if(hv&&vr!==null)html+='<div '+(s.vipEndTime?'data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:11px;color:var(--purple);margin-top:1px;">VIP残 '+ts(Math.max(0,vr))+'</div>';
+
+        // 本指名
+        if(hn.length){
+          html+='<div style="margin-top:5px;">';
+          hn.forEach(n=>{
+            html+='<div style="font-size:11px;color:var(--gold);">本指名 '+n+'</div>';
+          });
+          html+='</div>';
+        }
+
+        // 場内指名
+        if(bn.length){
+          html+='<div style="margin-top:2px;">';
+          bn.forEach(n=>{
+            html+='<div style="font-size:11px;color:#4ade80;">場指名 '+n+'</div>';
+          });
+          html+='</div>';
+        }
+
+        // 備考
+        if(s.note)html+='<div style="font-size:10px;color:var(--gold);margin-top:4px;border-top:1px solid rgba(255,255,255,.06);padding-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">備考 '+s.note+'</div>';
+
+      }else{
+        // 空席
+        html+='<div style="font-size:12px;color:#333;margin-top:8px;">空席</div>';
+      }
+
+      html+='</div>';
     }catch(e){
-      // データ不整合のテーブルは空席として表示
-      html+='<div class="tc te '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+'">'
-        +'<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">'
-        +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:500;">'+t.label+'</span>'
-        +'</div><div style="font-size:12px;color:var(--text3);margin-top:10px;">空席</div></div>';
+      html+='<div class="tc te '+(isV(t.id)?"tv":'')+'" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="padding:10px 12px;min-height:110px;">'
+        +'<span style="font-size:15px;font-weight:700;">'+t.label+'</span>'
+        +'<div style="font-size:12px;color:#333;margin-top:8px;">空席</div></div>';
     }
   });
   html+='</div>';
