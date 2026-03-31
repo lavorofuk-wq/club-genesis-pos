@@ -551,10 +551,11 @@ function checkout(){
 function tableChange(newId){
   if(!at||!newId||newId===at)return;
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
+  // deleteより前にセッションIDを取得（deleteするとS.sessions[at]がundefinedになるため）
+  const tcSessionId=S.sessions[at]?.startTime||null;
   S.sessions[newId]={...S.sessions[at],tableId:newId};
   delete S.sessions[at];
   // アクティブなアサイン＋同セッションの終了済みアサイン（付け回し履歴）のtableIdも移動先に更新
-  const tcSessionId=S.sessions[at]?.startTime||null;
   Object.values(S.assignments||{}).forEach(a=>{
     if(a.tableId===at&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId)))a.tableId=newId;
   });
@@ -1328,11 +1329,12 @@ function rTableDetail(){
   const allA=Object.values(S.assignments||{})
     .filter(a=>{
       if(a.tableId!==tid)return false;
-      if(sessionStart===null)return true;
+      // セッションなし（会計終了後）は何も表示しない
+      if(sessionStart===null)return false;
       // sessionIdがある場合はそれで一致判定（最も確実）
       if(a.sessionId!=null)return a.sessionId===sessionStart;
-      // sessionIdがない古いデータはstartTimeで判定（広めのマージン）
-      return a.startTime>=(sessionStart-3600000); // 1時間以内
+      // sessionIdがない古いデータはstartTimeで判定（60秒のマージン）
+      return a.startTime>=(sessionStart-60000);
     })
     .sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
