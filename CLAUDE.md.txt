@@ -1,0 +1,3 @@
+返答はすべて日本語で行う。
+変更後は常にgit add -A && git commitとgit pushまで自動実行する。
+このプロジェクトはキャバクラのPOSシステム（index.html）。

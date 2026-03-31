@@ -553,8 +553,19 @@ function tableChange(newId){
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
   S.sessions[newId]={...S.sessions[at],tableId:newId};
   delete S.sessions[at];
+  // アクティブなアサインのtableIdも移動先に更新
+  Object.values(S.assignments||{}).forEach(a=>{
+    if(a.tableId===at&&!a.endTime)a.tableId=newId;
+  });
   at=newId;
-  save("sessions",S.sessions);closeM();render();
+  // sessionsとassignmentsをアトミックに保存（別々の保存だとリスナーが中間状態を見てキャストが戻る）
+  if(window._db){
+    window._db.ref("pos").update({
+      sessions: Object.keys(S.sessions).length>0 ? S.sessions : null,
+      assignments: Object.keys(S.assignments||{}).length>0 ? S.assignments : null
+    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  closeM();render();
 }
 
 // ===== RENDER ENGINE =====
