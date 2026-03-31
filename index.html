@@ -553,9 +553,10 @@ function tableChange(newId){
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
   S.sessions[newId]={...S.sessions[at],tableId:newId};
   delete S.sessions[at];
-  // アクティブなアサインのtableIdも移動先に更新
+  // アクティブなアサイン＋同セッションの終了済みアサイン（付け回し履歴）のtableIdも移動先に更新
+  const tcSessionId=S.sessions[at]?.startTime||null;
   Object.values(S.assignments||{}).forEach(a=>{
-    if(a.tableId===at&&!a.endTime)a.tableId=newId;
+    if(a.tableId===at&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId)))a.tableId=newId;
   });
   at=newId;
   // sessionsとassignmentsをアトミックに保存（別々の保存だとリスナーが中間状態を見てキャストが戻る）
