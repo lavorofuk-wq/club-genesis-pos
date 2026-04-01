@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.82</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.83</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -914,19 +914,19 @@ function rFloor(){
     const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
     const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
-    const multiNom=(hn.length+bn.length)>1;
-    const cardStyle='touch-action:manipulation;'+(multiNom?'aspect-ratio:1/1;':'min-height:'+(DEV==="mobile"?"100px":"120px")+';');
+    const nomCount=hn.length+bn.length;
+    const nomFs=nomCount>=5?'9px':nomCount>=3?'10px':'12px';
     let inn=s?
       '<div style="font-size:13px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +'</div>'
       +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:22px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
-      +(hn.length?'<div style="font-size:12px;color:#ff4444;line-height:1.7;">'+hn.map(n=>'本指名　'+n).join('<br>')+'</div>':"")
-      +(bn.length?'<div style="font-size:12px;color:#4ade80;line-height:1.7;">'+bn.map(n=>'場指名　'+n).join('<br>')+'</div>':"")
+      +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.7;">'+hn.map(n=>'本指名　'+n).join('<br>')+'</div>':"")
+      +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.7;">'+bn.map(n=>'場指名　'+n).join('<br>')+'</div>':"")
       +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
-    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="'+cardStyle+'">'
+    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
       +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:600;">'+t.label+'</span>'
       +(isV(t.id)?'<span class="tag tv2" style="flex-shrink:0;">VIP</span>':"")
@@ -935,7 +935,7 @@ function rFloor(){
       +'</div>'+inn+'</div>';
     }catch(e){
       // データ不整合のテーブルは空席として表示
-      html+='<div class="tc te '+(isV(t.id)?"tv":"")+ ' sm" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="min-height:'+(DEV==="mobile"?"100px":"120px")+';touch-action:manipulation;">'
+      html+='<div class="tc te '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
         +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
         +'<span style="font-size:'+(DEV==="mobile"?"13px":"14px")+';font-weight:600;">'+t.label+'</span>'
         +(isV(t.id)?'<span class="tag tv2">VIP</span>':"")
@@ -1457,10 +1457,11 @@ function rCI(){
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;margin-bottom:20px;color:#d4a017;">'+tl+' — チェックイン</h2>';
   // 人数
   const btnSz=isTabletPlus?"50px":"44px";
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">人数</div><div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  [1,2,3,4,5,6,7,8].forEach(n=>{
-    html+='<button class="btn" data-n="'+n+'" onclick="sg(parseInt(this.dataset.n))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+( isTabletPlus?"18px":"16px")+';background:'+(ci.guests===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
+  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">人数</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
+  [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{
+    html+='<button class="btn" data-n="'+n+'" onclick="sg(parseInt(this.dataset.n))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';background:'+(ci.guests===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
   });
+  html+='<input type="number" inputmode="numeric" min="1" max="99" placeholder="他" value="'+(ci.guests>12?ci.guests:"")+'" oninput="if(parseInt(this.value)>0)sg(parseInt(this.value))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';text-align:center;background:'+(ci.guests>12?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests>12?"#1a1200":"#e8dcc8")+';border:1px solid rgba(255,255,255,.12);"/>';
   html+='</div></div>';
   // セットメニュー
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">セットメニュー *</div>';
@@ -1502,6 +1503,7 @@ function sg(n){ci.guests=n;render();}
 function sm2(id){ci.setMenu=id;render();}
 function to2(k){ci[k]=!ci[k];render();}
 function rhs(id){ci.honShimeis=ci.honShimeis.filter(x=>x!==id);render();}
+function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save("sessions",S.sessions);}
 
 // ===== ORDER =====
 // order画面は一度だけHTML構造を組み立てる
@@ -1594,11 +1596,14 @@ function rOrder(){
 }
 
 function orderHeader(tl,s,big){
-  return '<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">'
+  return '<div style="margin-bottom:16px;">'
+    +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">'
     +'<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;background:none;touch-action:manipulation;">← フロア</button>'
     +'<h2 style="font-family:Cormorant Garamond,serif;font-size:'+(big?"22px":"18px")+';color:#d4a017;">'+tl+'</h2>'
     +'<span id="order-guests" style="font-size:12px;color:#888;">'+s.guests+'名</span>'
     +(isV(at)?'<span class="tag tv2">VIP</span>':"")
+    +'</div>'
+    +'<input type="text" class="ip" placeholder="備考（タップして編集）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:12px;color:#ffa500;height:32px;padding:4px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);"/>'
     +'</div>';
 }
 function orderMenuSection(dkBtns,orBtns,spBtns){
