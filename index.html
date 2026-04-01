@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.86</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.87</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -904,7 +904,7 @@ async function endBizDay(){
 
 // ===== FLOOR =====
 function rFloor(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(80px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(110px,1fr))":"repeat(auto-fill,minmax(120px,1fr))";
+  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(150px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(170px,1fr))":"repeat(auto-fill,minmax(190px,1fr))";
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
   html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;">';
   S.tables.forEach(t=>{
@@ -915,17 +915,17 @@ function rFloor(){
     const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
     const nomCount=hn.length+bn.length;
-    const nomFs=nomCount>=5?'7px':nomCount>=3?'8px':'9px';
-    const lblFs=DEV==="mobile"?"10px":"11px";
+    const nomFs=nomCount>=5?'9px':nomCount>=3?'10px':'12px';
+    const lblFs=DEV==="mobile"?"12px":"13px";
     let inn=s?
-      '<div style="font-size:10px;color:#999;margin-bottom:4px;">'
+      '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +'</div>'
-      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:14px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
+      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:20px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
       +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.7;">'+hn.map(n=>'本指名　'+n).join('<br>')+'</div>':"")
       +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.7;">'+bn.map(n=>'場指名　'+n).join('<br>')+'</div>':"")
-      +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:9px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
+      +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:10px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
     html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
@@ -958,8 +958,8 @@ function rList(){
   const totalGuests=S.tables.reduce((s,t)=>s+(S.sessions[t.id]?.guests||0),0);
   const totalOnduty=getOnduty().length;
   const storeDiff=totalGuests-totalOnduty;
-  const storeBalCol=storeDiff===0?"#e8dcc8":storeDiff>0?"#ff4444":"#4ade80";
-  const storeBalTxt=storeDiff===0?"均衡":storeDiff>0?"不足"+storeDiff+"人":"余力"+Math.abs(storeDiff)+"人";
+  const storeBalCol=storeDiff>0?"#ff4444":"#4ade80";
+  const storeBalTxt=storeDiff>0?"-"+storeDiff+"人":storeDiff<0?"+"+Math.abs(storeDiff)+"人":"";
 
   let html='<div id="list-root">';
 
@@ -985,7 +985,7 @@ function rList(){
   html+='</div>';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
   html+='<span style="font-size:11px;color:#888;">店全体</span>';
-  html+='<span style="font-size:12px;font-weight:700;color:'+storeBalCol+';">'+storeBalTxt+'</span>';
+  html+=(storeBalTxt?'<span style="font-size:12px;font-weight:700;color:'+storeBalCol+';">'+storeBalTxt+'</span>':"");
   html+='</div>';
   html+='</div>';
   // 待機ゾーン（テーブルからドロップで戻る）
@@ -1029,8 +1029,8 @@ function rList(){
     let manBadge="";
     if(isActive&&s){
       const diff=s.guests-ac.length;
-      if(diff>0)manBadge='<span style="font-size:9px;color:#ff4444;border:1px solid rgba(255,68,68,.35);border-radius:3px;padding:1px 5px;background:rgba(255,68,68,.08);">マイナス'+diff+'人</span>';
-      else if(diff<0)manBadge='<span style="font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:3px;padding:1px 5px;background:rgba(74,222,128,.08);">プラス'+Math.abs(diff)+'人</span>';
+      if(diff>0)manBadge='<span style="font-size:9px;color:#ff4444;border:1px solid rgba(255,68,68,.35);border-radius:3px;padding:1px 5px;background:rgba(255,68,68,.08);">-'+diff+'人</span>';
+      else if(diff<0)manBadge='<span style="font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:3px;padding:1px 5px;background:rgba(74,222,128,.08);">+'+Math.abs(diff)+'人</span>';
       // diff===0: 均衡は表示しない
     }
     // テーブルカード（ドロップゾーン）
@@ -1492,7 +1492,7 @@ function rCI(){
   [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{
     html+='<button class="btn" data-n="'+n+'" onclick="sg(parseInt(this.dataset.n))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';background:'+(ci.guests===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
   });
-  html+='<input type="number" inputmode="numeric" min="1" max="99" placeholder="他" value="'+(ci.guests>12?ci.guests:"")+'" oninput="if(parseInt(this.value)>0)sg(parseInt(this.value))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';text-align:center;background:'+(ci.guests>12?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests>12?"#1a1200":"#e8dcc8")+';border:1px solid rgba(255,255,255,.12);"/>';
+  html+='<input type="number" inputmode="numeric" min="1" max="99" placeholder="他" value="'+(ci.guests>12?ci.guests:"")+'" oninput="const v=parseInt(this.value);if(v>0){ci.guests=v;this.style.background=\'linear-gradient(135deg,#b8960c,#e8c84a)\';this.style.color=\'#1a1200\';}" onchange="const v=parseInt(this.value);if(v>0)sg(v);" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';text-align:center;background:'+(ci.guests>12?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests>12?"#1a1200":"#e8dcc8")+';border:1px solid rgba(255,255,255,.12);"/>';
   html+='</div></div>';
   // セットメニュー
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">セットメニュー *</div>';
