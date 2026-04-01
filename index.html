@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.84</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.85</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -183,7 +183,7 @@
   </header>
   <!-- オフライン警告バナー -->
   <div id="offline-banner" style="display:none;position:sticky;top:0;z-index:900;background:rgba(255,80,80,.95);color:#fff;font-size:13px;font-weight:700;text-align:center;padding:8px 16px;letter-spacing:.05em;">
-    ⚠️ オフライン — データは同期されていません。接続を確認してください。
+    オフライン — データは同期されていません。接続を確認してください。
   </div>
   <main id="m"></main>
 </div>
@@ -709,7 +709,7 @@ function rHome(){
     html+='</div>';
     // フロアへ
     html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
-    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">📋 過去の営業履歴</button>';
+    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">過去の営業履歴</button>';
     html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
   } else {
     // 未営業
@@ -717,7 +717,7 @@ function rHome(){
     html+='<div style="font-size:13px;color:#555;margin-bottom:4px;">現在営業中の日はありません</div>';
     html+='</div>';
     html+='<button class="btn gbg" onclick="om(\'startBizDay\')" style="width:100%;padding:18px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:16px;touch-action:manipulation;">🟢 営業を開始する</button>';
-    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">📋 過去の営業履歴</button>';
+    html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">過去の営業履歴</button>';
   }
   html+='</div>';
   return html;
@@ -793,7 +793,7 @@ function rDayDetail(day){
     });
   }
   // CSV出力ボタン
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">📊 CSV出力</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
   html+='</div>';
   return html;
 }
@@ -921,7 +921,7 @@ function rFloor(){
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +'</div>'
-      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:22px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv))+'</div>'
+      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:22px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
       +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.7;">'+hn.map(n=>'本指名　'+n).join('<br>')+'</div>':"")
       +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.7;">'+bn.map(n=>'場指名　'+n).join('<br>')+'</div>':"")
       +(hv&&vr!==null?'<div'+(s.vipEndTime?' data-countdown="'+s.vipEndTime+'"':'')+' style="font-size:11px;color:#a78bfa;margin-top:2px;">VIP残 '+ts(Math.max(0,vr))+'</div>':"")
@@ -967,7 +967,7 @@ function rList(){
   html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;flex:1;">LIST</span>';
   html+='<span style="font-size:12px;padding:4px 10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:20px;">待機 '+waiting.length+'</span>';
   html+='<span style="font-size:12px;padding:4px 10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:20px;">休憩 '+brk.length+'</span>';
-  html+='<button class="btn" onclick="sv(\'assignHistory\')" style="padding:7px 12px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">📋 履歴</button>';
+  html+='<button class="btn" onclick="sv(\'assignHistory\')" style="padding:7px 12px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">履歴</button>';
   html+='</div>';
 
   // ===== 2カラムレイアウト: 左=キャストゾーン 右=テーブルゾーン =====
@@ -1028,9 +1028,9 @@ function rList(){
     let manBadge="";
     if(isActive&&s){
       const diff=s.guests-ac.length;
-      if(diff===0)manBadge='<span style="font-size:9px;color:#e8dcc8;border:1px solid rgba(255,255,255,.2);border-radius:3px;padding:1px 5px;">均衡</span>';
-      else if(diff>0)manBadge='<span style="font-size:9px;color:#ff4444;border:1px solid rgba(255,68,68,.35);border-radius:3px;padding:1px 5px;background:rgba(255,68,68,.08);">不足'+diff+'人</span>';
-      else manBadge='<span style="font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:3px;padding:1px 5px;background:rgba(74,222,128,.08);">余力'+Math.abs(diff)+'人</span>';
+      if(diff>0)manBadge='<span style="font-size:9px;color:#ff4444;border:1px solid rgba(255,68,68,.35);border-radius:3px;padding:1px 5px;background:rgba(255,68,68,.08);">-'+diff+'人</span>';
+      else if(diff<0)manBadge='<span style="font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:3px;padding:1px 5px;background:rgba(74,222,128,.08);">+'+Math.abs(diff)+'人</span>';
+      // diff===0: 均衡は表示しない
     }
     // テーブルカード（ドロップゾーン）
     html+='<div id="dz-tbl-'+t.id+'" '
@@ -1049,8 +1049,9 @@ function rList(){
       const honCount=hn.length;
       const freeCount=Math.max(0,s.guests-honCount-bn.length);
       if(!honCount&&!bn.length){
-        // 全員フリー：人数をF付きで明示
-        html+='<span style="font-size:11px;font-weight:700;color:#38bdf8;">F'+s.guests+'</span>';
+        // 全員フリー：人数 + Fバッジ
+        html+='<span style="font-size:11px;color:#aaa;">'+s.guests+'名</span>';
+        html+='<span style="font-size:9px;color:#38bdf8;padding:1px 4px;border:1px solid #38bdf866;border-radius:2px;">F'+s.guests+'</span>';
       } else {
         html+='<span style="font-size:11px;color:#aaa;">'+s.guests+'名</span>';
         if(honCount)html+='<span style="font-size:9px;color:#ff4444;padding:1px 4px;border:1px solid #ff444466;border-radius:2px;">本'+honCount+'</span>';
@@ -1221,8 +1222,8 @@ function chipTouchEnd(e){
 function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
   // 待機→待機、休憩→休憩は無視
   if(fromZone===toZone&&toZone!=="tbl")return;
-  // テーブル→同じテーブルは無視（別テーブルへの移動は許可）
-  if(fromZone==="tbl"&&toZone==="tbl"&&S.assignments[assignId]?.tableId===tableId)return;
+  // テーブル上のchip(zone="active")→同じテーブルは無視、別テーブルは許可
+  if(fromZone==="active"&&toZone==="tbl"&&S.assignments[assignId]?.tableId===tableId)return;
   if(toZone==="waiting"){
     // テーブル or 休憩 → 待機
     if(assignId)endAssign(assignId);
@@ -1235,8 +1236,8 @@ function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
     // 待機 or 休憩 or テーブル → テーブル
     const tblSession=S.sessions[tableId];
     if(!tblSession)return; // 空席は不可
-    if(assignId&&fromZone==="tbl"){
-      // テーブル→別テーブル: 一旦終了してからタイプ選択
+    if(assignId&&(fromZone==="active"||fromZone==="tbl")){
+      // テーブル→別テーブル: 旧アサインを終了してからタイプ選択（2テーブル同時付けを防ぐ）
       endAssign(assignId);
     }
     // タイプ選択モーダルを開く（Nowモード）
@@ -1306,11 +1307,11 @@ function rAssignHistory(){
       html+='<div class="glass" style="border-radius:10px;margin-bottom:6px;overflow:hidden;">';
       html+='<div style="padding:10px 14px;background:rgba(212,160,23,.08);border-bottom:2px solid rgba(212,160,23,.2);display:flex;align-items:center;flex-wrap:wrap;gap:8px;">';
       html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
-      html+='<span style="font-size:12px;color:#888;">🕐 '+inTime+'〜</span>';
-      html+='<span style="font-size:12px;color:#aaa;">👥 '+guests+'名</span>';
+      html+='<span style="font-size:12px;color:#888;">'+inTime+'〜</span>';
+      html+='<span style="font-size:12px;color:#aaa;">'+guests+'名</span>';
       if(honNames.length)html+='<span style="font-size:11px;color:#ff4444;background:rgba(255,68,68,.1);padding:2px 8px;border-radius:10px;">本: '+honNames.join("・")+'</span>';
       if(banaiNames.length)html+='<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.1);padding:2px 8px;border-radius:10px;">場: '+banaiNames.join("・")+'</span>';
-      if(note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:2px 8px;border-radius:10px;">📝 '+note+'</span>';
+      if(note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:2px 8px;border-radius:10px;">'+note+'</span>';
       html+='<span style="margin-left:auto;font-size:11px;color:#555;">'+group.length+'件</span>';
       html+='</div>';
 
@@ -1515,7 +1516,7 @@ function rCI(){
   html+='<button class="btn" onclick="etv=roundHHMM(5);render()" style="font-size:11px;color:#666;background:none;padding:2px 0;">↺ 現在時刻にリセット</button>';
   html+='</div>';
   // 本指名
-  const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">♛ '+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:14px;padding:2px;">×</button></span>';}).join("");
+  const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">'+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:14px;padding:2px;">×</button></span>';}).join("");
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:10px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:'+(isTabletPlus?"9px 18px":"7px 14px")+';background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:'+(isTabletPlus?"14px":"12px")+';">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:12px;color:#d4a017;">本指名料 ¥3,000 × '+ci.honShimeis.length+'名 = ¥'+fmt(3000*ci.honShimeis.length)+'</div>':"")+'</div>';
   // オプション
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:20px;"><div class="st">オプション</div><div style="display:flex;flex-wrap:wrap;gap:8px;">';
@@ -1588,7 +1589,7 @@ function rOrder(){
   spBtns+='<button class="menu-btn" onclick="om(\'add-hon\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">本指名追加<br><small>¥3,000</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'tc\')" style="background:rgba(0,200,255,.08);border-color:rgba(0,200,255,.25);color:#38bdf8;">テーブル<br><small>チェンジ</small></button>';
   spBtns+='<button class="menu-btn" onclick="om(\'disc\')" style="background:rgba(255,80,80,.1);border-color:rgba(255,80,80,.3);color:#ff6b6b;">割引<br><small>各種</small></button>';
-  spBtns+='<button class="menu-btn" onclick="om(\'est\')" style="background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.25);color:#ffd700;">📊 概算<br><small>シミュレーション</small></button>';
+  spBtns+='<button class="menu-btn" onclick="om(\'est\')" style="background:rgba(255,215,0,.08);border-color:rgba(255,215,0,.25);color:#ffd700;">概算<br><small>シミュレーション</small></button>';
 
   // レイアウト: tablet/desktopは2カラム、mobileは縦積み
   if(isTabletPlus){
@@ -1714,7 +1715,7 @@ function rHist(){
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
   html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今営業日</button>';
   html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
-  html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">📊 CSV出力</button>';
+  html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">CSV出力</button>';
   html+='</div></div>';
   // 営業日売上サマリー（現在の営業日のデータ）
   const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
@@ -1759,7 +1760,7 @@ function rHist(){
       html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((h.rate||.25)*100)+'%)</span><span>'+pAmt(h.tax)+'</span></div>';
       html+='<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div></div>';
       html+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">';
-      html+='<button class="btn" data-phid="'+h.id+'" onclick="printHistReceipt(parseInt(this.dataset.phid))" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">🖨 印刷</button>';
+      html+='<button class="btn" data-phid="'+h.id+'" onclick="printHistReceipt(parseInt(this.dataset.phid))" style="padding:6px 14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">印刷</button>';
       html+='<button class="btn" data-ehid="'+h.id+'" onclick="editHistPay(parseInt(this.dataset.ehid))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:12px;">💳 支払変更</button>';
       // 削除は当営業日のS.historyにある会計のみ可能
       if((S.history||[]).some(sh=>sh.id===h.id)){
@@ -2079,7 +2080,7 @@ function rAdmin(){
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;margin-bottom:16px;">管理</h2>';
   // プリンター設定
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;border:1px solid rgba(74,222,128,.2);">';
-  html+='<div class="st" style="color:#4ade80;margin-bottom:12px;">🖨 プリンター設定（Epson TM-T88VII）</div>';
+  html+='<div class="st" style="color:#4ade80;margin-bottom:12px;">プリンター設定（Epson TM-T88VII）</div>';
   html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">Epson ePOS SDK経由でWi-Fi印刷。プリンターと同じWi-Fiに接続してください。</div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:10px;">';
   html+='<div style="flex:2;">';
@@ -2093,7 +2094,7 @@ function rAdmin(){
   html+='</div>';
   html+='<div style="display:flex;gap:8px;">';
   html+='<button class="btn gbg" onclick="savePrinterConfig()" style="flex:1;padding:10px;font-size:13px;font-weight:700;border-radius:6px;touch-action:manipulation;">💾 保存</button>';
-  html+='<button class="btn" onclick="testPrint()" style="flex:1;padding:10px;font-size:13px;font-weight:600;border-radius:6px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;touch-action:manipulation;">🖨 テスト印刷</button>';
+  html+='<button class="btn" onclick="testPrint()" style="flex:1;padding:10px;font-size:13px;font-weight:600;border-radius:6px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;touch-action:manipulation;">テスト印刷</button>';
   html+='</div>';
   html+='</div>';
   html+='<div class="st" style="margin-bottom:12px;">パスワード設定</div>';
@@ -2125,7 +2126,7 @@ function rAdmin(){
   }else{
     html+='<div style="font-size:12px;color:#444;margin-bottom:10px;">バックアップなし（営業終了時に自動保存）</div>';
   }
-  html+='<button class="btn" onclick="sv(\'backupDetail\')" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">📋 詳細・復旧</button>';
+  html+='<button class="btn" onclick="sv(\'backupDetail\')" style="padding:8px 14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:13px;font-weight:600;touch-action:manipulation;">詳細・復旧</button>';
   html+='</div>';
   // 緊急リセット
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;border:1px solid rgba(255,80,80,.2);">';
@@ -2925,7 +2926,7 @@ function rModal(){
       +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
       +'</div>'
       +'<div style="display:flex;gap:8px;margin-top:20px;">'
-      +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:14px 8px;font-size:14px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">🖨 印刷</button>'
+      +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:14px 8px;font-size:14px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">印刷</button>'
       +'<button class="btn gbg" onclick="md=\'co2\';rModal()" style="flex:2;padding:14px 8px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計終了 →</button>'
       +'</div>'
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
@@ -3124,7 +3125,7 @@ function rModal(){
   else if(md==="banai"&&s){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
     let alh="";
-    if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">☆ '+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
+    if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">'+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
     const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥1,500/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
@@ -3325,7 +3326,7 @@ function rModal(){
         // Now/時刻指定トグル
         +'<div style="display:flex;gap:8px;margin-bottom:14px;">'
         +'<button class="btn" onclick="tsukeMd.useNow=true;rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(tsukeMd.useNow?'linear-gradient(135deg,#b8960c,#e8c84a)':'rgba(255,255,255,.06)')+';border:2px solid '+(tsukeMd.useNow?'#b8960c':'rgba(255,255,255,.1)')+';color:'+(tsukeMd.useNow?'#1a1200':'#888')+';">⚡ Now</button>'
-        +'<button class="btn" onclick="tsukeMd.useNow=false;if(!tsukeMd.time)tsukeMd.time=roundHHMM(5);rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(!tsukeMd.useNow?'rgba(167,139,250,.2)':'rgba(255,255,255,.06)')+';border:2px solid '+(!tsukeMd.useNow?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(!tsukeMd.useNow?'#a78bfa':'#888')+';">🕐 時刻指定</button>'
+        +'<button class="btn" onclick="tsukeMd.useNow=false;if(!tsukeMd.time)tsukeMd.time=roundHHMM(5);rModal()" style="flex:1;padding:11px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;background:'+(!tsukeMd.useNow?'rgba(167,139,250,.2)':'rgba(255,255,255,.06)')+';border:2px solid '+(!tsukeMd.useNow?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(!tsukeMd.useNow?'#a78bfa':'#888')+';">時刻指定</button>'
         +'</div>'
         +(!tsukeMd.useNow?'<input type="time" id="tsuke-time" class="ip" step="300" value="'+tsukeMd.time+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="tsukeMd.time=this.value" onchange="tsukeMd.time=this.value"/>':'')
         +(tsukeMd.useNow?'<div style="font-size:12px;color:#888;margin-bottom:14px;padding:8px 12px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;">確定した瞬間からカウント開始</div>':'')
@@ -3404,7 +3405,7 @@ function rModal(){
         +'<button class="btn" data-aidct3="'+a.id+'" onclick="openChangeType(this.dataset.aidct3)" style="flex:1;padding:10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:6px;font-size:13px;touch-action:manipulation;">タイプ変更</button>'
         +'<button class="btn" data-eid3="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid3)" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">時刻変更</button>'
         +'</div>'
-        +'<button class="btn" data-chist="'+a.castId+'" onclick="window._historyCastId=this.dataset.chist;md=\'castHistory\';rModal()" style="padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;width:100%;touch-action:manipulation;">📋 このキャストの履歴</button>'
+        +'<button class="btn" data-chist="'+a.castId+'" onclick="window._historyCastId=this.dataset.chist;md=\'castHistory\';rModal()" style="padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;width:100%;touch-action:manipulation;">このキャストの履歴</button>'
         +'<button class="btn" data-aid4b="'+a.id+'" onclick="deleteAssign(this.dataset.aid4b)" style="padding:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;width:100%;">削除</button>'
         +'</div>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:10px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
@@ -3455,7 +3456,7 @@ function rModal(){
           ?'<button class="btn" data-sid14="'+sh.id+'" onclick="cancelClockOut(this.dataset.sid14)" style="width:100%;padding:14px;background:rgba(74,222,128,.1);border:2px solid rgba(74,222,128,.3);color:#4ade80;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">↩ 退勤を取消して出勤に戻す</button>'
           :'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15)};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">🔴 退勤登録</button>'
         )
-        +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">📋 付け回し履歴</button>'
+        +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">付け回し履歴</button>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
         +'</div></div>';
     }
@@ -3568,7 +3569,7 @@ function rModal(){
       +'<div class="st" style="margin-bottom:8px;">営業日</div>'
       +'<input type="date" class="ip" id="biz-date-input" value="'+selDate+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="window._selBizDate=this.value;rModal()"/>'
       +(already
-        ?'<div style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;">⚠️ この日付は記録済みです。開始すると上書きされます。</div>'
+        ?'<div style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;">この日付は記録済みです。開始すると上書きされます。</div>'
         :"")
       +'<div style="display:flex;gap:8px;">'
       +'<button class="btn gbg" onclick="startBizDay(document.getElementById(\'biz-date-input\').value)" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">開始する</button>'
@@ -3588,9 +3589,9 @@ function rModal(){
       // 本日サマリー
       +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px;">'
       +'<div style="padding:12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み売上</div><div style="font-size:18px;font-weight:700;color:#4ade80;">'+pAmt(sales)+'</div></div>'
-      +(pendingSales>0?'<div style="padding:12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#ff6b6b;margin-bottom:4px;">⚠️ 未会計</div><div style="font-size:18px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>':'<div style="padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">出退勤</div><div style="font-size:18px;font-weight:700;color:#bbb;">'+shiftCount+'名</div></div>')
+      +(pendingSales>0?'<div style="padding:12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#ff6b6b;margin-bottom:4px;">未会計</div><div style="font-size:18px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>':'<div style="padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">出退勤</div><div style="font-size:18px;font-weight:700;color:#bbb;">'+shiftCount+'名</div></div>')
       +'</div>'
-      +(openSessions>0?'<div style="padding:10px 14px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;margin-bottom:16px;font-size:13px;color:#ff6b6b;">⚠️ 会計未了のテーブルが '+openSessions+' 卓あります</div>':"")
+      +(openSessions>0?'<div style="padding:10px 14px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;margin-bottom:16px;font-size:13px;color:#ff6b6b;">会計未了のテーブルが '+openSessions+' 卓あります</div>':"")
       +'<div style="display:flex;gap:8px;">'
       +'<button class="btn" onclick="endBizDay()" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;">終了して保存する</button>'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">戻る</button>'
@@ -3621,7 +3622,7 @@ function rModal(){
     const r30=calcEstForMinutes(s,30,false);
     const r60=calcEstForMinutes(s,60,false);
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
-      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffd700;">📊 概算シミュレーション</h3>'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffd700;">概算シミュレーション</h3>'
       +'<div style="font-size:12px;color:#666;margin-bottom:16px;">'+S.tables.find(t=>t.id===at)?.label+' · '+s.guests+'名</div>'
       // VIPオプション（VIPテーブルのみ）
       +(hasVip
@@ -3642,7 +3643,7 @@ function rModal(){
       +'<div id="est-preview" style="overflow-y:auto;max-height:45vh;"></div>'
       // ボタン
       +'<div style="display:flex;gap:8px;margin-top:16px;">'
-      +'<button class="btn" onclick="printEstimate()" style="flex:1;padding:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:6px;font-size:14px;font-weight:600;touch-action:manipulation;">🖨 概算印刷</button>'
+      +'<button class="btn" onclick="printEstimate()" style="flex:1;padding:12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:6px;font-size:14px;font-weight:600;touch-action:manipulation;">概算印刷</button>'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
       +'</div>'
       +'</div></div>';
@@ -3923,7 +3924,7 @@ function rShifts(){
   html+='<div style="display:flex;gap:10px;margin-bottom:16px;">';
   html+='<button class="btn gbg" onclick="openShiftMd(\'in\')" style="flex:1;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">🟢 出勤登録</button>';
   html+='<button class="btn" onclick="openShiftMd(\'out\')" style="flex:1;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">🔴 退勤登録</button>';
-  html+='<button class="btn" onclick="exportShiftCSV()" style="padding:14px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:8px;font-size:13px;font-weight:600;touch-action:manipulation;">📊 CSV</button>';
+  html+='<button class="btn" onclick="exportShiftCSV()" style="padding:14px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:8px;font-size:13px;font-weight:600;touch-action:manipulation;">CSV</button>';
   html+='</div>';
 
   // 出勤中
