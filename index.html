@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.83</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.84</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -954,6 +954,11 @@ function rList(){
   const waiting=getWaitingCasts();
   const brk=getBreakCasts();
   const activeSessions=S.tables.filter(t=>S.sessions[t.id]);
+  const totalGuests=S.tables.reduce((s,t)=>s+(S.sessions[t.id]?.guests||0),0);
+  const totalOnduty=getOnduty().length;
+  const storeDiff=totalGuests-totalOnduty;
+  const storeBalCol=storeDiff===0?"#e8dcc8":storeDiff>0?"#ff4444":"#4ade80";
+  const storeBalTxt=storeDiff===0?"均衡":storeDiff>0?"不足"+storeDiff+"人":"余力"+Math.abs(storeDiff)+"人";
 
   let html='<div id="list-root">';
 
@@ -971,6 +976,17 @@ function rList(){
 
   // ===== 左: 待機・休憩ゾーン（ドラッグソース & ドロップゾーン）=====
   html+='<div>';
+  // 客数・過不足サマリー
+  html+='<div class="glass" style="border-radius:10px;padding:10px;margin-bottom:10px;">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+  html+='<span style="font-size:11px;color:#888;">現在の客数</span>';
+  html+='<span style="font-size:14px;font-weight:700;color:#e8dcc8;">'+totalGuests+'名</span>';
+  html+='</div>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
+  html+='<span style="font-size:11px;color:#888;">店全体</span>';
+  html+='<span style="font-size:12px;font-weight:700;color:'+storeBalCol+';">'+storeBalTxt+'</span>';
+  html+='</div>';
+  html+='</div>';
   // 待機ゾーン（テーブルからドロップで戻る）
   html+='<div id="dz-waiting" class="glass" style="border-radius:10px;padding:10px;margin-bottom:10px;min-height:60px;transition:background .2s;" ondragover="dzOver(event,\'waiting\')" ondragleave="dzLeave(\'waiting\')" ondrop="dzDrop(event,\'waiting\')">';
   html+='<div style="font-size:11px;font-weight:700;color:#4ade80;letter-spacing:.08em;margin-bottom:8px;">待機 '+waiting.length+'</div>';
@@ -1008,6 +1024,14 @@ function rList(){
     const hn=s?(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
     const bn=s?(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
     const isActive=!!s;
+    // マンツーマン過不足
+    let manBadge="";
+    if(isActive&&s){
+      const diff=s.guests-ac.length;
+      if(diff===0)manBadge='<span style="font-size:9px;color:#e8dcc8;border:1px solid rgba(255,255,255,.2);border-radius:3px;padding:1px 5px;">均衡</span>';
+      else if(diff>0)manBadge='<span style="font-size:9px;color:#ff4444;border:1px solid rgba(255,68,68,.35);border-radius:3px;padding:1px 5px;background:rgba(255,68,68,.08);">不足'+diff+'人</span>';
+      else manBadge='<span style="font-size:9px;color:#4ade80;border:1px solid rgba(74,222,128,.35);border-radius:3px;padding:1px 5px;background:rgba(74,222,128,.08);">余力'+Math.abs(diff)+'人</span>';
+    }
     // テーブルカード（ドロップゾーン）
     html+='<div id="dz-tbl-'+t.id+'" '
       +'style="border-radius:10px;padding:10px;min-height:100px;transition:all .2s;cursor:'+(isActive?"pointer":"default")+';'
@@ -1016,17 +1040,17 @@ function rList(){
       +(isV(t.id)?"border-color:rgba(124,77,255,.3);":"")+'" '
       +(isActive?'ondragover="dzOver(event,\'tbl\',\''+t.id+'\')" ondragleave="dzLeave(\'tbl\',\''+t.id+'\')" ondrop="dzDrop(event,\'tbl\',\''+t.id+'\')" ':'' )
       +'onclick="if(!event.defaultPrevented&&\''+t.id+'\')sv(\'tableDetail\',\''+t.id+'\')">';
-    // テーブル名行：テーブル名＋人数＋バッジ
+    // テーブル名行：テーブル名＋人数＋バッジ＋マンツーマン
     html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
     html+='<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">';
     html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">';
     html+='<span style="font-size:13px;font-weight:700;color:'+(isActive?"#e8dcc8":"#444")+';">'+t.label+'</span>';
     if(isActive&&s){
       const honCount=hn.length;
-      const freeCount=Math.max(0,s.guests-honCount);
+      const freeCount=Math.max(0,s.guests-honCount-bn.length);
       if(!honCount&&!bn.length){
-        // 本指名も場内指名もない場合：F人数を表示
-        html+='<span style="font-size:11px;color:#38bdf8;">F'+s.guests+'</span>';
+        // 全員フリー：人数をF付きで明示
+        html+='<span style="font-size:11px;font-weight:700;color:#38bdf8;">F'+s.guests+'</span>';
       } else {
         html+='<span style="font-size:11px;color:#aaa;">'+s.guests+'名</span>';
         if(honCount)html+='<span style="font-size:9px;color:#ff4444;padding:1px 4px;border:1px solid #ff444466;border-radius:2px;">本'+honCount+'</span>';
@@ -1038,7 +1062,10 @@ function rList(){
     // 備考
     if(isActive&&s&&s.note)html+='<span style="font-size:10px;color:#ffa500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px;">'+s.note+'</span>';
     html+='</div>';
-    if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;flex-shrink:0;">VIP</span>';
+    html+='<div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;flex-shrink:0;">';
+    if(isV(t.id))html+='<span class="tag tv2" style="font-size:9px;">VIP</span>';
+    if(manBadge)html+=manBadge;
+    html+='</div>';
     html+='</div>';
     if(isActive&&s){
       // 残り時間
@@ -1192,8 +1219,10 @@ function chipTouchEnd(e){
 
 // ===== DnD実行処理 =====
 function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
-  // 同じゾーンへのドロップは無視（ただし待機→同テーブルなど）
-  if(fromZone===toZone&&(toZone!=="tbl"||(fromZone==="tbl")))return;
+  // 待機→待機、休憩→休憩は無視
+  if(fromZone===toZone&&toZone!=="tbl")return;
+  // テーブル→同じテーブルは無視（別テーブルへの移動は許可）
+  if(fromZone==="tbl"&&toZone==="tbl"&&S.assignments[assignId]?.tableId===tableId)return;
   if(toZone==="waiting"){
     // テーブル or 休憩 → 待機
     if(assignId)endAssign(assignId);
@@ -1287,10 +1316,10 @@ function rAssignHistory(){
 
       // アサイン行をタイプ別エリアに分割
       const areaTypes=[
-        {key:"hon", label:"本指名", col:"#d4a017", types:["hon"]},
-        {key:"free",   label:"フリー", col:"#38bdf8", types:["free","harem"]},
-        {key:"help",   label:"ヘルプ", col:"#4ade80", types:["help"]},
-        {key:"banai",  label:"場内指名", col:"#a78bfa", types:["banai"]},
+        {key:"hon",   label:"本指名",   col:ASSIGN_TYPES.hon.col,   types:["hon"]},
+        {key:"free",  label:"フリー",   col:ASSIGN_TYPES.free.col,  types:["free","harem"]},
+        {key:"help",  label:"ヘルプ",   col:ASSIGN_TYPES.help.col,  types:["help"]},
+        {key:"banai", label:"場内指名", col:ASSIGN_TYPES.banai.col, types:["banai"]},
       ];
       areaTypes.forEach(area=>{
         const aItems=group.filter(a=>area.types.includes(a.type));
