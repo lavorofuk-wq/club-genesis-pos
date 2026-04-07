@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.95</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.96</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -299,7 +299,7 @@ function initFB(){
     if(d.menus){
       S.menus=d.menus;
       // 酒類カテゴリが未定義の場合は空配列で初期化
-      ['champagne','wine','whisky','shochu','brandy'].forEach(k=>{if(!S.menus[k])S.menus[k]=[];});
+      if(!S.menus.champagne)S.menus.champagne=[];
     }
     if(d.tables)S.tables=d.tables;
     // オーダー中テーブルのitemsは自分のローカル状態を優先（Firebase同期タイミング問題を防ぐ）
@@ -1619,7 +1619,7 @@ function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;w
 function odq(id){
   qv=1;
   // drinks + 酒類カテゴリ全て検索
-  const allMenuItems=[...(S.menus.drinks||[]),...(S.menus.champagne||[]),...(S.menus.wine||[]),...(S.menus.whisky||[]),...(S.menus.shochu||[]),...(S.menus.brandy||[])];
+  const allMenuItems=[...(S.menus.drinks||[]),...(S.menus.champagne||[])];
   const d=allMenuItems.find(d=>d.id===id);
   if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}
 }
@@ -1976,26 +1976,21 @@ function rSettings(){
     html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
     html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
-    // 酒類メニュー（CASTオーダー）
-    html+='<div style="font-size:11px;color:#a78bfa;letter-spacing:.1em;margin-top:14px;margin-bottom:4px;border-bottom:1px solid rgba(167,139,250,.15);padding-bottom:4px;">酒類メニュー（CAST）</div>';
-    html+='<div style="font-size:10px;color:#555;margin-bottom:10px;">シャンパンはフロアCASTオーダーから発注可。ワイン以降はフロアUIに現在ボタンなし。</div>';
-    const liquorCatDefs=[["champagne","シャンパン"],["wine","ワイン"],["whisky","ウイスキー"],["shochu","焼酎"],["brandy","ブランデー"]];
-    liquorCatDefs.forEach(([k,lbl])=>{
-      const ni=nmi[k]||{label:"",price:""};
-      html+='<div style="margin-top:10px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">'+lbl+'</div>';
-      (S.menus[k]||[]).forEach(item=>{
-        html+='<div class="ir" style="gap:8px;">';
-        html+='<input class="ip" value="'+item.label+'" data-k="'+k+'" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-        html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="'+k+'" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-        html+='<button class="btn" data-k="'+k+'" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-        html+='</div>';
-      });
-      html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-      html+='<input class="ip" placeholder="銘柄名" data-k="'+k+'" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-      html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-      html+='<button class="btn gbg" data-k="'+k+'" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-      html+='</div></div>';
+    // シャンパン（CASTオーダー）
+    {const ni=nmi["champagne"]||{label:"",price:""};
+    html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#ffd700;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,215,0,.15);padding-bottom:4px;">シャンパン（CAST）</div>';
+    (S.menus.champagne||[]).forEach(item=>{
+      html+='<div class="ir" style="gap:8px;">';
+      html+='<input class="ip" value="'+item.label+'" data-k="champagne" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="champagne" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+      html+='<button class="btn" data-k="champagne" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
+      html+='</div>';
     });
+    html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
+    html+='<input class="ip" placeholder="銘柄名" data-k="champagne" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
+    html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="champagne" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+    html+='<button class="btn gbg" data-k="champagne" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
+    html+='</div></div>';}
     html+='</div>';
   }
   html+='</div>';
@@ -3079,8 +3074,8 @@ function rModal(){
   else if(md&&md.startsWith("liquor_")&&s){
     // 酒類カテゴリモーダル
     const liquorKey=md.replace("liquor_","");
-    const liquorLabels={champagne:"シャンパン",wine:"ワイン",whisky:"ウイスキー",shochu:"焼酎",brandy:"ブランデー"};
-    const liquorCols={champagne:"#ffd700",wine:"#ff6b9d",whisky:"#f0a040",shochu:"#b0c8dc",brandy:"#c87820"};
+    const liquorLabels={champagne:"シャンパン"};
+    const liquorCols={champagne:"#ffd700"};
     const items=S.menus[liquorKey]||[];
     const lbl=liquorLabels[liquorKey]||liquorKey;
     const col=liquorCols[liquorKey]||"#aaa";
