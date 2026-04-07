@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.88</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.90</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -188,6 +188,9 @@
   <main id="m"></main>
 </div>
 <div id="md"></div>
+<div id="floor-order-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99;align-items:center;justify-content:center;padding:12px;">
+  <div id="fom-inner" style="background:#141418;border:1px solid rgba(184,150,12,.3);border-radius:10px;padding:18px;width:100%;max-width:720px;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;"></div>
+</div>
 <script>
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
@@ -385,7 +388,7 @@ function addBanai(cid){
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();
-  setTimeout(()=>render(),50);
+  setTimeout(()=>{render();refreshFloorModal();},50);
 }
 function applyET(){
   const v=document.getElementById("eti")?.value||etv;
@@ -395,7 +398,8 @@ function applyET(){
   s.startTime=ns;if(s.setEndTime)s.setEndTime+=df;if(s.vipEndTime)s.vipEndTime+=df;
   etv=v;
   save("sessions",S.sessions);closeM();
-  if(vw==="floor"){render();om("floorDetail");}else renderOrderPartial();
+  if(vw==="floor")render();else renderOrderPartial();
+  refreshFloorModal();
 }
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
@@ -426,6 +430,7 @@ function remItem(id){
   }
   save("sessions",S.sessions);
   if(t.isSet)render();else renderOrderPartial();
+  refreshFloorModal();
 }
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
@@ -479,7 +484,7 @@ function addSetToSession(setId, addGuests){
   if(!s.setEndTime)s.setEndTime=Date.now()+sm.minutes*60000;
   // 人数のみ加算（FD・SCは連動しない）
   s.guests=s.guests+n;
-  save("sessions",S.sessions);closeM();render();
+  save("sessions",S.sessions);closeM();render();refreshFloorModal();
 }
 function addHonShimeiToSession(cid){
   const s=S.sessions[at];if(!s)return;
@@ -487,13 +492,13 @@ function addHonShimeiToSession(cid){
   if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:3000,qty:1,castId:cid,isHonShimei:true}];
   s.honShimeis=[...(s.honShimeis||[]),cid];
-  save("sessions",S.sessions);renderOrderPartial();
+  save("sessions",S.sessions);renderOrderPartial();refreshFloorModal();
 }
 function addOptionToSession(optId){
   const s=S.sessions[at];if(!s)return;
   const opt=S.menus.options.find(o=>o.id===optId);if(!opt)return;
   s.items=[...s.items,{id:opt.id+"_"+Date.now(),label:opt.label,price:opt.price,qty:(opt.id==="hs"||opt.id==="bs")?1:s.guests}];
-  save("sessions",S.sessions);closeM();renderOrderPartial();
+  save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
 function checkout(){
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
@@ -547,6 +552,7 @@ function checkout(){
       shifts: Object.keys(S.shifts||{}).length>0 ? S.shifts : null
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
+  const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
 }
 function tableChange(newId){
@@ -568,13 +574,13 @@ function tableChange(newId){
       assignments: Object.keys(S.assignments||{}).length>0 ? S.assignments : null
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
-  closeM();render();
+  closeM();render();refreshFloorModal();
 }
 
 // ===== RENDER ENGINE =====
 // order画面の差分更新（スクロール位置を保持する）
 function renderOrderPartial(){
-  if(vw!=="order")return;
+  if(vw!=="order"){refreshFloorModal();return;}
   const s=S.sessions[at];if(!s)return;
   // 注文リスト更新
   const ol=document.getElementById("order-list");
@@ -681,6 +687,7 @@ function render(){
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
+  const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
@@ -689,7 +696,106 @@ function sv(v,extra){
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["order","checkin","tableDetail","assignHistory"].includes(v))at=null;render();
 }
-function tc2(id){at=id;if(!S.sessions[id]){vw="checkin";etv=roundHHMM(5);render();}else{etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);om("floorDetail");}}
+function tc2(id){at=id;if(!S.sessions[id]){vw="checkin";etv=roundHHMM(5);render();}else{openFloorDetail(id);}}
+function openFloorDetail(id){
+  at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
+  const fom=document.getElementById("floor-order-modal");if(!fom)return;
+  fom.style.display="flex";
+  document.getElementById("fom-inner").innerHTML=buildFloorOrderContent();
+}
+function closeFloorDetail(){
+  const fom=document.getElementById("floor-order-modal");if(fom)fom.style.display="none";
+  at=null;render();
+}
+function refreshFloorModal(){
+  const fom=document.getElementById("floor-order-modal");
+  if(!fom||fom.style.display==="none")return;
+  const inner=document.getElementById("fom-inner");
+  if(inner)inner.innerHTML=buildFloorOrderContent();
+}
+function buildFloorOrderContent(){
+  const s=S.sessions[at];if(!s)return'';
+  const tl=S.tables.find(t=>t.id===at)?.label||'';
+  const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||'').filter(Boolean);
+  const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||'').filter(Boolean);
+  const hasDh=(s.items||[]).some(i=>i.id==='dh'||i.label==='同伴料');
+  const rv=rem(s.setEndTime);
+  const urg=rv!==null&&rv>0&&rv<600000;const ovr=rv!==null&&rv<=0;
+  const tc3=ovr?'#ff4444':urg?'#ff8c00':'#d4a017';
+  const td=rv===null?'—':ovr?'- '+ts(-rv):ts(rv);
+  const timeStr=new Date(s.startTime).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+(s.setEndTime?' → '+new Date(s.setEndTime).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'');
+  const{total}=ct(s);
+  const ondutyIds=getOndutyIds();
+  const btnSm='padding:3px 9px;border-radius:4px;font-size:11px;touch-action:manipulation;';
+  const cols='repeat(auto-fill,minmax(100px,1fr))';
+  const setCount=(s.items||[]).filter(isSetCatItem).length;
+  const guestCount=(s.items||[]).filter(isGuestCatItem).length;
+  const castCount=(s.items||[]).filter(isCastCatItem).length;
+  const dtSt='width:100%;margin-top:6px;padding:5px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#666;border-radius:4px;font-size:11px;touch-action:manipulation;';
+  // SET buttons
+  let setBtns='';
+  if(ondutyIds.size>0)setBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥1,500</small></button>';
+  setBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
+  if(isV(at))setBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料</button>';
+  // GUEST buttons
+  let guestBtns='<button class="menu-btn" onclick="ofdq()" style="background:rgba(0,180,255,.1);border-color:rgba(0,180,255,.3);color:#38bdf8;">フリードリンク<br><small>¥2,000</small></button>';
+  (S.menus.drinks||[]).forEach(d=>{guestBtns+='<button class="menu-btn" data-did="'+d.id+'" onclick="odq(this.dataset.did)">'+d.label+'<br><small>¥'+fmt(d.price)+'</small></button>';});
+  // CAST buttons
+  const champItems=S.menus.champagne||[];
+  let castBtns='<button class="menu-btn" onclick="om(\'liquor_champagne\')" style="background:rgba(255,215,0,.12);border-color:rgba(255,215,0,.35);color:#ffd700;">シャンパン<br><small>'+(champItems.length?champItems.length+'種':'未設定')+'</small></button>';
+  if(ondutyIds.size>0)castBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink</button>';
+  castBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム</button>';
+  return '<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
+    // HEADER
+    +'<div style="flex-shrink:0;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:10px;">'
+    +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap;">'
+    +'<h3 style="font-family:\'Cormorant Garamond\',serif;font-size:20px;color:#d4a017;margin:0;">'+tl+'</h3>'
+    +(isV(at)?'<span class="tag tv2">VIP</span>':"")
+    +'<span style="font-size:13px;color:#e8dcc8;font-weight:600;">'+s.guests+'名</span>'
+    +(hasDh?'<span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;">同伴</span>':"")
+    +'<button class="btn" onclick="om(\'add-set\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">人数追加</button>'
+    +'<span style="font-size:11px;color:'+(hn.length?'#ff4444':'#555')+'">'+(hn.length?'本指名 '+hn.join('・'):'フリー')+'</span>'
+    +'<button class="btn" onclick="om(\'add-hon\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">本指名追加</button>'
+    +'<button class="btn" onclick="om(\'tc\')" style="'+btnSm+'background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.25);color:#38bdf8;">TC</button>'
+    +'<button class="btn" onclick="closeFloorDetail()" style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#888;font-size:16px;margin-left:auto;flex-shrink:0;touch-action:manipulation;">×</button>'
+    +'</div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;flex-wrap:wrap;">'
+    +'<span id="fom-starttime" style="font-size:12px;color:#888;">'+timeStr+'</span>'
+    +'<span id="fom-timer" style="font-size:20px;font-family:monospace;font-weight:700;color:'+tc3+';" class="'+(urg||ovr?'urg':'')+'">'+td+'</span>'
+    +'<button class="btn" onclick="etv=new Date(S.sessions[at].startTime).toTimeString().slice(0,5);om(\'et\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;touch-action:manipulation;">時刻変更</button>'
+    +'</div>'
+    +'<input type="text" class="ip" placeholder="備考（タップして編集）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:12px;color:#ffa500;height:30px;padding:3px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);">'
+    +(bn.length?'<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;">'+bn.map(n=>'<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:3px;padding:2px 7px;">場 '+n+'</span>').join('')+'</div>':"")
+    +'</div>'
+    // CENTER 3-COLUMN
+    +'<div style="flex:1;overflow-y:auto;margin-bottom:10px;min-height:0;">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">'
+    +'<div class="glass" style="border-radius:6px;padding:10px;">'
+    +'<div style="font-size:10px;color:#d4a017;letter-spacing:.1em;margin-bottom:8px;font-weight:700;">SET</div>'
+    +'<div style="display:grid;grid-template-columns:'+cols+';gap:6px;margin-bottom:6px;">'+setBtns+'</div>'
+    +'<button class="btn" onclick="om(\'setDetail\')" style="'+dtSt+'">詳細'+(setCount?' ('+setCount+')':'')+'</button>'
+    +'</div>'
+    +'<div class="glass" style="border-radius:6px;padding:10px;">'
+    +'<div style="font-size:10px;color:#38bdf8;letter-spacing:.1em;margin-bottom:8px;font-weight:700;">GUEST</div>'
+    +'<div style="display:grid;grid-template-columns:'+cols+';gap:6px;margin-bottom:6px;">'+guestBtns+'</div>'
+    +'<button class="btn" onclick="om(\'guestDetail\')" style="'+dtSt+'">詳細'+(guestCount?' ('+guestCount+')':'')+'</button>'
+    +'</div>'
+    +'<div class="glass" style="border-radius:6px;padding:10px;">'
+    +'<div style="font-size:10px;color:#a78bfa;letter-spacing:.1em;margin-bottom:8px;font-weight:700;">CAST</div>'
+    +'<div style="display:grid;grid-template-columns:'+cols+';gap:6px;margin-bottom:6px;">'+castBtns+'</div>'
+    +'<button class="btn" onclick="om(\'castDetail\')" style="'+dtSt+'">詳細'+(castCount?' ('+castCount+')':'')+'</button>'
+    +'</div>'
+    +'</div></div>'
+    // BOTTOM
+    +'<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">'
+    +'<div style="flex:1;"><div style="font-size:10px;color:#666;margin-bottom:2px;">合計</div>'
+    +'<div style="font-size:22px;font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
+    +'<button class="btn gbg" onclick="om(\'co\')" style="padding:10px 14px;font-size:13px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計</button>'
+    +'<button class="btn" onclick="om(\'est\')" style="padding:10px 12px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">概算</button>'
+    +'<button class="btn" onclick="om(\'disc\')" style="padding:10px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">割引</button>'
+    +'</div>'
+    +'</div>';
+}
 
 // ===== HOME & 営業日管理 =====
 function rHome(){
@@ -3195,39 +3301,7 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">閉じる</button>'
       +'</div></div>';
   }
-  else if(md==="floorDetail"&&s){
-    const t=S.tables.find(t=>t.id===at);
-    const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
-    const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-    const hasDhFD=(s.items||[]).some(i=>i.id==="dh"||i.label==="同伴料");
-    const timeStr=new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(s.setEndTime?' → '+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"");
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:600px;">'
-      +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'
-      +'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
-      +'<h3 style="font-family:\'Cormorant Garamond\',serif;font-size:20px;color:#d4a017;margin:0;">'+t?.label+'</h3>'
-      +(isV(at)?'<span class="tag tv2">VIP</span>':"")
-      +'<span style="font-size:14px;color:#e8dcc8;font-weight:600;">'+s.guests+'名</span>'
-      +(hasDhFD?'<span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;">同伴</span>':"")
-      +'</div>'
-      +'<button class="btn" onclick="closeM()" style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#888;font-size:18px;flex-shrink:0;touch-action:manipulation;">×</button>'
-      +'</div>'
-      +'<div class="glass" style="border-radius:8px;padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'
-      +'<div><div style="font-size:10px;color:#666;letter-spacing:.08em;margin-bottom:3px;">入店 → セット終了</div>'
-      +'<div style="font-size:15px;color:#e8dcc8;font-weight:600;">'+timeStr+'</div></div>'
-      +'<button class="btn" onclick="etv=new Date(S.sessions[at].startTime).toTimeString().slice(0,5);om(\'et\')" style="padding:7px 14px;background:rgba(184,150,12,.12);border:1px solid rgba(184,150,12,.3);color:#d4a017;border-radius:6px;font-size:12px;flex-shrink:0;touch-action:manipulation;">編集</button>'
-      +'</div>'
-      +'<div class="glass" style="border-radius:8px;padding:12px 14px;margin-bottom:10px;">'
-      +'<div style="font-size:10px;color:#666;letter-spacing:.08em;margin-bottom:6px;">備考</div>'
-      +'<input type="text" class="ip" placeholder="（なし）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:13px;color:#ffa500;height:34px;padding:4px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);"/>'
-      +'</div>'
-      +(hn.length||bn.length?
-        '<div class="glass" style="border-radius:8px;padding:12px 14px;margin-bottom:10px;">'
-        +(hn.length?'<div style="margin-bottom:4px;">'+hn.map(n=>'<span style="font-size:12px;color:#ff4444;margin-right:8px;">本指名　'+n+'</span>').join("")+'</div>':"")
-        +(bn.length?'<div>'+bn.map(n=>'<span style="font-size:12px;color:#4ade80;margin-right:8px;">場指名　'+n+'</span>').join("")+'</div>':"")
-        +'</div>':"")
-      +'<button class="btn gbg" onclick="closeM();sv(\'order\')" style="width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">オーダー画面へ →</button>'
-      +'</div></div>';
-  }
+
   else if(md==="et"&&s){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
       +'<h3 style="margin-bottom:8px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'
@@ -4087,6 +4161,15 @@ setInterval(()=>{
       if(!isNaN(start))el.textContent=ts(Date.now()-start).slice(3);
     });
     return;
+  }
+  // floor-order-modal timer tick
+  const fomTEl=document.getElementById("fom-timer");
+  if(fomTEl&&at&&S.sessions[at]){
+    const _fs=S.sessions[at];const _rv=rem(_fs.setEndTime);
+    const _urg=_rv!==null&&_rv>0&&_rv<600000;const _ovr=_rv!==null&&_rv<=0;
+    fomTEl.style.color=_ovr?"#ff4444":_urg?"#ff8c00":"#d4a017";
+    fomTEl.textContent=_rv===null?"—":_ovr?"- "+ts(-_rv):ts(_rv);
+    fomTEl.className=(_urg||_ovr?"urg":"");
   }
   // 全ビューを毎秒再描画（シンプル・確実）
   if(vw==="order")tickOrder();
