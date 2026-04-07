@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.87</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.88</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -914,6 +914,7 @@ function rFloor(){
     const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
     const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
+    const hasDh=(s?.items||[]).some(i=>i&&(i.id==="dh"||i.label==="同伴料"));
     const nomCount=hn.length+bn.length;
     const nomFs=nomCount>=5?'9px':nomCount>=3?'10px':'12px';
     const lblFs=DEV==="mobile"?"12px":"13px";
@@ -921,6 +922,7 @@ function rFloor(){
       '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
+      +(hasDh?' <span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;vertical-align:middle;">同伴</span>':"")
       +'</div>'
       +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:20px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
       +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.7;">'+hn.map(n=>'本指名　'+n).join('<br>')+'</div>':"")
@@ -1521,7 +1523,7 @@ function rCI(){
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:10px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:'+(isTabletPlus?"9px 18px":"7px 14px")+';background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:'+(isTabletPlus?"14px":"12px")+';">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:12px;color:#d4a017;">本指名料 ¥3,000 × '+ci.honShimeis.length+'名 = ¥'+fmt(3000*ci.honShimeis.length)+'</div>':"")+'</div>';
   // オプション
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:20px;"><div class="st">オプション</div><div style="display:flex;flex-wrap:wrap;gap:8px;">';
-  [["douhan","同伴料 ¥3,000"],["freedrink","フリードリンク ¥2,000/人"],["single","シングルチャージ ¥2,000/人"]].forEach(([k,l])=>{
+  [["douhan","同伴料 ¥3,000"],["single","シングルチャージ ¥2,000/人"]].forEach(([k,l])=>{
     html+='<button class="btn" data-key="'+k+'" onclick="to2(this.dataset.key)" style="padding:'+(isTabletPlus?"10px 18px":"8px 14px")+';border-radius:6px;background:'+(ci[k]?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:1px solid '+(ci[k]?"#b8960c":"rgba(255,255,255,.08)")+';color:'+(ci[k]?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"14px":"13px")+';touch-action:manipulation;">'+l+'</button>';
   });
   html+='</div></div>';
