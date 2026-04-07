@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.94</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.95</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1885,7 +1885,7 @@ function rSettings(){
     html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>';
     html+='</div>';
   }else if(stab==="menus"){
-    const menuSections=[["sets","セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["castDrinks","キャストドリンク",false],["drinks","ドリンク",false],["options","オプション",false],["discounts","割引メニュー",false]];
+    const menuSections=[["sets","セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["options","オプション",false],["discounts","割引メニュー",false]];
     menuSections.forEach(([k,l,hm])=>{
       const ni=nmi[k]||{label:"",price:"",minutes:"",discType:"fixed"};
       const isDisc=(k==="discounts");
@@ -1928,9 +1928,9 @@ function rSettings(){
     // 特殊メニュー：注文画面の特殊ボタンに表示される「オプション」カテゴリの編集
     html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
     html+='<div class="st">特殊メニュー一覧</div>';
-    html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">注文画面のドリンク・特殊メニューに追加表示されます</div>';
-    // ドリンク
-    html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">ドリンク</div>';
+    html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">フロアのGUEST / CASTオーダー欄に追加表示されます</div>';
+    // ゲストオーダー（GUEST）
+    html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#38bdf8;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(56,189,248,.15);padding-bottom:4px;">ゲストオーダー（GUEST）</div>';
     (S.menus.drinks||[]).forEach(item=>{
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="drinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
@@ -1944,8 +1944,8 @@ function rSettings(){
     html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="drinks" data-f="price" value="'+nid.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
     html+='<button class="btn gbg" data-k="drinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
-    // キャストドリンク
-    html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">キャストドリンク</div>';
+    // キャストDrink（CAST）
+    html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#a78bfa;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(167,139,250,.15);padding-bottom:4px;">キャストDrink（CAST）</div>';
     (S.menus.castDrinks||[]).forEach(item=>{
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="castDrinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
@@ -1960,7 +1960,7 @@ function rSettings(){
     html+='<button class="btn gbg" data-k="castDrinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
     // 割引
-    html+='<div><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">割引メニュー</div>';
+    html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#ff6b6b;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,80,80,.15);padding-bottom:4px;">割引メニュー</div>';
     (S.menus.discounts||[]).forEach(item=>{
       html+='<div class="ir" style="gap:8px;">';
       html+='<input class="ip" value="'+item.label+'" data-k="discounts" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
@@ -1976,11 +1976,13 @@ function rSettings(){
     html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
     html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';
-    // 酒類メニュー
+    // 酒類メニュー（CASTオーダー）
+    html+='<div style="font-size:11px;color:#a78bfa;letter-spacing:.1em;margin-top:14px;margin-bottom:4px;border-bottom:1px solid rgba(167,139,250,.15);padding-bottom:4px;">酒類メニュー（CAST）</div>';
+    html+='<div style="font-size:10px;color:#555;margin-bottom:10px;">シャンパンはフロアCASTオーダーから発注可。ワイン以降はフロアUIに現在ボタンなし。</div>';
     const liquorCatDefs=[["champagne","シャンパン"],["wine","ワイン"],["whisky","ウイスキー"],["shochu","焼酎"],["brandy","ブランデー"]];
     liquorCatDefs.forEach(([k,lbl])=>{
       const ni=nmi[k]||{label:"",price:""};
-      html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">'+lbl+'</div>';
+      html+='<div style="margin-top:10px;"><div style="font-size:11px;color:#888;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.06);padding-bottom:4px;">'+lbl+'</div>';
       (S.menus[k]||[]).forEach(item=>{
         html+='<div class="ir" style="gap:8px;">';
         html+='<input class="ip" value="'+item.label+'" data-k="'+k+'" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
