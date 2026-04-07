@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.93</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.94</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1612,8 +1612,8 @@ function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save
 function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.isExtension||i.isVipCharge||i.label==="同伴料"||(i.label||"").includes("シングルチャージ"));}
 function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;return (S.menus.champagne||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
-function remItemDetail(id){window._delItemId=id;window._delPrevMd=md;om('confirm-del');}
-function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
+function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
+function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
 
 
 function odq(id){
@@ -2555,9 +2555,9 @@ function buildEposXML(data,isEstimate){
   }
   ln(DIV);
   x+=`<text>${row("小計","¥"+fmt(subtotal))}</text>`;
-  if((subDiscAmt||0)>0)x+=`<text>${row("割引（小計）","-¥"+fmt(subDiscAmt))}</text>`;
+  if((subDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))}</text>`;
   x+=`<text>${row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))}</text>`;
-  if((totalDiscAmt||0)>0)x+=`<text>${row("割引（合計）","-¥"+fmt(totalDiscAmt))}</text>`;
+  if((totalDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))}</text>`;
   ln(DBL);
   x+='<feed line="1"/>';
   x+='<text dh="true" dw="true"/>'; x+=`<text>${row("合 計","¥"+fmt(total),Math.floor(W/2))}</text>`;
@@ -2619,9 +2619,9 @@ function buildEposCommands(prn,data,isEstimate){
   }
   prn.addText("-".repeat(W)+"\n");
   prn.addText(row("小計","¥"+fmt(subtotal))+"\n");
-  if((subDiscAmt||0)>0)prn.addText(row("割引（小計）","-¥"+fmt(subDiscAmt))+"\n");
+  if((subDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))+"\n");
   prn.addText(row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))+"\n");
-  if((totalDiscAmt||0)>0)prn.addText(row("割引（合計）","-¥"+fmt(totalDiscAmt))+"\n");
+  if((totalDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))+"\n");
   prn.addText("=".repeat(W)+"\n");
   prn.addFeedLine(1);
   prn.addTextStyle(false,false,true,prn.COLOR_1); prn.addTextSize(2,2);
@@ -2889,7 +2889,8 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;text-align:center;">'
       +'<div style="font-size:32px;margin-bottom:10px;">⚠️</div>'
       +'<h3 style="font-size:16px;color:#ff6b6b;margin-bottom:10px;">削除の確認</h3>'
-      +'<div style="font-size:13px;color:#888;margin-bottom:22px;">このアイテムを削除しますか？</div>'
+      +'<div style="font-size:13px;color:#e8dcc8;margin-bottom:6px;font-weight:600;">「'+(window._delItemLabel||'このアイテム')+'」</div>'
+      +'<div style="font-size:13px;color:#888;margin-bottom:22px;">を削除しますか？</div>'
       +'<div style="display:flex;gap:8px;">'
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
       +'<button class="btn" onclick="execDelItem()" style="flex:1;padding:12px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
@@ -2973,7 +2974,7 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;">'
       +'<h3 style="margin-bottom:12px;font-size:16px;color:#ff6b6b;">割引</h3>'
       // 適用済み割引一覧
-      +(()=>{const dItems=(s.items||[]).filter(i=>i.isDiscount);if(!dItems.length)return'';return'<div style="margin-bottom:12px;"><div style="font-size:11px;color:#888;margin-bottom:6px;">適用済み割引</div>'+dItems.map(i=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);border-radius:6px;margin-bottom:5px;"><span style="font-size:13px;color:#ff8888;flex:1;">'+i.label+'</span><span style="font-size:13px;color:#ff6b6b;margin:0 10px;">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDisc(this.dataset.iid)" style="width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;">×</button></div>').join('')+'</div>';})()
+      +(()=>{const dItems=(s.items||[]).filter(i=>i.isDiscount);if(!dItems.length)return'';return'<div style="margin-bottom:12px;"><div style="font-size:11px;color:#888;margin-bottom:6px;">適用済み割引</div>'+dItems.map(i=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);border-radius:6px;margin-bottom:5px;"><span style="font-size:13px;color:#ff8888;flex:1;">'+i.label+'</span><span style="font-size:13px;color:#ff6b6b;margin:0 10px;">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;">×</button></div>').join('')+'</div>';})()
       +'<div style="margin-bottom:14px;">'
       +'<div style="font-size:11px;color:#888;margin-bottom:6px;">割引対象</div>'
       +'<div style="display:flex;gap:8px;">'
