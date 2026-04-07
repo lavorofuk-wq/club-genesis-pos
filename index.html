@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.96</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver5.97</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -501,12 +501,6 @@ function addHonShimeiToSession(cid){
   s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:3000,qty:1,castId:cid,isHonShimei:true}];
   s.honShimeis=[...(s.honShimeis||[]),cid];
   save("sessions",S.sessions);renderOrderPartial();refreshFloorModal();
-}
-function addOptionToSession(optId){
-  const s=S.sessions[at];if(!s)return;
-  const opt=S.menus.options.find(o=>o.id===optId);if(!opt)return;
-  s.items=[...s.items,{id:opt.id+"_"+Date.now(),label:opt.label,price:opt.price,qty:(opt.id==="hs"||opt.id==="bs")?1:s.guests}];
-  save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
 function checkout(){
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
@@ -1885,7 +1879,7 @@ function rSettings(){
     html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>';
     html+='</div>';
   }else if(stab==="menus"){
-    const menuSections=[["sets","セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["options","オプション",false],["discounts","割引メニュー",false]];
+    const menuSections=[["sets","セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["discounts","割引メニュー",false]];
     menuSections.forEach(([k,l,hm])=>{
       const ni=nmi[k]||{label:"",price:"",minutes:"",discType:"fixed"};
       const isDisc=(k==="discounts");
@@ -1907,6 +1901,19 @@ function rSettings(){
       html+='<button class="btn gbg" data-k="'+k+'" data-hm="'+(hm?1:0)+'" onclick="ami(this.dataset.k,this.dataset.hm==\'1\')" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;white-space:nowrap;">＋ 追加</button>';
       html+='</div></div></div>';
     });
+    // シングルチャージ単価（概算計算に使用）
+    {const scItem=(S.menus.options||[]).find(o=>o.id==="sc");
+    html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">シングルチャージ単価</div>';
+    html+='<div style="font-size:11px;color:#666;margin-bottom:10px;">概算シミュレーションで使用されます</div>';
+    if(scItem){
+      html+='<div class="ir" style="gap:6px;">'
+        +'<span style="flex:1;font-size:13px;color:#ccc;">'+scItem.label+'</span>'
+        +'<input type="number" inputmode="numeric" class="ip" value="'+(scItem.price||2000)+'" data-k="options" data-id="'+scItem.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:90px;"/>'
+        +'</div>';
+    }else{
+      html+='<div style="font-size:12px;color:#555;">¥2,000（デフォルト）</div>';
+    }
+    html+='</div>';}
   }else if(stab==="tables"){
     html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">テーブル一覧</div>';
     S.tables.forEach(t=>{
