@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.11</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.12</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1385,9 +1385,10 @@ function execMoveToTable(tableId){
 function rAssignHistory(){
   const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
   let html='<div style="max-width:780px;margin:0 auto;">';
-  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">';
+  html+='<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">';
   html+='<button class="btn" onclick="sv(\'list\')" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← リスト</button>';
-  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;">付け回し履歴</h2>';
+  html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;flex:1;">付け回し履歴</h2>';
+  html+='<button class="btn" onclick="exportAssignHistCSV()" style="padding:7px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:5px;font-size:12px;font-weight:700;touch-action:manipulation;">CSV出力</button>';
   html+='</div>';
   if(!allA.length){html+='<div style="color:#555;font-size:14px;padding:20px 0;">付け回しデータがありません</div></div>';return html;}
 
@@ -1763,9 +1764,6 @@ function rHist(){
   html+='<button class="btn" onclick="analysisSt.mode=\'shimei\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaCastSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.25);color:#ff6b6b;touch-action:manipulation;">指名情報</button>';
   html+='<button class="btn" onclick="analysisSt.mode=\'uriage\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaCastSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上</button>';
   html+='</div>';
-  if(analysisSt.mode&&analysisSt.castId){
-    html+=buildAnalysisResult(filtered,analysisSt);
-  }
   html+='</div>';
 
   // ===== フィルター件数・合計 =====
@@ -2993,16 +2991,60 @@ function exportShimeiCastCSV(filtered,castId,castName){
 function exportUriageCSV(filtered,castId,castName){
   const cid=String(castId);
   const records=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
+  const honRecs=records.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
   const kumi=records.length;
   const guests=records.reduce((a,h)=>a+(h.guests||0),0);
-  const sub=records.reduce((a,h)=>a+(h.subtotal||h.total),0);
-  const hon=records.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid)).length;
+  const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
+  const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
   const bom="\uFEFF";
   const rows=[["キャスト","合計小計","組数","総客数","本指名件数","場内指名件数","同伴件数","稼働時間(h)"],[castName,sub,kumi,guests,hon,ban,dohan,workHStr]];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"uriage_"+castName+".csv");
+}
+function exportAssignHistCSV(){
+  const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
+  const curFilter=window._assignHistFilter||"all";
+  const filtered=curFilter==="all"?allA:allA.filter(a=>a.type===curFilter);
+  const sessionMap={};
+  filtered.forEach(a=>{
+    const sid=a.sessionId||("nosid_"+a.startTime);
+    const key=a.tableId+"::"+sid;
+    if(!sessionMap[key])sessionMap[key]={tableId:a.tableId,sid,assigns:[]};
+    sessionMap[key].assigns.push(a);
+  });
+  const doneSessions=Object.values(sessionMap)
+    .filter(({tableId,assigns})=>{
+      const currentSess=S.sessions[tableId];
+      const sessionId=assigns[0].sessionId;
+      if(currentSess&&(sessionId===currentSess.startTime||sessionId==null))return false;
+      return true;
+    })
+    .sort((a,b)=>{
+      const ta=a.assigns[0].sessionId||a.assigns[0].startTime;
+      const tb=b.assigns[0].sessionId||b.assigns[0].startTime;
+      return tb-ta;
+    });
+  const bom="\uFEFF";
+  const rows=[["テーブル","備考","入店時刻","キャスト名","タイプ","開始","終了","時間(分)"]];
+  doneSessions.forEach(({tableId,assigns})=>{
+    const t=S.tables.find(t=>t.id===tableId);
+    const label=t?.label||tableId;
+    const sessionTs=assigns[0].sessionId||assigns[0].startTime;
+    const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    const histRec=(S.history||[]).find(h=>h.tableId===tableId&&h.startTime===assigns[0].sessionId);
+    const note=histRec?.note||"";
+    const doneA=assigns.filter(a=>a.endTime).sort((a,b)=>a.startTime-b.startTime);
+    doneA.forEach(a=>{
+      const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const eT=new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const dur=Math.round((a.endTime-a.startTime)/60000);
+      const typeLbl=ASSIGN_TYPES[a.type]?.label||a.type;
+      rows.push([label,note,inTime,a.castName,typeLbl,sT,eT,dur]);
+    });
+  });
+  _dlCSV(bom+rows.map(r=>r.map(v=>'"'+(String(v).replace(/"/g,'""'))+'"').join(",")).join("\n"),"assign_hist.csv");
 }
 function _dlCSV(csvStr,filename){
   const blob=new Blob([csvStr],{type:"text/csv;charset=utf-8;"});
@@ -3759,15 +3801,102 @@ function rModal(){
     const modeColor=isShimei?"#ff6b6b":"#d4a017";
     const modeBg=isShimei?"rgba(255,68,68,.08)":"rgba(212,160,23,.08)";
     const modeBdr=isShimei?"rgba(255,68,68,.25)":"rgba(212,160,23,.25)";
-    const castBtns=(S.casts||[]).map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';closeM();render()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
+    const castBtns=(S.casts||[]).map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\'anaDetail\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
       +'<h3 style="margin-bottom:4px;font-size:16px;color:'+modeColor+';">'+modeLabel+' — キャスト選択</h3>'
       +'<div style="font-size:12px;color:#888;margin-bottom:16px;">分析対象のキャストを選んでください</div>'
-      +(isShimei?'<div style="margin-bottom:12px;"><button class="btn" onclick="analysisSt.castId=\'all\';analysisSt.castName=\'全キャスト\';closeM();render()" style="width:100%;padding:11px;background:'+modeBg+';border:1px solid '+modeBdr+';color:'+modeColor+';border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">全キャスト</button></div>':"")
+      +(isShimei?'<div style="margin-bottom:12px;"><button class="btn" onclick="analysisSt.castId=\'all\';analysisSt.castName=\'全キャスト\';md=\'anaDetail\';rModal()" style="width:100%;padding:11px;background:'+modeBg+';border:1px solid '+modeBdr+';color:'+modeColor+';border-radius:8px;font-size:14px;font-weight:700;touch-action:manipulation;">全キャスト</button></div>':"")
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px;">'
       +castBtns
       +'</div>'
       +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="anaDetail"){
+    const {mode,castId,castName}=analysisSt;
+    const filtered=getFilteredHist();
+    const isShimei=mode==="shimei";
+    const modeColor=isShimei?"#ff6b6b":"#d4a017";
+    const modeLabel=isShimei?"指名情報":"売上";
+    let statsHtml="";
+    let histListHtml="";
+    let csvCall="";
+    let relevantRecs=[];
+    if(isShimei){
+      if(castId==="all"){
+        statsHtml+='<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px;font-size:11px;color:#555;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:2px;"><span>キャスト</span><span style="text-align:right;">本指名</span><span style="text-align:right;">場内指名</span></div>';
+        (S.casts||[]).forEach(c=>{
+          const hon=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(c.id))).length;
+          const ban=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===String(c.id))).length;
+          if(!hon&&!ban)return;
+          statsHtml+='<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);"><span style="font-size:13px;color:#e8dcc8;">'+c.name+'</span><span style="font-size:13px;color:#ff4444;text-align:right;min-width:44px;">'+hon+'件</span><span style="font-size:13px;color:#4ade80;text-align:right;min-width:52px;">'+ban+'件</span></div>';
+        });
+        relevantRecs=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei||i.isBanaiShimei));
+        csvCall="exportAllShimeiCSV(getFilteredHist())";
+      } else {
+        const cid=String(castId);
+        const hon=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid)).length;
+        const ban=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
+        statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px;">';
+        statsHtml+='<div style="padding:10px;background:rgba(255,68,68,.06);border:1px solid rgba(255,68,68,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:2px;">本指名</div><div style="font-size:20px;font-weight:700;color:#ff4444;">'+hon+'<span style="font-size:12px;">件</span></div></div>';
+        statsHtml+='<div style="padding:10px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:2px;">場内指名</div><div style="font-size:20px;font-weight:700;color:#4ade80;">'+ban+'<span style="font-size:12px;">件</span></div></div>';
+        statsHtml+='</div>';
+        relevantRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
+        csvCall="exportShimeiCastCSV(getFilteredHist(),'"+castId+"','"+castName+"')";
+      }
+    } else {
+      const cid=String(castId);
+      const allRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
+      const honRecs=allRecs.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
+      const kumi=allRecs.length;
+      const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
+      const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
+      const hon=honRecs.length;
+      const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
+      const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
+      const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
+      statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
+      statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(sub)+'</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">総客数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+guests+'<span style="font-size:11px;color:#888;">名</span></div></div>';
+      statsHtml+='</div>';
+      statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
+      statsHtml+='<div style="padding:8px;background:rgba(255,68,68,.06);border:1px solid rgba(255,68,68,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">本指名</div><div style="font-size:14px;font-weight:700;color:#ff4444;">'+hon+'件</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場内指名</div><div style="font-size:14px;font-weight:700;color:#4ade80;">'+ban+'件</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">同伴</div><div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+dohan+'件</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">稼働時間</div><div style="font-size:14px;font-weight:700;color:#38bdf8;">'+workHStr+'h</div></div>';
+      statsHtml+='</div>';
+      relevantRecs=allRecs;
+      csvCall="exportUriageCSV(getFilteredHist(),'"+castId+"','"+castName+"')";
+    }
+    if(relevantRecs.length){
+      histListHtml+='<div style="margin-top:12px;border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">';
+      histListHtml+='<div style="font-size:11px;color:#666;margin-bottom:8px;">使用履歴 ('+relevantRecs.length+'件)</div>';
+      [...relevantRecs].sort((a,b)=>b.startTime-a.startTime).forEach(rec=>{
+        const dT=new Date(rec.startTime).toLocaleString("ja-JP",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
+        const honN=(rec.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+        const banN=(rec.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+        histListHtml+='<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;">';
+        histListHtml+='<span style="font-size:12px;font-weight:700;color:#d4a017;">'+rec.tableLabel+'</span>';
+        if(rec.note)histListHtml+='<span style="font-size:11px;color:#ffa500;">'+rec.note+'</span>';
+        histListHtml+='<span style="font-size:11px;color:#888;">'+dT+'</span>';
+        histListHtml+='<span style="font-size:11px;color:#aaa;">'+rec.guests+'名</span>';
+        if(honN.length)histListHtml+='<span style="font-size:10px;color:#ff4444;background:rgba(255,68,68,.1);padding:1px 6px;border-radius:8px;">本: '+honN.join("・")+'</span>';
+        if(banN.length)histListHtml+='<span style="font-size:10px;color:#4ade80;background:rgba(74,222,128,.1);padding:1px 6px;border-radius:8px;">場: '+banN.join("・")+'</span>';
+        histListHtml+='<span style="margin-left:auto;font-size:11px;color:#666;">小計 '+pAmt(rec.subtotal||rec.total)+'</span>';
+        histListHtml+='</div>';
+      });
+      histListHtml+='</div>';
+    }
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;padding:20px;max-height:82vh;overflow-y:auto;">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">'
+      +'<h3 style="font-size:16px;color:'+modeColor+';">'+modeLabel+(castId==="all"?" (全キャスト)":" — "+castName)+'</h3>'
+      +'<button class="btn" onclick="'+csvCall+'" style="padding:5px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;touch-action:manipulation;">CSV</button>'
+      +'</div>'
+      +statsHtml
+      +histListHtml
+      +'<button class="btn" onclick="md=\'anaCastSel\';rModal()" style="width:100%;margin-top:14px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← キャスト選択に戻る</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
       +'</div></div>';
   }
   else if(md==="viewHistDetail"){
