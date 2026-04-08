@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.12</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.13</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1705,20 +1705,6 @@ function oet(){
 function rHist(){
   let html='<div style="max-width:720px;margin:0 auto;">';
   html+=html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">会計履歴</h2>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
-  html+='<div class="st">期間フィルター・エクスポート</div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">';
-  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.from+'" onchange="histFilter.from=this.value;render()" />';
-  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.fromTime+'" onchange="histFilter.fromTime=this.value;render()" />';
-  html+='<span style="color:#555;font-size:12px;">〜</span>';
-  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.to+'" onchange="histFilter.to=this.value;render()" />';
-  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.toTime+'" onchange="histFilter.toTime=this.value;render()" />';
-  html+='</div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今営業日</button>';
-  html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
-  html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">CSV出力</button>';
-  html+='</div></div>';
   // 現状サマリー（現在の営業日のデータ）
   const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
   const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
@@ -1755,6 +1741,21 @@ function rHist(){
   html+='<span style="font-size:15px;font-weight:700;color:#38bdf8;">'+workHStr+'<span style="font-size:11px;font-weight:400;color:#888;">時間</span></span>';
   html+='</div>';
   html+='</div>';
+  // ===== 期間フィルター・エクスポート =====
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
+  html+='<div class="st">期間フィルター・エクスポート</div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">';
+  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.from+'" onchange="histFilter.from=this.value;render()" />';
+  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.fromTime+'" onchange="histFilter.fromTime=this.value;render()" />';
+  html+='<span style="color:#555;font-size:12px;">〜</span>';
+  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.to+'" onchange="histFilter.to=this.value;render()" />';
+  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.toTime+'" onchange="histFilter.toTime=this.value;render()" />';
+  html+='</div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+  html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今営業日</button>';
+  html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
+  html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">CSV出力</button>';
+  html+='</div></div>';
   const filtered=getFilteredHist();
 
   // ===== データ分析エリア =====
@@ -1787,6 +1788,7 @@ function rHist(){
     html+='<div class="hist-header" data-hid="'+h.id+'" onclick="toggleHist(parseInt(this.dataset.hid))">';
     html+='<div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">';
     html+='<span style="font-weight:600;font-size:15px;">'+h.tableLabel+'</span>';
+    if(h.note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:1px 7px;border-radius:8px;">'+h.note+'</span>';
     html+='<span style="font-size:12px;color:#888;">'+h.guests+'名</span>';
     if(hHon.length)html+='<span style="font-size:11px;color:#ff4444;">本:'+hHon.join("・")+'</span>';
     if(hBan.length)html+='<span style="font-size:11px;color:#4ade80;">場:'+hBan.join("・")+'</span>';
@@ -3876,14 +3878,15 @@ function rModal(){
         const dT=new Date(rec.startTime).toLocaleString("ja-JP",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
         const honN=(rec.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
         const banN=(rec.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
-        histListHtml+='<div style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;">';
+        histListHtml+='<div data-arid="'+rec.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.arid));if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
         histListHtml+='<span style="font-size:12px;font-weight:700;color:#d4a017;">'+rec.tableLabel+'</span>';
-        if(rec.note)histListHtml+='<span style="font-size:11px;color:#ffa500;">'+rec.note+'</span>';
+        if(rec.note)histListHtml+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:1px 6px;border-radius:8px;">'+rec.note+'</span>';
         histListHtml+='<span style="font-size:11px;color:#888;">'+dT+'</span>';
         histListHtml+='<span style="font-size:11px;color:#aaa;">'+rec.guests+'名</span>';
         if(honN.length)histListHtml+='<span style="font-size:10px;color:#ff4444;background:rgba(255,68,68,.1);padding:1px 6px;border-radius:8px;">本: '+honN.join("・")+'</span>';
         if(banN.length)histListHtml+='<span style="font-size:10px;color:#4ade80;background:rgba(74,222,128,.1);padding:1px 6px;border-radius:8px;">場: '+banN.join("・")+'</span>';
-        histListHtml+='<span style="margin-left:auto;font-size:11px;color:#666;">小計 '+pAmt(rec.subtotal||rec.total)+'</span>';
+        histListHtml+='<span style="margin-left:auto;font-size:11px;color:#d4a017aa;">小計 '+pAmt(rec.subtotal||rec.total)+'</span>';
+        histListHtml+='<span style="font-size:10px;color:#d4a017;padding:1px 6px;border:1px solid rgba(212,160,23,.3);border-radius:3px;flex-shrink:0;">明細 ▶</span>';
         histListHtml+='</div>';
       });
       histListHtml+='</div>';
