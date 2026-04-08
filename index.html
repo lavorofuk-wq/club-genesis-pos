@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.00</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.01</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -978,7 +978,7 @@ function rFloor(){
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
     const hasDh=(s?.items||[]).some(i=>i&&(i.id==="dh"||i.label==="同伴料"));
     const maxSide=Math.max(hn.length,bn.length);
-    const nomFs=maxSide>=4?'10px':maxSide>=3?'11px':'12px';
+    const nomFs=maxSide>=7?'10px':maxSide>=6?'12px':'14px';
     const lblFs=DEV==="mobile"?"12px":"13px";
     let inn=s?
       '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
