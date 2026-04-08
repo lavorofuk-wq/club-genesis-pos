@@ -158,12 +158,13 @@
   <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:#d4a017;letter-spacing:.2em;">CLUB GENESIS</div>
   <div class="sp"></div>
   <div id="lmsg" style="font-size:12px;color:#666;letter-spacing:.1em;">Firebaseに接続中...</div>
+  <div id="lsub" style="font-size:11px;color:#444;margin-top:4px;">しばらくお待ちください</div>
 </div>
 <div id="app" style="display:none;">
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.14</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.15</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -295,7 +296,11 @@ function initFB(){
 
   db.ref("pos").on("value",(snap)=>{
     const d=snap.val();
-    if(!d){sbs(true,"同期済み ✓");render();return;}
+    if(!d){
+      sbs(true,"同期済み ✓");
+      if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
+      render();return;
+    }
     if(d.casts)S.casts=d.casts;
     if(d.menus){
       S.menus=d.menus;
@@ -327,6 +332,14 @@ function initFB(){
     }
     // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
     sbs(true,"同期済み ✓");
+    // 初回sync: loading解除してホームへ
+    if(!window._fbFirstSync){
+      window._fbFirstSync=true;
+      const _ld=document.getElementById("loading");
+      if(_ld)_ld.style.display="none";
+      vw="home";
+      render();return;
+    }
     // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
     if(at&&!S.sessions[at]){
       at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
@@ -4651,16 +4664,20 @@ function boot(){
       if(cfg){
         localStorage.setItem("genesis_pw_cache",cfg.password||"genesis0127");
         localStorage.setItem("genesis_pw_enabled_cache",cfg.pwEnabled!==false?"1":"0");
-        // パスワード無効なら即入室
         if(cfg.pwEnabled===false){
           sessionStorage.setItem("genesis_auth","1");
           document.getElementById("pw-screen").style.display="none";
         }
       }
     }).catch(()=>{}).finally(()=>{
-      document.getElementById("loading").style.display="none";
+      // appを表示するがloadingはキープ → initFBの初回sync後に解除
       document.getElementById("app").style.display="block";
-      render();initFB();
+      const lmsg=document.getElementById("lmsg");
+      if(lmsg)lmsg.textContent="データを同期中...";
+      const lsub=document.getElementById("lsub");
+      if(lsub)lsub.textContent="同期が完了するまでお待ちください";
+      window._fbFirstSync=false;
+      initFB();
     });
   }else{
     document.getElementById("loading").style.display="none";
@@ -4669,7 +4686,7 @@ function boot(){
   }
 }
 if(sessionStorage.getItem("genesis_auth")==="1"){
-  if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none")document.getElementById("lmsg").textContent="接続失敗。再読み込みしてください。";},10000);}
+  if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none"){document.getElementById("lmsg").textContent="接続タイムアウト";const _ls=document.getElementById("lsub");if(_ls)_ls.textContent="再読み込みしてください";}},10000);}
 }
 </script>
 </body>
