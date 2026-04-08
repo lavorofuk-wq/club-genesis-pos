@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.07</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.08</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -406,35 +406,35 @@ function applyET(){
 }
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
+  let _savedInline=false;
   if(t.isExtension&&t.groupId){
-    // 延長削除：グループ丸ごと削除＋setEndTime巻き戻し
     const ei=s.items.find(i=>i.groupId===t.groupId&&i.extMinutes);
     const mn=ei?ei.extMinutes:0;
     s.items=(s?.items||[]).filter(i=>i.groupId!==t.groupId);
     if(s.setEndTime&&mn>0)s.setEndTime-=mn*60000;
   }else if(t.isSet){
-    // セット削除：addedGuestsがあればその分だけ人数を戻す
     const n=t.addedGuests||0;
     s.items=(s?.items||[]).filter(i=>i.id!==id);
     if(n>0)s.guests=Math.max(1,s.guests-n);
-    // セットがなくなった場合はsetEndTimeをクリア
     const hasSet=(s?.items||[]).some(i=>i.isSet);
     if(!hasSet)s.setEndTime=null;
   }else if(t.isHonShimei){
-    // 本指名削除：items＋honShimeis両方から除去
     s.items=(s?.items||[]).filter(i=>i.id!==id);
     s.honShimeis=(s.honShimeis||[]).filter(cid=>cid!==t.castId);
   }else if(t.isBanaiShimei){
-    // 場内指名削除：items＋banaiShimeis両方から除去
     s.items=(s?.items||[]).filter(i=>i.id!==id);
     s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
-    // リストタブ: 該当キャストのbanaiアサインをfreeに戻す
+    // リストタブ: banaiアサインをfreeに戻す。sessionsと同一書き込みで競合を防ぐ
     const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
-    if(banaiA){banaiA.type="free";save("assignments",S.assignments);}
+    if(banaiA){
+      banaiA.type="free";
+      if(window._db){window._db.ref("pos").update({sessions:S.sessions,assignments:S.assignments}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+      _savedInline=true;
+    }
   }else{
     s.items=(s?.items||[]).filter(i=>i.id!==id);
   }
-  save("sessions",S.sessions);
+  if(!_savedInline)save("sessions",S.sessions);
   if(t.isSet)render();else renderOrderPartial();
   refreshFloorModal();
 }
@@ -3422,6 +3422,15 @@ function rModal(){
         +'</div></div>';
     } else if(tsukeMd.step==="type"){
       const cname=S.casts.find(c=>String(c.id)===String(tsukeMd.castId))?.name||"";
+      // limitedTypesが未設定（手動フロー等）でtableIdが判明している場合はここで算出
+      if(tsukeMd.limitedTypes===undefined&&tsukeMd.castId){
+        const _tid=tsukeMd.tableId||at||"";
+        if(_tid){
+          const _ag=getAutoType(tsukeMd.castId,_tid);
+          if(_ag.autoType){tsukeMd.type=_ag.autoType;tsukeMd.step='time';rModal();return;}
+          tsukeMd.limitedTypes=_ag.limitedTypes;
+        }
+      }
       let typeBtns="";
       const _showTypes=tsukeMd.limitedTypes
         ?Object.entries(ASSIGN_TYPES).filter(([k])=>tsukeMd.limitedTypes.includes(k))
