@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.03</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.04</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1001,7 +1001,7 @@ function rFloor(){
     const nomFs=DEV==="mobile"
       ?(maxSide>=8?'6px':maxSide>=7?'7px':maxSide>=6?'8px':maxSide>=5?'9px':'11px')
       :DEV==="tablet"
-      ?(maxSide>=8?'8px':maxSide>=7?'9px':maxSide>=6?'10px':maxSide>=5?'12px':'14px')
+      ?(maxSide>=8?'6px':maxSide>=7?'7px':maxSide>=6?'8px':maxSide>=5?'10px':'13px')
       :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
     const lblFs=DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
     const timeFs=DEV==="mobile"?"10px":"11px";
