@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.05</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.07</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -428,6 +428,9 @@ function remItem(id){
     // 場内指名削除：items＋banaiShimeis両方から除去
     s.items=(s?.items||[]).filter(i=>i.id!==id);
     s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
+    // リストタブ: 該当キャストのbanaiアサインをfreeに戻す
+    const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
+    if(banaiA){banaiA.type="free";save("assignments",S.assignments);}
   }else{
     s.items=(s?.items||[]).filter(i=>i.id!==id);
   }
@@ -521,6 +524,7 @@ function checkout(){
     endTime:now_co,
     guests:s.guests,
     items:s.items,
+    note:s.note||"",
     payMethod,receiptIssued,
     splits:splits||null,
     ...totals
@@ -1080,6 +1084,10 @@ function rList(){
   html+='<span style="font-size:11px;color:#888;">現在の客数</span>';
   html+='<span style="font-size:14px;font-weight:700;color:#e8dcc8;">'+totalGuests+'名</span>';
   html+='</div>';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
+  html+='<span style="font-size:11px;color:#888;">出勤人数</span>';
+  html+='<span style="font-size:13px;font-weight:700;color:#a78bfa;">'+totalOnduty+'名</span>';
+  html+='</div>';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;">';
   html+='<span style="font-size:11px;color:#888;">店全体</span>';
   html+=(storeBalTxt?'<span style="font-size:12px;font-weight:700;color:'+storeBalCol+';">'+storeBalTxt+'</span>':"");
@@ -1169,12 +1177,22 @@ function rList(){
     if(isActive&&s){
       // 残り時間
       html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
-      // 本指名・場内指名の名前表示
+      // 本指名・場内指名の名前表示（フロアタブと同じ2列レイアウト）
       if(hn.length||bn.length){
-        html+='<div style="font-size:9px;margin-top:2px;line-height:1.6;">';
-        hn.forEach(n=>{html+='<span style="color:#ff4444;margin-right:3px;">本'+n+'</span>';});
-        bn.forEach(n=>{html+='<span style="color:#4ade80;margin-right:3px;">場'+n+'</span>';});
-        html+='</div>';
+        const maxSide=Math.max(hn.length,bn.length);
+        const nomFs=DEV==="mobile"
+          ?(maxSide>=8?'6px':maxSide>=7?'7px':maxSide>=6?'8px':maxSide>=5?'9px':'11px')
+          :DEV==="tablet"
+          ?(maxSide>=8?'7px':maxSide>=7?'8px':maxSide>=6?'9px':maxSide>=5?'10px':'12px')
+          :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
+        html+='<div style="display:flex;gap:4px;margin-top:2px;">'
+          +'<div style="flex:1;min-width:0;">'
+          +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
+          +'</div>'
+          +'<div style="flex:1;min-width:0;text-align:right;">'
+          +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.6;word-break:break-all;text-align:right;">'+bn.map(n=>'場指名 '+n).join('<br>')+'</div>':'')
+          +'</div>'
+          +'</div>';
       }
       // ついているキャストチップ
       if(ac.length){
@@ -1334,15 +1352,34 @@ function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
     // 待機 or 休憩 or テーブル → テーブル
     const tblSession=S.sessions[tableId];
     if(!tblSession)return; // 空席は不可
-    if(assignId&&(fromZone==="active"||fromZone==="tbl")){
-      // テーブル→別テーブル: 旧アサインを終了してからタイプ選択（2テーブル同時付けを防ぐ）
-      endAssign(assignId);
-    }
-    // タイプ選択モーダルを開く（Nowモード）
-    tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true};
-    md="tsuke";rModal();
+    const prevAid=(assignId&&(fromZone==="active"||fromZone==="tbl"))?assignId:null;
+    openTsukeAuto(castId,castName,tableId,prevAid);
   }
 }
+// ===== 付け回し自動タイプ判定 =====
+function getAutoType(castId,tableId){
+  const s=S.sessions[tableId];if(!s)return{autoType:null,limitedTypes:null};
+  const honIds=(s.items||[]).filter(i=>i.isHonShimei).map(i=>String(i.castId));
+  const banaiIds=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>String(i.castId));
+  if(honIds.includes(String(castId)))return{autoType:"hon",limitedTypes:null};
+  if(banaiIds.includes(String(castId)))return{autoType:"banai",limitedTypes:null};
+  if(!honIds.length&&!banaiIds.length)return{autoType:null,limitedTypes:["free","help"]};
+  return{autoType:null,limitedTypes:null};
+}
+function openTsukeAuto(castId,castName,tableId,prevAssignId){
+  if(prevAssignId)endAssign(prevAssignId);
+  const{autoType,limitedTypes}=getAutoType(castId,tableId);
+  if(autoType){
+    tsukeMd={step:"time",castId,castName,type:autoType,tableId,time:"",useNow:true,limitedTypes:null};
+  }else{
+    tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true,limitedTypes};
+  }
+  md="tsuke";rModal();
+}
+function execMoveToTable(tableId){
+  openTsukeAuto(window._moveCastId,window._moveCastName,tableId,window._moveFromAid);
+}
+
 // ===== 付け回し履歴画面 =====
 function rAssignHistory(){
   const allA=Object.values(S.assignments||{}).sort((a,b)=>a.startTime-b.startTime);
@@ -1368,81 +1405,85 @@ function rAssignHistory(){
   // フィルタリング
   const filtered=curFilter==="all"?allA:allA.filter(a=>a.type===curFilter);
 
-  // テーブルごとにグループ化
-  const byTable={};
+  // テーブル×セッションでグループ化
+  const sessionMap={};
   filtered.forEach(a=>{
-    if(!byTable[a.tableId])byTable[a.tableId]=[];
-    byTable[a.tableId].push(a);
+    const sid=a.sessionId||("nosid_"+a.startTime);
+    const key=a.tableId+"::"+sid;
+    if(!sessionMap[key])sessionMap[key]={tableId:a.tableId,sid,assigns:[]};
+    sessionMap[key].assigns.push(a);
   });
 
-  S.tables.forEach(t=>{
-    const tas=byTable[t.id];if(!tas||!tas.length)return;
-    // sessionIdでグループ化
-    const sessionGroups={};
-    tas.forEach(a=>{
-      const sid=a.sessionId||("nosid_"+a.startTime);
-      if(!sessionGroups[sid])sessionGroups[sid]=[];
-      sessionGroups[sid].push(a);
+  // 会計終了済みセッションのみ・入店時刻の新しい順にソート
+  const allSessions=Object.values(sessionMap)
+    .filter(({tableId,assigns})=>{
+      const currentSess=S.sessions[tableId];
+      const sessionId=assigns[0].sessionId;
+      // 現在進行中のセッションは除外
+      if(currentSess&&(sessionId===currentSess.startTime||sessionId==null))return false;
+      return true;
+    })
+    .sort((a,b)=>{
+      const ta=a.assigns[0].sessionId||a.assigns[0].startTime;
+      const tb=b.assigns[0].sessionId||b.assigns[0].startTime;
+      return tb-ta; // 新しい入店時刻が上
     });
-    const sortedSids=Object.keys(sessionGroups).sort((a,b)=>{
-      const aa=sessionGroups[a][0];const bb=sessionGroups[b][0];
-      return (aa.sessionId||aa.startTime)-(bb.sessionId||bb.startTime);
-    });
 
-    html+='<div style="margin-bottom:20px;">';
-    sortedSids.forEach(sid=>{
-      const group=sessionGroups[sid].sort((a,b)=>a.startTime-b.startTime);
-      const sess=S.sessions[t.id]||null;
-      const sessionTs=group[0].sessionId||group[0].startTime;
-      const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-      // セッション情報（ゲスト数・指名・備考）
-      const guests=sess?.guests||"?";
-      const honNames=(sess?.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-      const banaiNames=(sess?.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-      const note=sess?.note||"";
+  if(!allSessions.length){html+='<div style="color:#555;font-size:14px;padding:20px 0;">会計終了済みの付け回しデータがありません</div></div>';return html;}
 
-      // セッションヘッダー
-      html+='<div class="glass" style="border-radius:10px;margin-bottom:6px;overflow:hidden;">';
-      html+='<div style="padding:10px 14px;background:rgba(212,160,23,.08);border-bottom:2px solid rgba(212,160,23,.2);display:flex;align-items:center;flex-wrap:wrap;gap:8px;">';
-      html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
-      html+='<span style="font-size:12px;color:#888;">'+inTime+'〜</span>';
-      html+='<span style="font-size:12px;color:#aaa;">'+guests+'名</span>';
-      if(honNames.length)html+='<span style="font-size:11px;color:#ff4444;background:rgba(255,68,68,.1);padding:2px 8px;border-radius:10px;">本: '+honNames.join("・")+'</span>';
-      if(banaiNames.length)html+='<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.1);padding:2px 8px;border-radius:10px;">場: '+banaiNames.join("・")+'</span>';
-      if(note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:2px 8px;border-radius:10px;">'+note+'</span>';
-      html+='<span style="margin-left:auto;font-size:11px;color:#555;">'+group.length+'件</span>';
-      html+='</div>';
+  allSessions.forEach(({tableId,assigns})=>{
+    const t=S.tables.find(t=>t.id===tableId);if(!t)return;
+    const group=assigns.sort((a,b)=>a.startTime-b.startTime);
+    const sessionTs=group[0].sessionId||group[0].startTime;
+    const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+    // 会計履歴からセッション情報を取得
+    const histRec=(S.history||[]).find(h=>h.tableId===t.id&&h.startTime===group[0].sessionId);
+    const guests=histRec?.guests||"?";
+    const honNames=histRec?(histRec.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
+    const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
+    const note=histRec?.note||"";
 
-      // アサイン行をタイプ別エリアに分割
-      const areaTypes=[
-        {key:"hon",   label:"本指名",   col:ASSIGN_TYPES.hon.col,   types:["hon"]},
-        {key:"free",  label:"フリー",   col:ASSIGN_TYPES.free.col,  types:["free","harem"]},
-        {key:"help",  label:"ヘルプ",   col:ASSIGN_TYPES.help.col,  types:["help"]},
-        {key:"banai", label:"場内指名", col:ASSIGN_TYPES.banai.col, types:["banai"]},
-      ];
-      areaTypes.forEach(area=>{
-        const aItems=group.filter(a=>area.types.includes(a.type));
-        if(!aItems.length)return;
-        html+='<div style="padding:4px 14px 4px 14px;">';
-        html+='<div style="font-size:10px;font-weight:700;color:'+area.col+';padding:3px 8px;background:'+area.col+'12;border-left:2px solid '+area.col+';border-radius:0 3px 3px 0;margin-bottom:4px;">'+area.label+' ('+aItems.length+'件)</div>';
-        aItems.forEach(a=>{
-          const col=ASSIGN_TYPES[a.type]?.col||"#888";
-          const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-          const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-          const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-          const dur=a.endTime?fmtDur(a.endTime-a.startTime):null;
-          html+='<div style="display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);">';
-          html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
-          html+='<span style="font-size:11px;color:#555;white-space:nowrap;text-align:right;">'+sT+'→'+eT+(dur?'<br>('+dur+')':'')+'</span>';
-          html+='<span style="font-size:10px;color:#444;">'+(a.endTime?"":"継続中")+'</span>';
-          html+='<button class="btn" data-daid="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.daid)" style="padding:4px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:10px;touch-action:manipulation;">削除</button>';
-          html+='</div>';
-        });
+    // セッションヘッダー
+    const _canViewBill=!!histRec;
+    html+='<div class="glass" style="border-radius:10px;margin-bottom:10px;overflow:hidden;">';
+    html+='<div style="padding:10px 14px;background:rgba(212,160,23,.08);border-bottom:2px solid rgba(212,160,23,.2);display:flex;align-items:center;flex-wrap:wrap;gap:8px;'+(_canViewBill?'cursor:pointer;':'')+'" '
+      +(_canViewBill?'data-hrid="'+histRec.id+'" onclick="window._viewHistRec=(S.history||[]).find(h=>h.id===Number(this.dataset.hrid));md=\'viewHistDetail\';rModal()"':'')+' >';
+    html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+t.label+'</span>';
+    if(note)html+='<span style="font-size:12px;color:#ffa500;">'+note+'</span>';
+    html+='<span style="font-size:12px;color:#888;">'+inTime+'〜</span>';
+    html+='<span style="font-size:12px;color:#aaa;">'+guests+'名</span>';
+    if(honNames.length)html+='<span style="font-size:11px;color:#ff4444;background:rgba(255,68,68,.1);padding:2px 8px;border-radius:10px;">本: '+honNames.join("・")+'</span>';
+    if(banaiNames.length)html+='<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.1);padding:2px 8px;border-radius:10px;">場: '+banaiNames.join("・")+'</span>';
+    html+='<span style="margin-left:auto;font-size:11px;color:#555;">'+group.length+'件</span>';
+    if(_canViewBill)html+='<span style="font-size:10px;color:#d4a017;padding:1px 7px;border:1px solid rgba(212,160,23,.35);border-radius:3px;flex-shrink:0;">明細 ▶</span>';
+    html+='</div>';
+
+    // アサイン行をタイプ別エリアに分割
+    const areaTypes=[
+      {key:"hon",   label:"本指名",   col:ASSIGN_TYPES.hon.col,   types:["hon"]},
+      {key:"free",  label:"フリー",   col:ASSIGN_TYPES.free.col,  types:["free","harem"]},
+      {key:"help",  label:"ヘルプ",   col:ASSIGN_TYPES.help.col,  types:["help"]},
+      {key:"banai", label:"場内指名", col:ASSIGN_TYPES.banai.col, types:["banai"]},
+    ];
+    areaTypes.forEach(area=>{
+      const aItems=group.filter(a=>area.types.includes(a.type));
+      if(!aItems.length)return;
+      html+='<div style="padding:4px 14px 4px 14px;">';
+      html+='<div style="font-size:10px;font-weight:700;color:'+area.col+';padding:3px 8px;background:'+area.col+'12;border-left:2px solid '+area.col+';border-radius:0 3px 3px 0;margin-bottom:4px;">'+area.label+' ('+aItems.length+'件)</div>';
+      aItems.forEach(a=>{
+        const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+        const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"終了";
+        const dur=a.endTime?fmtDur(a.endTime-a.startTime):null;
+        html+='<div style="display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.03);">';
+        html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">'+a.castName+'</span>';
+        html+='<span style="font-size:11px;color:#555;white-space:nowrap;text-align:right;">'+sT+'→'+eT+(dur?'<br>('+dur+')':'')+'</span>';
+        html+='<span style="font-size:10px;color:#444;"></span>';
+        html+='<button class="btn" data-daid="'+a.id+'" onclick="event.stopPropagation();deleteAssign(this.dataset.daid)" style="padding:4px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:10px;touch-action:manipulation;">削除</button>';
         html+='</div>';
       });
-      html+='</div>'; // end glass
+      html+='</div>';
     });
-    html+='</div>';
+    html+='</div>'; // end glass
   });
   html+='</div>';
   return html;
@@ -3382,7 +3423,10 @@ function rModal(){
     } else if(tsukeMd.step==="type"){
       const cname=S.casts.find(c=>String(c.id)===String(tsukeMd.castId))?.name||"";
       let typeBtns="";
-      Object.entries(ASSIGN_TYPES).forEach(([key,{label,col}])=>{
+      const _showTypes=tsukeMd.limitedTypes
+        ?Object.entries(ASSIGN_TYPES).filter(([k])=>tsukeMd.limitedTypes.includes(k))
+        :Object.entries(ASSIGN_TYPES);
+      _showTypes.forEach(([key,{label,col}])=>{
         typeBtns+='<button class="btn" onclick="tsukeMd.type=\''+key+'\';tsukeMd.step=\'time\';rModal()" style="flex:1;padding:16px 8px;border-radius:8px;font-size:15px;font-weight:700;background:rgba(0,0,0,.2);border:2px solid '+col+';color:'+col+';text-align:center;touch-action:manipulation;">'+label+'</button>';
       });
       h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
@@ -3495,6 +3539,7 @@ function rModal(){
         +'<div style="display:flex;flex-direction:column;gap:8px;">'
         +'<button class="btn" data-aid3b="'+a.id+'" onclick="endAssign(this.dataset.aid3b);closeM()" style="padding:12px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.3);color:#4ade80;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 待機</button>'
         +'<button class="btn" data-cid7b="'+a.castId+'" onclick="moveToBreak(this.dataset.cid7b);closeM()" style="padding:12px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.3);color:#ffa500;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">→ 休憩</button>'
+        +'<button class="btn" data-mv-aid="'+a.id+'" data-mv-cid="'+a.castId+'" data-mv-cname="'+a.castName+'" data-mv-tid="'+a.tableId+'" onclick="window._moveFromAid=this.dataset.mvAid;window._moveCastId=this.dataset.mvCid;window._moveCastName=this.dataset.mvCname;window._moveFromTableId=this.dataset.mvTid;md=\'moveToTable\';rModal()" style="padding:12px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:6px;font-size:14px;font-weight:700;width:100%;touch-action:manipulation;">テーブル移動</button>'
         +'<div style="display:flex;gap:8px;">'
         +'<button class="btn" data-aidct3="'+a.id+'" onclick="openChangeType(this.dataset.aidct3)" style="flex:1;padding:10px;background:rgba(167,139,250,.08);border:1px solid rgba(167,139,250,.2);color:#a78bfa;border-radius:6px;font-size:13px;touch-action:manipulation;">タイプ変更</button>'
         +'<button class="btn" data-eid3="'+a.id+'" onclick="openEditAssignTime(this.dataset.eid3)" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">時刻変更</button>'
@@ -3503,6 +3548,50 @@ function rModal(){
         +'<button class="btn" data-aid4b="'+a.id+'" onclick="deleteAssign(this.dataset.aid4b)" style="padding:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:13px;touch-action:manipulation;width:100%;">削除</button>'
         +'</div>'
         +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:10px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
+        +'</div></div>';
+    }
+  }
+  else if(md==="moveToTable"){
+    const fromTid=window._moveFromTableId;
+    const fromLabel=S.tables.find(t=>t.id===fromTid)?.label||"";
+    const activeTables=S.tables.filter(t=>S.sessions[t.id]&&t.id!==fromTid);
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">テーブル移動</h3>'
+      +'<div style="font-size:15px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+(window._moveCastName||"")+'</div>'
+      +(fromLabel?'<div style="font-size:12px;color:#888;margin-bottom:16px;">'+fromLabel+' → 移動先を選択</div>':"")
+      +'<div class="st" style="margin-bottom:10px;">テーブルへ付ける</div>'
+      +(activeTables.length
+        ?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px;">'
+          +activeTables.map(t=>{const s2=S.sessions[t.id];return '<button class="btn" data-mvtid="'+t.id+'" onclick="execMoveToTable(this.dataset.mvtid)" style="padding:12px 8px;background:rgba(167,139,250,.1);border:2px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+t.label+'<div style="font-size:10px;color:#a78bfa88;margin-top:2px;">'+(s2?.guests||"")+'名</div></button>';}).join("")
+          +'</div>'
+        :'<div style="font-size:12px;color:#444;margin-bottom:16px;padding:10px;background:rgba(255,255,255,.03);border-radius:6px;text-align:center;">移動先のテーブルなし</div>'
+      )
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="viewHistDetail"){
+    const _hr=window._viewHistRec;
+    if(!_hr){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
+    else{
+      const dur=Math.round((_hr.endTime-_hr.startTime)/60000);
+      const inTime=new Date(_hr.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      const outTime=new Date(_hr.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+      let itRows="";
+      [...(_hr.items||[])].forEach(i=>{const isDisc=i.isDiscount;itRows+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
+      h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:480px;">'
+        +'<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px;">'
+        +'<div><span style="font-size:16px;font-weight:700;color:#d4a017;">'+_hr.tableLabel+'</span>'
+        +(_hr.note?'<span style="font-size:12px;color:#ffa500;margin-left:8px;">'+_hr.note+'</span>':"")
+        +'<span style="font-size:13px;color:#aaa;margin-left:8px;">'+_hr.guests+'名</span></div>'
+        +'<span style="font-size:12px;color:#888;">'+inTime+'〜'+outTime+' ('+dur+'分)</span>'
+        +'</div>'
+        +'<div style="margin-bottom:12px;">'+itRows+'</div>'
+        +'<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">'
+        +(_hr.discount>0?'<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(_hr.subtotal)+'</span></div>'+'<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(_hr.discount)+'</span></div>':"")
+        +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||.25)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
+        +'<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(_hr.total)+'</span></div>'
+        +'</div>'
+        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:16px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
         +'</div></div>';
     }
   }
@@ -3534,7 +3623,7 @@ function rModal(){
             +activeTables.map(t=>{
               const ts2=S.sessions[t.id];
               const guests=ts2?.guests||"";
-              return '<button class="btn" data-tid10="'+t.id+'" onclick="tsukeMd={step:\'type\',castId:\''+castId+'\',type:null,tableId:this.dataset.tid10,time:\'\'};om(\'tsuke\')" style="padding:12px 8px;background:rgba(167,139,250,.1);border:2px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+t.label+'<div style="font-size:10px;color:#a78bfa88;margin-top:2px;">'+guests+'名</div></button>';
+              return '<button class="btn" data-tid10="'+t.id+'" data-cid10b="'+castId+'" data-cn10b="'+sh.castName+'" onclick="openTsukeAuto(this.dataset.cid10b,this.dataset.cn10b,this.dataset.tid10,null)" style="padding:12px 8px;background:rgba(167,139,250,.1);border:2px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+t.label+'<div style="font-size:10px;color:#a78bfa88;margin-top:2px;">'+guests+'名</div></button>';
             }).join("")
             +'</div>'
           :'<div style="font-size:12px;color:#444;margin-bottom:16px;padding:10px;background:rgba(255,255,255,.03);border-radius:6px;text-align:center;">入店中のテーブルなし</div>'
