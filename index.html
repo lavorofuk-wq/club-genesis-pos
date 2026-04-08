@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.02</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.03</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -379,6 +379,7 @@ function addVip(vip){
 function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
   const s=S.sessions[at];
+  if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   if((s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===cid))return;
   s.items=[...s.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:1500,qty:1,castId:cid,isBanaiShimei:true}];
   s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
@@ -997,8 +998,11 @@ function rFloor(){
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
     const hasDh=(s?.items||[]).some(i=>i&&(i.id==="dh"||i.label==="同伴料"));
     const maxSide=Math.max(hn.length,bn.length);
-    const _nomBase=DEV==="mobile"?11:DEV==="tablet"?12:13;
-    const nomFs=(maxSide>=7?Math.max(_nomBase-3,9):maxSide>=5?Math.max(_nomBase-1,9):_nomBase)+"px";
+    const nomFs=DEV==="mobile"
+      ?(maxSide>=8?'6px':maxSide>=7?'7px':maxSide>=6?'8px':maxSide>=5?'9px':'11px')
+      :DEV==="tablet"
+      ?(maxSide>=8?'8px':maxSide>=7?'9px':maxSide>=6?'10px':maxSide>=5?'12px':'14px')
+      :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
     const lblFs=DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
     const timeFs=DEV==="mobile"?"10px":"11px";
     const timerFs=DEV==="mobile"?"15px":DEV==="tablet"?"17px":"20px";
@@ -3162,7 +3166,7 @@ function rModal(){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
     let alh="";
     if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">'+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
-    const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);cb+='<button class="btn" '+(dn?"disabled":"")+' '+(dn?"":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dn?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
+    const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const isHon=(s?.items||[]).some(i=>i.isHonShimei&&i.castId===c.id);const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);const dsbl=isHon||dn;cb+='<button class="btn" '+(dsbl?"disabled":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":isHon?"rgba(255,255,255,.03)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":isHon?"rgba(255,255,255,.07)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":isHon?"#3a3a3a":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dsbl?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(isHon?'<div style="font-size:9px;color:#555;margin-top:2px;">本指名</div>':!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥1,500/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
   else if(md==="hsc"){
