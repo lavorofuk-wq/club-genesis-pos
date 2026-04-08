@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.08</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.09</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1363,8 +1363,8 @@ function getAutoType(castId,tableId){
   const banaiIds=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>String(i.castId));
   if(honIds.includes(String(castId)))return{autoType:"hon",limitedTypes:null};
   if(banaiIds.includes(String(castId)))return{autoType:"banai",limitedTypes:null};
-  if(!honIds.length&&!banaiIds.length)return{autoType:null,limitedTypes:["free","help"]};
-  return{autoType:null,limitedTypes:null};
+  // 付けるキャスト自身の指名情報がない場合はフリー/ヘルプのみ
+  return{autoType:null,limitedTypes:["free","help"]};
 }
 function openTsukeAuto(castId,castName,tableId,prevAssignId){
   if(prevAssignId)endAssign(prevAssignId);
