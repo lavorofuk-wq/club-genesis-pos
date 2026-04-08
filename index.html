@@ -163,7 +163,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.01</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.02</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -646,7 +646,13 @@ function openFloorDetail(id){
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
   const fom=document.getElementById("floor-order-modal");if(!fom)return;
   fom.style.display="flex";
-  document.getElementById("fom-inner").innerHTML=buildFloorOrderContent();
+  const inner=document.getElementById("fom-inner");
+  if(inner){
+    if(DEV==="mobile"){inner.style.maxWidth="100vw";inner.style.maxHeight="100dvh";inner.style.padding="10px";inner.style.borderRadius="6px";}
+    else if(DEV==="tablet"){inner.style.maxWidth="min(900px,96vw)";inner.style.maxHeight="94vh";inner.style.padding="14px";inner.style.borderRadius="10px";}
+    else{inner.style.maxWidth="min(1400px,98vw)";inner.style.maxHeight="96vh";inner.style.padding="18px";inner.style.borderRadius="10px";}
+    inner.innerHTML=buildFloorOrderContent();
+  }
 }
 function closeFloorDetail(){
   const fom=document.getElementById("floor-order-modal");if(fom)fom.style.display="none";
@@ -671,77 +677,90 @@ function buildFloorOrderContent(){
   const timeStr=new Date(s.startTime).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})+(s.setEndTime?' → '+new Date(s.setEndTime).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'}):'');
   const{total}=ct(s);
   const ondutyIds=getOndutyIds();
-  const btnSm='padding:3px 9px;border-radius:4px;font-size:11px;touch-action:manipulation;';
+  // デバイス別サイズ
+  const _m=DEV==="mobile",_t=DEV==="tablet";
+  const fTbl=_m?'16px':_t?'18px':'20px';
+  const fInfo=_m?'11px':_t?'12px':'13px';
+  const fMeta=_m?'10px':_t?'11px':'12px';
+  const fTimer=_m?'16px':_t?'18px':'20px';
+  const fColH=_m?'9px':'10px';
+  const fItem=_m?'11px':'12px';
+  const fTotal=_m?'18px':_t?'20px':'22px';
+  const colH=_m?'110px':_t?'140px':'160px';
+  const colPad=_m?'8px':_t?'9px':'10px';
+  const bPad=_m?'8px 10px':_t?'9px 12px':'10px 14px';
+  const bFs=_m?'12px':'13px';
+  const btnSm=`padding:${_m?'2px 7px':'3px 9px'};border-radius:4px;font-size:${_m?'10px':'11px'};touch-action:manipulation;`;
   const cols='repeat(auto-fill,minmax(100px,1fr))';
   const setCount=(s.items||[]).filter(isSetCatItem).length;
   const guestCount=(s.items||[]).filter(isGuestCatItem).length;
   const castCount=(s.items||[]).filter(isCastCatItem).length;
-  const dtSt='flex-shrink:0;width:100%;padding:6px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;touch-action:manipulation;margin-top:6px;';
+  const dtSt=`flex-shrink:0;width:100%;padding:5px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:${fColH};touch-action:manipulation;margin-top:6px;`;
   // Item list helper for each column — fixed height + scroll
   const colItems=(items,color)=>{
     const inner=items.length?items.map(i=>{
       const lb=i.qty>1?i.label+' ×'+i.qty:i.label;
       return '<div style="display:flex;justify-content:space-between;gap:4px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">'
-        +'<span style="font-size:12px;color:#ccc;flex:1;line-height:1.4;word-break:break-all;">'+lb+'</span>'
-        +'<span style="font-size:12px;color:'+color+';white-space:nowrap;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span>'
+        +'<span style="font-size:'+fItem+';color:#ccc;flex:1;line-height:1.4;word-break:break-all;">'+lb+'</span>'
+        +'<span style="font-size:'+fItem+';color:'+color+';white-space:nowrap;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span>'
         +'</div>';
-    }).join(''):'<div style="font-size:12px;color:#3a3a3a;padding:6px 0;">なし</div>';
-    return '<div style="height:160px;overflow-y:auto;margin-bottom:6px;">'+inner+'</div>';
+    }).join(''):'<div style="font-size:'+fItem+';color:#3a3a3a;padding:6px 0;">なし</div>';
+    return '<div style="height:'+colH+';overflow-y:auto;margin-bottom:6px;">'+inner+'</div>';
   };
   const setItems=(s.items||[]).filter(isSetCatItem);
   const guestItems=(s.items||[]).filter(isGuestCatItem);
   const castItems=(s.items||[]).filter(isCastCatItem);
   return '<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
     // HEADER
-    +'<div style="flex-shrink:0;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:10px;">'
-    +'<div style="display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap;">'
-    +'<h3 style="font-family:\'Cormorant Garamond\',serif;font-size:20px;color:#d4a017;margin:0;">'+tl+'</h3>'
+    +'<div style="flex-shrink:0;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:8px;">'
+    +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
+    +'<h3 style="font-family:\'Cormorant Garamond\',serif;font-size:'+fTbl+';color:#d4a017;margin:0;">'+tl+'</h3>'
     +(isV(at)?'<span class="tag tv2">VIP</span>':"")
-    +'<span style="font-size:13px;color:#e8dcc8;font-weight:600;">'+s.guests+'名</span>'
-    +(hasDh?'<span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:700;">同伴</span>':"")
+    +'<span style="font-size:'+fInfo+';color:#e8dcc8;font-weight:600;">'+s.guests+'名</span>'
+    +(hasDh?'<span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 6px;font-size:'+fColH+';font-weight:700;">同伴</span>':"")
     +'<button class="btn" onclick="om(\'add-set\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">人数追加</button>'
-    +'<span style="font-size:11px;color:'+(hn.length?'#ff4444':'#555')+'">'+(hn.length?'本指名 '+hn.join('・'):'フリー')+'</span>'
+    +'<span style="font-size:'+fColH+';color:'+(hn.length?'#ff4444':'#555')+'">'+(hn.length?'本指名 '+hn.join('・'):'フリー')+'</span>'
     +'<button class="btn" onclick="om(\'add-hon\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">本指名追加</button>'
     +'<button class="btn" onclick="om(\'tc\')" style="'+btnSm+'background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.25);color:#38bdf8;">TC</button>'
-    +'<button class="btn" onclick="closeFloorDetail()" style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#888;font-size:16px;margin-left:auto;flex-shrink:0;touch-action:manipulation;">×</button>'
+    +'<button class="btn" onclick="closeFloorDetail()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:#888;font-size:15px;margin-left:auto;flex-shrink:0;touch-action:manipulation;">×</button>'
     +'</div>'
-    +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:7px;flex-wrap:wrap;">'
-    +'<span id="fom-starttime" style="font-size:12px;color:#888;">'+timeStr+'</span>'
-    +'<span id="fom-timer" style="font-size:20px;font-family:monospace;font-weight:700;color:'+tc3+';" class="'+(urg||ovr?'urg':'')+'">'+td+'</span>'
-    +'<button class="btn" onclick="etv=new Date(S.sessions[at].startTime).toTimeString().slice(0,5);om(\'et\')" style="padding:4px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;touch-action:manipulation;">時刻変更</button>'
+    +'<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap;">'
+    +'<span id="fom-starttime" style="font-size:'+fMeta+';color:#888;">'+timeStr+'</span>'
+    +'<span id="fom-timer" style="font-size:'+fTimer+';font-family:monospace;font-weight:700;color:'+tc3+';" class="'+(urg||ovr?'urg':'')+'">'+td+'</span>'
+    +'<button class="btn" onclick="etv=new Date(S.sessions[at].startTime).toTimeString().slice(0,5);om(\'et\')" style="padding:3px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:'+fColH+';touch-action:manipulation;">時刻変更</button>'
     +'</div>'
-    +'<input type="text" class="ip" placeholder="備考（タップして編集）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:12px;color:#ffa500;height:30px;padding:3px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);">'
-    +(bn.length?'<div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap;">'+bn.map(n=>'<span style="font-size:11px;color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:3px;padding:2px 7px;">場 '+n+'</span>').join('')+'</div>':"")
+    +'<input type="text" class="ip" placeholder="備考（タップして編集）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:'+fMeta+';color:#ffa500;height:28px;padding:2px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);">'
+    +(bn.length?'<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;">'+bn.map(n=>'<span style="font-size:'+fColH+';color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:3px;padding:1px 6px;">場 '+n+'</span>').join('')+'</div>':"")
     +'</div>'
     // CENTER 3-COLUMN — 注文済みアイテム + 詳細ボタン
-    +'<div style="flex:1;overflow:hidden;margin-bottom:10px;min-height:0;">'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;height:100%;">'
+    +'<div style="flex:1;overflow:hidden;margin-bottom:8px;min-height:0;">'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;height:100%;">'
     // SET column
-    +'<div class="glass" style="border-radius:6px;padding:10px;display:flex;flex-direction:column;min-height:0;">'
-    +'<div style="font-size:10px;color:#d4a017;letter-spacing:.1em;margin-bottom:8px;font-weight:700;flex-shrink:0;">SET</div>'
+    +'<div class="glass" style="border-radius:6px;padding:'+colPad+';display:flex;flex-direction:column;min-height:0;">'
+    +'<div style="font-size:'+fColH+';color:#d4a017;letter-spacing:.1em;margin-bottom:6px;font-weight:700;flex-shrink:0;">SET</div>'
     +colItems(setItems,'#d4a017')
     +'<button class="btn" onclick="om(\'setDetail\')" style="'+dtSt+'">詳細'+(setCount?' ('+setCount+')':'')+'</button>'
     +'</div>'
     // GUEST column
-    +'<div class="glass" style="border-radius:6px;padding:10px;display:flex;flex-direction:column;min-height:0;">'
-    +'<div style="font-size:10px;color:#38bdf8;letter-spacing:.1em;margin-bottom:8px;font-weight:700;flex-shrink:0;">GUEST</div>'
+    +'<div class="glass" style="border-radius:6px;padding:'+colPad+';display:flex;flex-direction:column;min-height:0;">'
+    +'<div style="font-size:'+fColH+';color:#38bdf8;letter-spacing:.1em;margin-bottom:6px;font-weight:700;flex-shrink:0;">GUEST</div>'
     +colItems(guestItems,'#38bdf8')
     +'<button class="btn" onclick="om(\'guestDetail\')" style="'+dtSt+'">詳細'+(guestCount?' ('+guestCount+')':'')+'</button>'
     +'</div>'
     // CAST column
-    +'<div class="glass" style="border-radius:6px;padding:10px;display:flex;flex-direction:column;min-height:0;">'
-    +'<div style="font-size:10px;color:#a78bfa;letter-spacing:.1em;margin-bottom:8px;font-weight:700;flex-shrink:0;">CAST</div>'
+    +'<div class="glass" style="border-radius:6px;padding:'+colPad+';display:flex;flex-direction:column;min-height:0;">'
+    +'<div style="font-size:'+fColH+';color:#a78bfa;letter-spacing:.1em;margin-bottom:6px;font-weight:700;flex-shrink:0;">CAST</div>'
     +colItems(castItems,'#a78bfa')
     +'<button class="btn" onclick="om(\'castDetail\')" style="'+dtSt+'">詳細'+(castCount?' ('+castCount+')':'')+'</button>'
     +'</div>'
     +'</div></div>'
     // BOTTOM
-    +'<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);">'
-    +'<div style="flex:1;"><div style="font-size:10px;color:#666;margin-bottom:2px;">合計</div>'
-    +'<div style="font-size:22px;font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
-    +'<button class="btn gbg" onclick="om(\'co\')" style="padding:10px 14px;font-size:13px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計</button>'
-    +'<button class="btn" onclick="om(\'est\')" style="padding:10px 12px;background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">概算</button>'
-    +'<button class="btn" onclick="om(\'disc\')" style="padding:10px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;">割引</button>'
+    +'<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);">'
+    +'<div style="flex:1;"><div style="font-size:'+fColH+';color:#666;margin-bottom:2px;">合計</div>'
+    +'<div style="font-size:'+fTotal+';font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
+    +'<button class="btn gbg" onclick="om(\'co\')" style="padding:'+bPad+';font-size:'+bFs+';font-weight:700;border-radius:6px;touch-action:manipulation;">会計</button>'
+    +'<button class="btn" onclick="om(\'est\')" style="padding:'+bPad+';background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">概算</button>'
+    +'<button class="btn" onclick="om(\'disc\')" style="padding:'+bPad+';background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">割引</button>'
     +'</div>'
     +'</div>';
 }
@@ -966,7 +985,7 @@ async function endBizDay(){
 
 // ===== FLOOR =====
 function rFloor(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(150px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(170px,1fr))":"repeat(auto-fill,minmax(190px,1fr))";
+  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(135px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(160px,1fr))":"repeat(auto-fill,minmax(200px,1fr))";
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
   html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;">';
   S.tables.forEach(t=>{
@@ -978,15 +997,18 @@ function rFloor(){
     const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
     const hasDh=(s?.items||[]).some(i=>i&&(i.id==="dh"||i.label==="同伴料"));
     const maxSide=Math.max(hn.length,bn.length);
-    const nomFs=maxSide>=7?'10px':maxSide>=6?'12px':'14px';
-    const lblFs=DEV==="mobile"?"12px":"13px";
+    const _nomBase=DEV==="mobile"?11:DEV==="tablet"?12:13;
+    const nomFs=(maxSide>=7?Math.max(_nomBase-3,9):maxSide>=5?Math.max(_nomBase-1,9):_nomBase)+"px";
+    const lblFs=DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
+    const timeFs=DEV==="mobile"?"10px":"11px";
+    const timerFs=DEV==="mobile"?"15px":DEV==="tablet"?"17px":"20px";
     let inn=s?
-      '<div style="font-size:11px;color:#999;margin-bottom:4px;">'
+      '<div style="font-size:'+timeFs+';color:#999;margin-bottom:4px;">'
       +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
-      +(hasDh?' <span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 5px;font-size:10px;font-weight:700;vertical-align:middle;">同伴</span>':"")
+      +(hasDh?' <span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;vertical-align:middle;">同伴</span>':"")
       +'</div>'
-      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:20px;font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
+      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:'+timerFs+';font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
       +(hn.length||bn.length?
         '<div style="display:flex;gap:4px;margin-top:2px;">'
         +'<div style="flex:1;min-width:0;">'
