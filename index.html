@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
   <title>CLUB GENESIS POS</title>
   <link rel="manifest" href="manifest.json"/>
   <meta name="theme-color" content="#0a0a0f"/>
@@ -4762,7 +4762,24 @@ setInterval(()=>{
 
 
 // ===== PWA =====
-if("serviceWorker"in navigator){navigator.serviceWorker.register("/sw.js").catch(()=>{});}
+if("serviceWorker"in navigator){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
+
+// ピンチズーム禁止（viewport の user-scalable=no を JS で代替）
+document.addEventListener('gesturestart', e=>e.preventDefault(), {passive:false});
+document.addEventListener('touchmove', e=>{if(e.touches.length>1)e.preventDefault();}, {passive:false});
+
+// iOS PWA (standalone) キーボード強制フォーカス修正
+// position:fixed 要素内の input/textarea をタップしてもキーボードが出ない問題を解消
+if(navigator.standalone){
+  document.addEventListener('touchend', function(e){
+    const t=e.target;
+    if(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'){
+      // 既にフォーカス済みなら何もしない
+      if(document.activeElement===t)return;
+      setTimeout(()=>t.focus(), 50);
+    }
+  }, true);
+}
 
 // ===== 管理モード =====
 function toggleAdminMode(){
