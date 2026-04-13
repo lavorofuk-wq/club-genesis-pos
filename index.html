@@ -203,6 +203,7 @@ let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
+let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
 let priceHidden=false;
 let expandedHist={};
@@ -2301,27 +2302,65 @@ function rBackupDetail(){
   html+='</div>';
   // まとめて復旧ボタン
   html+='<button class="btn" onclick="restoreAllBackups()" style="width:100%;padding:12px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;margin-bottom:12px;">⟳ 全件まとめてPOSに復旧（'+bkDays.length+'営業日）</button>';
+  // 同一営業日でグループ化
+  const _bkByDate={};
+  bkEntries.forEach(([bkKey,day])=>{
+    if(!_bkByDate[day.date])_bkByDate[day.date]=[];
+    _bkByDate[day.date].push([bkKey,day]);
+  });
+  const _bkDates=Object.keys(_bkByDate).sort((a,b)=>b.localeCompare(a));
+  const _conflictDates=_bkDates.filter(d=>_bkByDate[d].length>1);
+  if(_conflictDates.length>0){
+    html+='<div style="padding:8px 12px;background:rgba(250,200,0,.06);border:1px solid rgba(250,200,0,.2);border-radius:6px;margin-bottom:12px;font-size:12px;color:#f0c040;">'
+      +'⚠ 同一営業日のバックアップが複数あります（'+_conflictDates.join("、")+'）。<br>各日付で使用するデータを選択して復旧してください。'
+      +'</div>';
+  }
   html+='<div class="glass" style="border-radius:8px;overflow:hidden;margin-bottom:14px;">';
   html+='<div style="padding:10px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid rgba(255,255,255,.07);">';
-  html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">保存済み営業日（'+bkDays.length+'件）</span>';
+  html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">保存済み営業日（'+_bkDates.length+'日付 / '+bkDays.length+'件）</span>';
   html+='</div>';
   html+='<div style="padding:8px 12px;">';
-  bkEntries.forEach(([bkKey,day])=>{
-    const sales=(day.history||[]).reduce((a,h)=>a+(h.total||0),0);
-    const histCount=(day.history||[]).length;
-    const saved=new Date(day.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
-    const isEdited=!!day.edited;
-    html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
-    html+='<div>';
-    html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+day.date+(isEdited?'&nbsp;<span style="font-size:10px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,.12);padding:1px 7px;border:1px solid rgba(56,189,248,.25);border-radius:3px;">編集済データ</span>':"")+'</div>';
-    html+='<div style="font-size:11px;color:#666;margin-top:1px;">会計 '+histCount+'件 &nbsp;|&nbsp; 売上 ¥'+Number(sales).toLocaleString("ja-JP")+'</div>';
-    html+='<div style="font-size:10px;color:#444;margin-top:1px;">保存: '+saved+'</div>';
-    html+='</div>';
-    html+='<div style="display:flex;gap:6px;flex-shrink:0;">';
-    html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="restoreFromBackupDay(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">復旧</button>';
-    html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="deleteBackupBizDay(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
-    html+='</div>';
-    html+='</div>';
+  _bkDates.forEach(date=>{
+    const entries=_bkByDate[date];
+    const hasConflict=entries.length>1;
+    if(hasConflict){
+      html+='<div style="margin-bottom:10px;padding:10px;background:rgba(56,189,248,.04);border:1px solid rgba(56,189,248,.18);border-radius:6px;">';
+      html+='<div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:8px;">'+date+' &nbsp;<span style="font-weight:400;font-size:11px;opacity:.8;">— 複数バックアップあり（個別に復旧可）</span></div>';
+      entries.forEach(([bkKey,day])=>{
+        const sales=(day.history||[]).reduce((a,h)=>a+(h.total||0),0);
+        const histCount=(day.history||[]).length;
+        const saved=new Date(day.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+        const isEdited=!!day.edited;
+        html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;margin-bottom:5px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:5px;">';
+        html+='<div>';
+        html+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;">'+(isEdited?'<span style="font-size:10px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,.12);padding:1px 7px;border:1px solid rgba(56,189,248,.25);border-radius:3px;margin-right:6px;">編集済</span>':'<span style="font-size:10px;color:#888;background:rgba(255,255,255,.06);padding:1px 7px;border:1px solid rgba(255,255,255,.1);border-radius:3px;margin-right:6px;">元データ</span>')+'会計 '+histCount+'件 | 売上 ¥'+Number(sales).toLocaleString("ja-JP")+'</div>';
+        html+='<div style="font-size:10px;color:#444;margin-top:2px;">保存: '+saved+'</div>';
+        html+='</div>';
+        html+='<div style="display:flex;gap:5px;flex-shrink:0;">';
+        html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="restoreFromBackupDay(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.35);color:#38bdf8;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">このデータで復旧</button>';
+        html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="deleteBackupBizDay(this.dataset.bkkey)" style="padding:5px 8px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+        html+='</div>';
+        html+='</div>';
+      });
+      html+='</div>';
+    } else {
+      const [bkKey,day]=entries[0];
+      const sales=(day.history||[]).reduce((a,h)=>a+(h.total||0),0);
+      const histCount=(day.history||[]).length;
+      const saved=new Date(day.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+      const isEdited=!!day.edited;
+      html+='<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);">';
+      html+='<div>';
+      html+='<div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+day.date+(isEdited?'&nbsp;<span style="font-size:10px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,.12);padding:1px 7px;border:1px solid rgba(56,189,248,.25);border-radius:3px;">編集済データ</span>':"")+'</div>';
+      html+='<div style="font-size:11px;color:#666;margin-top:1px;">会計 '+histCount+'件 &nbsp;|&nbsp; 売上 ¥'+Number(sales).toLocaleString("ja-JP")+'</div>';
+      html+='<div style="font-size:10px;color:#444;margin-top:1px;">保存: '+saved+'</div>';
+      html+='</div>';
+      html+='<div style="display:flex;gap:6px;flex-shrink:0;">';
+      html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="restoreFromBackupDay(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">復旧</button>';
+      html+='<button class="btn" data-bkkey="'+bkKey+'" onclick="deleteBackupBizDay(this.dataset.bkkey)" style="padding:5px 10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+      html+='</div>';
+      html+='</div>';
+    }
   });
   html+='</div></div>';
   html+='</div>';
@@ -2342,24 +2381,7 @@ async function deleteBackupBizDay(date){
 
 // バックアップを全件一括復旧（bizDaysにマージ）
 async function restoreAllBackup(){
-  const bkDays=Object.values((S.backups||{}).bizDays||{});
-  if(!bkDays.length){alert("バックアップデータがありません");return;}
-  if(!confirm("バックアップの全営業日データ（"+bkDays.length+"件）をPOSのbizDaysにマージ復旧します。\n既存の同日データは上書きされます。\nよろしいですか？"))return;
-  bkDays.forEach(bk=>{
-    const date=bk.date;
-    if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
-    S.bizDays[date].history=bk.history||[];
-    S.bizDays[date].shifts=bk.shifts||{};
-    S.bizDays[date].assignments=bk.assignments||{};
-  });
-  if(window._db){
-    try{
-      await window._db.ref("pos/bizDays").set(S.bizDays);
-      sbs(true,"一括復旧完了 ✓");
-      alert("全"+bkDays.length+"件の復旧が完了しました。");
-      render();
-    }catch(e){sbs(false,"復旧エラー");alert("復旧に失敗："+e.message);}
-  }
+  await restoreAllBackups();
 }
 
 // バックアップの特定営業日データをPOSに復旧（bizDaysにマージ）
@@ -2379,28 +2401,67 @@ function restoreFromBackupDay(bkKey){
   }
 }
 
-// バックアップ全件をまとめてPOSに復旧
+// バックアップ全件をまとめてPOSに復旧（コンフリクト検出付き）
 async function restoreAllBackups(){
-  const bkDays=Object.values((S.backups||{}).bizDays||{});
-  if(!bkDays.length){alert("バックアップデータがありません");return;}
-  const total=bkDays.reduce((a,d)=>a+(d.history||[]).length,0);
-  if(!confirm("バックアップ全件をPOS（bizDays）に復旧します。\n\n"+bkDays.length+"営業日 / 会計"+total+"件\n\n既存の各日データに上書きされます（バックアップにない日は影響なし）。\n\nよろしいですか？"))return;
-  // 全日分をbizDaysにマージ
+  const bkEntries=Object.entries((S.backups||{}).bizDays||{});
+  if(!bkEntries.length){alert("バックアップデータがありません");return;}
+  // 日付ごとにグループ化
+  const byDate={};
+  bkEntries.forEach(([bkKey,bk])=>{
+    if(!byDate[bk.date])byDate[bk.date]=[];
+    byDate[bk.date].push([bkKey,bk]);
+  });
+  const conflicts=Object.entries(byDate).filter(([,e])=>e.length>1);
+  if(conflicts.length>0){
+    // コンフリクトあり → 選択モーダルへ
+    _rcChoices={};
+    conflicts.forEach(([date,entries])=>{
+      // デフォルト: 編集済があればそちら、なければ最初のエントリ
+      const edited=entries.find(([k])=>k.endsWith("_edited"));
+      _rcChoices[date]=edited?edited[0]:entries[0][0];
+    });
+    window._pendingRestoreByDate=byDate;
+    om("restore-conflicts");
+    return;
+  }
+  // コンフリクトなし → そのまま実行
+  await _execRestoreAll(byDate,{});
+}
+
+// 全件復旧の実行（コンフリクト選択後に呼ばれる）
+async function execRestoreAllWithChoices(){
+  const byDate=window._pendingRestoreByDate;
+  if(!byDate){closeM();return;}
+  if(!confirm("選択したデータで全件復旧します。既存の各日データは上書きされます。\nよろしいですか？"))return;
+  await _execRestoreAll(byDate,_rcChoices);
+}
+
+// 全件復旧共通処理
+async function _execRestoreAll(byDate,choices){
   const updates={};
-  bkDays.forEach(bk=>{
-    const date=bk.date;
+  const dates=Object.keys(byDate);
+  for(const date of dates){
+    const entries=byDate[date];
+    let bk;
+    if(entries.length===1){
+      bk=entries[0][1];
+    }else{
+      const chosenKey=choices[date];
+      const found=chosenKey?entries.find(([k])=>k===chosenKey):null;
+      bk=found?found[1]:entries[0][1];
+    }
     if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
     S.bizDays[date].history=bk.history||[];
     S.bizDays[date].shifts=bk.shifts||{};
     S.bizDays[date].assignments=bk.assignments||{};
     updates["pos/bizDays/"+date]=S.bizDays[date];
-  });
+  }
   if(window._db){
     try{
       await window._db.ref().update(updates);
       sbs(true,"全件復旧完了 ✓");
-      alert("全"+bkDays.length+"営業日の復旧が完了しました。");
-      render();
+      alert("全"+dates.length+"営業日の復旧が完了しました。");
+      closeM();render();
     }catch(e){sbs(false,"復旧エラー");alert("復旧に失敗しました："+e.message);}
   }
 }
@@ -3246,7 +3307,36 @@ function rModal(){
   let h="";
   const isBig=DEV!=="mobile";
 
-  if(md==="confirm-del"){
+  if(md==="restore-conflicts"){
+    const byDate=window._pendingRestoreByDate||{};
+    const conflicts=Object.entries(byDate).filter(([,e])=>e.length>1).sort((a,b)=>b[0].localeCompare(a[0]));
+    let cHtml='';
+    conflicts.forEach(([date,entries])=>{
+      cHtml+='<div style="margin-bottom:14px;padding:12px;background:rgba(56,189,248,.04);border:1px solid rgba(56,189,248,.15);border-radius:6px;">';
+      cHtml+='<div style="font-size:13px;font-weight:700;color:#e8dcc8;margin-bottom:8px;">'+date+'</div>';
+      entries.forEach(([bkKey,bk])=>{
+        const isEdited=!!bk.edited;
+        const isChosen=_rcChoices[date]===bkKey;
+        const saved=new Date(bk.ts).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"});
+        const histCount=(bk.history||[]).length;
+        const sales=(bk.history||[]).reduce((a,h)=>a+(h.total||0),0);
+        cHtml+='<button class="btn" data-date="'+date+'" data-bkkey="'+bkKey+'" onclick="_rcChoices[this.dataset.date]=this.dataset.bkkey;rModal()" style="width:100%;text-align:left;padding:10px 12px;margin-bottom:6px;border-radius:5px;background:'+(isChosen?"rgba(56,189,248,.18)":"rgba(255,255,255,.03)")+';border:2px solid '+(isChosen?"#38bdf8":"rgba(255,255,255,.08)")+';color:'+(isChosen?"#38bdf8":"#aaa")+';touch-action:manipulation;cursor:pointer;">'
+          +(isChosen?'<span style="font-size:13px;margin-right:6px;">✓</span>':'<span style="font-size:13px;margin-right:6px;opacity:.3;">○</span>')
+          +(isEdited?'<span style="font-size:10px;font-weight:700;background:rgba(56,189,248,.2);color:#38bdf8;padding:1px 6px;border-radius:3px;margin-right:6px;">編集済</span>':'<span style="font-size:10px;background:rgba(255,255,255,.08);color:#888;padding:1px 6px;border-radius:3px;margin-right:6px;">元データ</span>')
+          +'会計 '+histCount+'件 &nbsp;·&nbsp; ¥'+Number(sales).toLocaleString("ja-JP")+'<span style="font-size:10px;color:#555;margin-left:8px;">保存: '+saved+'</span>'
+          +'</button>';
+      });
+      cHtml+='</div>';
+    });
+    h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;max-height:90vh;overflow-y:auto;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#38bdf8;">全件復旧 — データ選択</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">同じ営業日のバックアップが複数あります。各日付で復旧に使用するデータを選択してください。</div>'
+      +cHtml
+      +'<button class="btn gbg" onclick="execRestoreAllWithChoices()" style="width:100%;padding:13px;font-weight:700;font-size:15px;border-radius:6px;touch-action:manipulation;margin-top:4px;">選択したデータで全件復旧</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;touch-action:manipulation;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="confirm-del"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;text-align:center;">'
       +'<div style="font-size:32px;margin-bottom:10px;">⚠️</div>'
       +'<h3 style="font-size:16px;color:#ff6b6b;margin-bottom:10px;">削除の確認</h3>'
