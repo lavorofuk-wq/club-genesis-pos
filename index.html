@@ -454,6 +454,27 @@ function remItem(id){
   if(t.isSet)render();else renderOrderPartial();
   refreshFloorModal();
 }
+// qty モーダル: DOM再構築なしで表示を更新（iPad キーボード維持用）
+function updateQtyDisplay(v){
+  qv=Math.max(1,parseInt(v)||1);
+  const inp=document.getElementById('qty-inp');
+  if(inp&&parseInt(inp.value)!==qv)inp.value=qv;
+  const pr=document.getElementById('qty-preview');
+  if(pr)pr.innerHTML='<span style="font-size:13px;color:#888;">'+qv+'個 × ¥'+fmt(qm?.price||0)+' = </span><span style="font-size:18px;font-weight:700;color:#d4a017;">¥'+fmt(qv*(qm?.price||0))+'</span>';
+  document.querySelectorAll('[data-qbtn]').forEach(b=>{
+    const n=parseInt(b.dataset.qbtn);
+    const sel=n===qv;
+    b.style.background=sel?'linear-gradient(135deg,#b8960c,#e8c84a)':'rgba(255,255,255,.06)';
+    b.style.color=sel?'#1a1200':'#e8dcc8';
+  });
+}
+// 営業日選択モーダル: 日付変更時に警告のみ更新（DOM再構築なし）
+function updateBizDateWarn(val){
+  window._selBizDate=val;
+  const el=document.getElementById('biz-date-warn');
+  if(!el)return;
+  el.style.display=val&&S.bizDays[val]?'':'none';
+}
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
@@ -3573,8 +3594,21 @@ function rModal(){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;"><h3 style="margin-bottom:16px;font-size:16px;color:#a78bfa;">VIP室料</h3>'+vb+'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
   }
   else if(md==="qty"&&qm){
-    let qbs="";[1,2,3,4,5,6,7,8].forEach(n=>{qbs+='<button class="btn" data-n="'+n+'" onclick="qv=parseInt(this.dataset.n);rModal()" style="width:'+(isBig?"50px":"44px")+';height:'+(isBig?"50px":"44px")+';border-radius:6px;font-weight:700;font-size:'+(isBig?"18px":"16px")+';background:'+(qv===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(qv===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';});
-    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;"><h3 style="margin-bottom:16px;font-size:15px;color:#d4a017;">'+qm.label+'</h3><div class="st">個数を選択</div><div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">'+qbs+'</div><div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;"><button class="btn" onclick="qv=Math.max(1,qv-1);rModal()" style="width:44px;height:44px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;font-size:22px;border-radius:6px;touch-action:manipulation;">−</button><input type="number" min="1" class="ip" style="text-align:center;font-size:20px;font-weight:700;" value="'+qv+'" oninput="qv=Math.max(1,parseInt(this.value)||1);rModal()"/><button class="btn" onclick="qv++;rModal()" style="width:44px;height:44px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;font-size:22px;border-radius:6px;touch-action:manipulation;">＋</button></div><div style="text-align:center;margin-bottom:16px;"><span style="font-size:13px;color:#888;">'+qv+'個 × ¥'+fmt(qm.price)+' = </span><span style="font-size:18px;font-weight:700;color:#d4a017;">¥'+fmt(qv*qm.price)+'</span></div><button class="btn gbg" onclick="confQty()" style="width:100%;padding:13px;font-weight:700;font-size:15px;border-radius:6px;touch-action:manipulation;">追加する</button><button class="btn" onclick="closeM();qv=1;" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button></div></div>';
+    const btnSzQ=isBig?"50px":"44px";const fszQ=isBig?"18px":"16px";
+    let qbs="";[1,2,3,4,5,6,7,8].forEach(n=>{qbs+='<button class="btn" data-qbtn="'+n+'" onclick="updateQtyDisplay('+n+')" style="width:'+btnSzQ+';height:'+btnSzQ+';border-radius:6px;font-weight:700;font-size:'+fszQ+';background:'+(qv===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(qv===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';});
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+      +'<h3 style="margin-bottom:16px;font-size:15px;color:#d4a017;">'+qm.label+'</h3>'
+      +'<div class="st">個数を選択</div>'
+      +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;">'+qbs+'</div>'
+      +'<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">'
+      +'<button class="btn" onclick="updateQtyDisplay(Math.max(1,qv-1))" style="width:44px;height:44px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;font-size:22px;border-radius:6px;touch-action:manipulation;">−</button>'
+      +'<input type="number" inputmode="numeric" min="1" id="qty-inp" class="ip" style="text-align:center;font-size:20px;font-weight:700;" value="'+qv+'" oninput="updateQtyDisplay(this.value)"/>'
+      +'<button class="btn" onclick="updateQtyDisplay(qv+1)" style="width:44px;height:44px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;font-size:22px;border-radius:6px;touch-action:manipulation;">＋</button>'
+      +'</div>'
+      +'<div id="qty-preview" style="text-align:center;margin-bottom:16px;"><span style="font-size:13px;color:#888;">'+qv+'個 × ¥'+fmt(qm.price)+' = </span><span style="font-size:18px;font-weight:700;color:#d4a017;">¥'+fmt(qv*qm.price)+'</span></div>'
+      +'<button class="btn gbg" onclick="confQty()" style="width:100%;padding:13px;font-weight:700;font-size:15px;border-radius:6px;touch-action:manipulation;">追加する</button>'
+      +'<button class="btn" onclick="closeM();qv=1;" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
+      +'</div></div>';
   }
   else if(md==="banai"&&s){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
@@ -4284,10 +4318,8 @@ function rModal(){
       +'<h3 style="margin-bottom:4px;font-size:18px;color:#d4a017;">営業を開始する</h3>'
       +'<div style="font-size:12px;color:#666;margin-bottom:20px;">営業日を選択してください</div>'
       +'<div class="st" style="margin-bottom:8px;">営業日</div>'
-      +'<input type="date" class="ip" id="biz-date-input" value="'+selDate+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="window._selBizDate=this.value;rModal()"/>'
-      +(already
-        ?'<div style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;">この日付は記録済みです。開始すると上書きされます。</div>'
-        :"")
+      +'<input type="date" class="ip" id="biz-date-input" value="'+selDate+'" style="font-size:16px;margin-bottom:14px;width:100%;max-width:200px;display:block;" oninput="updateBizDateWarn(this.value)"/>'
+      +'<div id="biz-date-warn" style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;display:'+(already?"":"none")+';">この日付は記録済みです。開始すると上書きされます。</div>'
       +'<div style="display:flex;gap:8px;">'
       +'<button class="btn gbg" onclick="startBizDay(document.getElementById(\'biz-date-input\').value)" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">開始する</button>'
       +'<button class="btn" onclick="window._selBizDate=null;closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">キャンセル</button>'
