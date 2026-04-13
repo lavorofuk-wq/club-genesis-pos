@@ -64,7 +64,7 @@
     .mb{background:#141418;border:1px solid rgba(184,150,12,.3);border-radius:10px;padding:24px;max-width:480px;width:92vw;max-height:85vh;overflow-y:auto;}
     .nb{background:transparent;border:none;color:#888;font-family:inherit;font-size:13px;padding:8px 14px;cursor:pointer;border-radius:4px;transition:all .15s;letter-spacing:.05em;}
     .nb.ac{color:#d4a017;background:rgba(184,150,12,.12);}
-    .ip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:4px;color:#e8dcc8;font-family:inherit;font-size:14px;padding:8px 12px;width:100%;}
+    .ip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:4px;color:#e8dcc8;font-family:inherit;font-size:16px;padding:8px 12px;width:100%;}
     .ip:focus{outline:none;border-color:#b8960c;}
     .st{font-size:10px;letter-spacing:.15em;color:#888;text-transform:uppercase;margin-bottom:8px;}
     .ir{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px;}
@@ -4770,15 +4770,16 @@ document.addEventListener('touchmove', e=>{if(e.touches.length>1)e.preventDefaul
 
 // iOS PWA (standalone) キーボード強制フォーカス修正
 // position:fixed 要素内の input/textarea をタップしてもキーボードが出ない問題を解消
+// ※ iOS は setTimeout 内の focus() をブロックするため必ず同期で呼ぶ
 if(navigator.standalone){
   document.addEventListener('touchend', function(e){
     const t=e.target;
     if(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'){
-      // 既にフォーカス済みなら何もしない
-      if(document.activeElement===t)return;
-      setTimeout(()=>t.focus(), 50);
+      if(document.activeElement!==t){
+        t.focus(); // 同期呼び出し必須（setTimeout 不可）
+      }
     }
-  }, true);
+  });
 }
 
 // ===== 管理モード =====
