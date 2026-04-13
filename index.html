@@ -13,7 +13,9 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png"/>
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png"/>
   <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"/>
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Cormorant+Garamond:wght@300;400;600&display=swap" rel="stylesheet"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Cormorant+Garamond:wght@400;600&display=swap" rel="stylesheet"/>
   <!-- Epson ePOS SDK: プリンター本体 or GitHubリポジトリから読み込み -->
   <script>
     // プリンターIPからePOS SDKを動的に読み込む
@@ -354,7 +356,8 @@ function initFB(){
     if(S.activeBizDay===null&&["floor","checkin","shifts","history","settings"].includes(vw)){
       vw="home";closeM();render();return;
     }
-    render();refreshFloorModal();
+    if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
+    window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
@@ -1091,7 +1094,7 @@ function rFloor(){
       +(s.setEndTime?' → <span style="color:'+(urg?"#ff8c00":exp?"#ff4444":"#b8960c")+'">'+new Date(s.setEndTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span>':"")
       +(hasDh?' <span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;vertical-align:middle;">同伴</span>':"")
       +'</div>'
-      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="text-align:right;font-size:'+timerFs+';font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
+      +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'" data-fmt="p"':'')+' style="text-align:right;font-size:'+timerFs+';font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
       +(hn.length||bn.length?
         '<div style="display:flex;gap:4px;margin-top:2px;">'
         +'<div style="flex:1;min-width:0;">'
@@ -1251,7 +1254,7 @@ function rList(){
     html+='</div>';
     if(isActive&&s){
       // 残り時間
-      html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+      html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'" data-fmt="r"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
       // 本指名・場内指名の名前表示（フロアタブと同じ2列レイアウト）
       if(hn.length||bn.length){
         const maxSide=Math.max(hn.length,bn.length);
@@ -4736,29 +4739,46 @@ function rShifts(){
 }
 
 // ===== CLOCK =====
-setInterval(()=>{
+// タイマー要素のみ更新（DOM再構築なし・軽量）
+function tickTimers(){
   now=Date.now();
-  const el=document.getElementById("clk");if(el)el.textContent=new Date(now).toLocaleTimeString("ja-JP");
-  // モーダル中でもdata-modal-timer属性の要素はカウントアップを更新
+  // 時計
+  const clkEl=document.getElementById("clk");
+  if(clkEl)clkEl.textContent=new Date(now).toLocaleTimeString("ja-JP");
+  // モーダル内タイマー
   if(md){
     document.querySelectorAll("[data-modal-timer]").forEach(el=>{
       const start=parseInt(el.dataset.modalTimer);
-      if(!isNaN(start))el.textContent=ts(Date.now()-start).slice(3);
+      if(!isNaN(start))el.textContent=ts(now-start).slice(3);
     });
     return;
   }
-  // floor-order-modal timer tick
+  // フロアオーダーモーダルのタイマー
   const fomTEl=document.getElementById("fom-timer");
   if(fomTEl&&at&&S.sessions[at]){
-    const _fs=S.sessions[at];const _rv=rem(_fs.setEndTime);
+    const _rv=rem(S.sessions[at].setEndTime);
     const _urg=_rv!==null&&_rv>0&&_rv<600000;const _ovr=_rv!==null&&_rv<=0;
     fomTEl.style.color=_ovr?"#ff4444":_urg?"#ff8c00":"#d4a017";
     fomTEl.textContent=_rv===null?"—":_ovr?"- "+ts(-_rv):ts(_rv);
     fomTEl.className=(_urg||_ovr?"urg":"");
   }
-  // 全ビューを毎秒再描画（シンプル・確実）
-  if(["floor","list","tableDetail","assignHistory"].includes(vw))render();
-},1000);
+  // カウントダウンタイマー（テーブルカード）
+  document.querySelectorAll("[data-countdown]").forEach(el=>{
+    const endTime=parseInt(el.dataset.countdown);if(isNaN(endTime))return;
+    const rv=endTime-now;
+    const urg=rv<600000&&rv>0;const exp=rv<=0;
+    const fmt=el.dataset.fmt||"p";
+    el.textContent=fmt==="r"?(exp?"- "+ts(-rv):"残 "+ts(rv)):(exp?"-"+ts(-rv):ts(rv));
+    el.style.color=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
+    el.className=(urg||exp)?"urg":"";
+  });
+  // 経過タイマー（アサイン・付け回し）
+  document.querySelectorAll("[data-timer]").forEach(el=>{
+    const start=parseInt(el.dataset.timer);
+    if(!isNaN(start))el.textContent=ts(now-start).slice(3);
+  });
+}
+setInterval(tickTimers,1000);
 
 
 // ===== PWA =====
