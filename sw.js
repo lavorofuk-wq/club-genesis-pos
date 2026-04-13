@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v2';
-const ASSETS = ['/', '/index.html'];
+const CACHE = 'genesis-pos-v3';
+const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
@@ -16,7 +16,12 @@ self.addEventListener('fetch', e => {
 
   // プリンターへの通信はService Workerを完全にバイパス
   if(url.includes('192.168.') || url.includes('cgi-bin') || url.includes('epos')){
-    return; // ブラウザが直接処理
+    return;
+  }
+
+  // Firebase / Google APIはバイパス
+  if(url.includes('firebase') || url.includes('googleapis') || url.includes('gstatic')){
+    return;
   }
 
   // GETのみキャッシュ対象
