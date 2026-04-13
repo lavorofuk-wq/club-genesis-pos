@@ -195,13 +195,13 @@
 <script>
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
-const DM={sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
+const DM={normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
 let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
-let ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
+let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let now=Date.now();
 let priceHidden=false;
@@ -304,8 +304,9 @@ function initFB(){
     if(d.casts)S.casts=d.casts;
     if(d.menus){
       S.menus=d.menus;
-      // 酒類カテゴリが未定義の場合は空配列で初期化
+      // 未定義カテゴリを空配列で初期化
       if(!S.menus.champagne)S.menus.champagne=[];
+      if(!S.menus.normalSets)S.menus.normalSets=[];
     }
     if(d.tables)S.tables=d.tables;
     // オーダー中テーブルのitemsは自分のローカル状態を優先（Firebase同期タイミング問題を防ぐ）
@@ -362,7 +363,7 @@ function startSession(){
   const{guests,setMenu,honShimeis,douhan,freedrink,single}=ci;
   if(!setMenu)return;
   const items=[];
-  const sm=S.menus.sets.find(s=>s.id===setMenu);
+  const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===setMenu);
   if(sm)items.push({id:sm.id,label:sm.label,price:sm.price,qty:guests,minutes:sm.minutes,isSet:true});
   honShimeis.forEach(cid=>{const c=S.casts.find(c=>c.id===cid);items.push({id:"hs_"+cid,label:"本指名料 ("+c?.name+")",price:3000,qty:1,castId:cid,isHonShimei:true});});
   if(douhan)items.push({id:"dh",label:"同伴料",price:3000,qty:1});
@@ -373,7 +374,7 @@ function startSession(){
   const si=items.find(i=>i.isSet);
   S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""};
   save("sessions",S.sessions);
-  vw="floor";ci={guests:1,setMenu:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
+  vw="floor";ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
   render();openFloorDetail(at);
 }
 function addExt(ext,wsc){
@@ -503,7 +504,7 @@ function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[
 // 後からセット/指名を追加
 function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
-  const sm=S.menus.sets.find(x=>x.id===setId);if(!sm)return;
+  const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(x=>x.id===setId);if(!sm)return;
   const n=Math.max(1,parseInt(addGuests)||1);
   // 新セット追加（追加人数分）。addedGuests属性で追加人数を記録（削除時に戻すため）
   s.items=[...s.items,{id:sm.id+"_"+Date.now(),label:sm.label,price:sm.price,qty:n,minutes:sm.minutes,isSet:true,addedGuests:n}];
@@ -1683,10 +1684,19 @@ function rCI(){
   html+='</div></div>';
   // セットメニュー
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">セットメニュー *</div>';
-  S.menus.sets.forEach(s=>{
-    html+='<button class="btn" data-sid="'+s.id+'" onclick="sm2(this.dataset.sid)" style="text-align:left;padding:'+(isTabletPlus?"12px 16px":"10px 14px")+';border-radius:6px;background:'+(ci.setMenu===s.id?"rgba(184,150,12,.2)":"rgba(255,255,255,.03)")+';border:1px solid '+(ci.setMenu===s.id?"#b8960c":"rgba(255,255,255,.06)")+';color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;"><span style="font-size:'+(isTabletPlus?"15px":"13px")+'">'+s.label+'</span><span style="color:#d4a017;font-size:'+(isTabletPlus?"15px":"13px")+'">¥'+fmt(s.price)+' / '+s.minutes+'分</span></button>';
-  });
-  html+='</div>';
+  const _selSet=ci.setMenu?[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===ci.setMenu):null;
+  if(_selSet){
+    html+='<div style="background:rgba(184,150,12,.15);border:1px solid #b8960c;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">'
+      +'<span style="color:#d4a017;font-size:'+(isTabletPlus?"15px":"13px")+'">'+_selSet.label+'</span>'
+      +'<span style="color:#d4a017;font-size:'+(isTabletPlus?"14px":"12px")+'">¥'+fmt(_selSet.price)+' / '+_selSet.minutes+'分</span>'
+      +'</div>';
+  }
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+  const _nsCnt=(S.menus.normalSets||[]).length;
+  const _spCnt=(S.menus.sets||[]).length;
+  html+='<button class="btn" onclick="ci.setType=\'normal\';ci.setMenu=null;om(\'ci-set-select\')" style="padding:'+(isTabletPlus?"18px 12px":"14px 10px")+';border-radius:8px;background:'+(ci.setType==="normal"?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(ci.setType==="normal"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(ci.setType==="normal"?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"16px":"14px")+';font-weight:700;touch-action:manipulation;line-height:1.5;">通常セット<br><small style="font-size:11px;font-weight:400;opacity:.7;">'+(_nsCnt?_nsCnt+'種':'未設定')+'</small></button>';
+  html+='<button class="btn" onclick="ci.setType=\'special\';ci.setMenu=null;om(\'ci-set-select\')" style="padding:'+(isTabletPlus?"18px 12px":"14px 10px")+';border-radius:8px;background:'+(ci.setType==="special"?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(ci.setType==="special"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(ci.setType==="special"?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"16px":"14px")+';font-weight:700;touch-action:manipulation;line-height:1.5;">特別セット<br><small style="font-size:11px;font-weight:400;opacity:.7;">'+(_spCnt?_spCnt+'種':'未設定')+'</small></button>';
+  html+='</div></div>';
   // 時刻
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
   html+='<div class="st" style="margin-bottom:10px;">入店時刻</div>';
@@ -1718,7 +1728,7 @@ function rCI(){
   return html;
 }
 function sg(n){ci.guests=n;render();}
-function sm2(id){ci.setMenu=id;render();}
+function sm2(id){ci.setMenu=id;closeM();render();}
 function to2(k){ci[k]=!ci[k];render();}
 function rhs(id){ci.honShimeis=ci.honShimeis.filter(x=>x!==id);render();}
 function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save("sessions",S.sessions);}
@@ -2052,7 +2062,7 @@ function rSettings(){
     html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>';
     html+='</div>';
   }else if(stab==="menus"){
-    const menuSections=[["sets","セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["discounts","割引メニュー",false]];
+    const menuSections=[["normalSets","通常セットメニュー",true],["sets","特別セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["discounts","割引メニュー",false]];
     menuSections.forEach(([k,l,hm])=>{
       const ni=nmi[k]||{label:"",price:"",minutes:"",discType:"fixed"};
       const isDisc=(k==="discounts");
@@ -3135,10 +3145,10 @@ function calcEstForMinutes(s,extraMinutes,useVipExt){
       extraItems.push({id:"est_vip",label:vip30.label,price:vip30.price,qty:units,isVipCharge:true});
     }
   }
-  // SC加算：入店時にSCあり かつ 追加セットなし（1名のまま）の場合のみ
+  // SC加算：入店時にSCあり または1名の場合、かつ追加セットなしの場合
   const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
   const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
-  if(hasSC&&!hasAddedGuests&&extraMinutes>0){
+  if((hasSC||s.guests===1)&&!hasAddedGuests&&extraMinutes>0){
     const scOpt=S.menus.options.find(o=>o.id==="sc");
     const scPrice=scOpt?scOpt.price:2000;
     extraItems.push({id:"est_sc",label:"シングルチャージ（延長）",price:scPrice,qty:1});
@@ -3362,9 +3372,10 @@ function rModal(){
       gbs+='<button class="btn" data-n="'+n+'" onclick="window._addSetN='+n+';rModal()" style="width:48px;height:48px;border-radius:6px;font-weight:700;font-size:18px;background:'+(addN===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(addN===n?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(addN===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
     });
     let setList="";
-    S.menus.sets.forEach(sm=>{
+    const _allSets=[...(S.menus.normalSets||[]).map(s=>({...s,_cat:"通常"})),...(S.menus.sets||[]).map(s=>({...s,_cat:"特別"}))];
+    _allSets.forEach(sm=>{
       setList+='<button class="btn" data-sid="'+sm.id+'" onclick="addSetToSession(this.dataset.sid,window._addSetN||1)" style="text-align:left;padding:12px 14px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;">'
-        +'<span style="font-size:14px;">'+sm.label+'</span>'
+        +'<span style="font-size:14px;">'+sm.label+'<span style="font-size:10px;color:#888;margin-left:6px;">'+sm._cat+'</span></span>'
         +'<span style="color:#d4a017;white-space:nowrap;">¥'+fmt(sm.price*addN)+' ('+addN+'名)</span>'
         +'</button>';
     });
@@ -3449,11 +3460,11 @@ function rModal(){
   }
   else if(md==="ext"&&s){
     // SC込みボタン表示条件：
-    // ・入店時にSCを取っている（hasSC）
+    // ・入店時にSCを取っている（hasSC）、または1名の場合
     // ・かつ追加セット（addedGuests）がない（1名のままの場合のみ）
     const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
     const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
-    const showSCBtn=hasSC&&!hasAddedGuests;
+    const showSCBtn=(hasSC||s.guests===1)&&!hasAddedGuests;
     let ns='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
     S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
     ns+='</div>';
@@ -3482,6 +3493,25 @@ function rModal(){
     const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const isHon=(s?.items||[]).some(i=>i.isHonShimei&&i.castId===c.id);const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);const dsbl=isHon||dn;cb+='<button class="btn" '+(dsbl?"disabled":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":isHon?"rgba(255,255,255,.03)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":isHon?"rgba(255,255,255,.07)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":isHon?"#3a3a3a":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dsbl?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(isHon?'<div style="font-size:9px;color:#555;margin-top:2px;">本指名</div>':!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥1,500</div>':"")+' </button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥1,500/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
+  else if(md==="ci-set-select"){
+    const _isNormal=ci.setType==="normal";
+    const _ciMenus=_isNormal?(S.menus.normalSets||[]):(S.menus.sets||[]);
+    const _ciTitle=_isNormal?"通常セット":"特別セット";
+    let _ciBtns="";
+    _ciMenus.forEach(s=>{
+      _ciBtns+='<button class="btn" data-sid="'+s.id+'" onclick="sm2(this.dataset.sid)" style="text-align:left;padding:14px 16px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;">'
+        +'<span style="font-size:15px;">'+s.label+'</span>'
+        +'<span style="color:#d4a017;white-space:nowrap;font-size:14px;">¥'+fmt(s.price)+' / '+s.minutes+'分</span>'
+        +'</button>';
+    });
+    if(!_ciMenus.length){_ciBtns='<div style="font-size:14px;color:#555;padding:20px;text-align:center;">メニュー未設定<br><span style="font-size:12px;color:#444;">設定タブから追加してください</span></div>';}
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">'+_ciTitle+'</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">メニューを選択してください</div>'
+      +'<div style="max-height:60vh;overflow-y:auto;">'+_ciBtns+'</div>'
+      +'<button class="btn" onclick="closeM()" style="margin-top:8px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
   else if(md==="hsc"){
     let cb="";sc().forEach(c=>{const sel=ci.honShimeis.includes(c.id);cb+='<button class="btn" data-cid="'+c.id+'" onclick="thn(parseInt(this.dataset.cid))" style="padding:14px 8px;background:'+(sel?"rgba(184,150,12,.25)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#b8960c":"rgba(124,77,255,.3)")+';color:'+(sel?"#d4a017":"#a78bfa")+';border-radius:6px;font-size:14px;text-align:center;touch-action:manipulation;">'+(sel?"✓ ":"")+c.name+'<div style="font-size:10px;margin-top:2px;opacity:.7;">¥3,000</div></button>';});
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">本指名キャストを選択</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">¥3,000/名</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+cb+'</div>'+(ci.honShimeis.length?'<div style="margin-top:12px;padding:8px 12px;background:rgba(184,150,12,.1);border-radius:4px;font-size:12px;color:#d4a017;">合計 ¥'+fmt(3000*ci.honShimeis.length)+'（'+ci.honShimeis.length+'名）</div>':"")+'<button class="btn gbg" onclick="closeM()" style="margin-top:12px;width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">確定</button></div></div>';
@@ -3492,9 +3522,11 @@ function rModal(){
     let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div class="ir" style="min-height:36px;gap:4px;"><span style="flex:1;color:#ccc;font-size:13px;line-height:1.4;">'+lb+'</span><div style="display:flex;align-items:center;gap:5px;flex-shrink:0;"><span style="color:#d4a017;font-size:13px;font-weight:600;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
     if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
     const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
+    const _scP=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
     let addBtns='<button class="menu-btn" onclick="om(\'add-set\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">セット追加<br><small>+延長/入替</small></button>';
     addBtns+='<button class="menu-btn" onclick="om(\'add-hon\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">本指名追加<br><small>¥3,000</small></button>';
     if(onIds.size>0)addBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥1,500</small></button>';
+    addBtns+='<button class="menu-btn" onclick="addSCToSession()" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15);color:#ccc;">SC追加<br><small>¥'+fmt(_scP)+'</small></button>';
     addBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
     if(isV(at))addBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料<br><small>追加</small></button>';
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
@@ -4255,6 +4287,12 @@ function scc(id){cdc=id;cds=1;rModal();}
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
+function addSCToSession(){
+  const s=S.sessions[at];if(!s)return;
+  const scPrice=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
+  s.items=[...s.items,{id:"sc_add_"+Date.now(),label:"シングルチャージ",price:scPrice,qty:1}];
+  save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
+}
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
 
