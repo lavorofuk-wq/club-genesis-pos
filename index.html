@@ -170,7 +170,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.21</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.22</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -3156,13 +3156,31 @@ function exportUriageCSV(filtered,castId,castName){
   const honRecs=records.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
   const kumi=records.length;
   const guests=records.reduce((a,h)=>a+(h.guests||0),0);
-  const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
+  // 本指名売上: 同テーブルの本指名人数で均等分配
+  const sub=honRecs.reduce((a,h)=>{
+    const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
+    return a+(h.subtotal||h.total)/honCount;
+  },0);
+  // 場内延長売上: オールフリーのみ・場内延長キャスト数で均等分配
+  const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
+  const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
+  const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
+    const extAmt=(h.items||[]).filter(_becMatchCSV).reduce((s,i)=>{
+      const n=Math.max(1,(i.banaiExtCastIds||[i.banaiExtCastId]).filter(Boolean).length);
+      return s+Math.abs(i.price*(i.qty||1))/n;
+    },0);
+    return a+extAmt;
+  },0);
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
+  const banaiExt=banaiExtRecs.length;
   const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
   const bom="\uFEFF";
-  const rows=[["キャスト","合計小計","組数","総客数","本指名件数","場内指名件数","同伴件数","稼働時間(h)"],[castName,sub,kumi,guests,hon,ban,dohan,workHStr]];
+  const rows=[
+    ["キャスト","本指名小計","場内延長小計","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"],
+    [castName,Math.round(sub),Math.round(banaiExtSub),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
+  ];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"uriage_"+castName+".csv");
 }
 function exportAssignHistCSV(){
@@ -4122,12 +4140,17 @@ function rModal(){
       const allRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
       // 場内延長: banaiExtCastIds(複数対応)にこのキャストを含むextensionアイテムを持つ履歴
       const _becMatch=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
-      const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatch));
+      // 場内延長はオールフリー（本指名なし）のテーブルのみ対象
+      const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatch)&&!(h.items||[]).some(i=>i.isHonShimei));
       const honRecs=allRecs.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
       const kumi=allRecs.length;
       const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
-      const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
-      // 場内延長売上: 延長アイテム金額をキャスト数で均等分配
+      // 本指名売上: テーブル小計を同テーブルの本指名人数で均等分配
+      const sub=honRecs.reduce((a,h)=>{
+        const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
+        return a+(h.subtotal||h.total)/honCount;
+      },0);
+      // 場内延長売上: オールフリーのみ・延長アイテム金額を場内延長キャスト数で均等分配
       const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
         const extAmt=(h.items||[]).filter(_becMatch).reduce((s,i)=>{
           const n=Math.max(1,(i.banaiExtCastIds||[i.banaiExtCastId]).filter(Boolean).length);
