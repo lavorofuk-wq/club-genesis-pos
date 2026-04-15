@@ -1,4 +1,44 @@
 返答はすべて日本語で行う。
-変更後は常にgit add -A && git commitとgit pushまで自動実行する。
-システム内のバージョンを毎回更新する。
+変更後は常にgit add && git commitとgit pushまで自動実行する。
+システム内のバージョンを毎回更新する（index.html L.173 のVer番号）。
 このプロジェクトはキャバクラのPOSシステム（index.html）。
+
+# ブランチ戦略
+- main: 本番ブランチ（常に動作する状態を保つ）
+- dev: 開発ブランチ（作業はここで行い、確認後mainにマージ）
+- 開発はdevブランチで行い、動作確認後にmainへマージしてpush
+
+# バージョン管理
+- 機能追加: マイナーバージョン +1（例: Ver6.23 → Ver6.24）
+- バグ修正: パッチ（例: Ver6.23 → Ver6.23.1）
+- バージョン番号はindex.html L.173のVer番号を更新
+
+# コミットメッセージ規則
+- feat: 新機能追加
+- fix: バグ修正
+- ui: UI/デザイン変更
+- refactor: リファクタリング
+例: "feat: Ver6.24 場内延長複数キャスト対応"
+
+# Firebase データ構造
+pos/
+  history/              ← 会計済みセッション（履歴）
+  sessions/             ← 進行中セッション
+  casts/                ← キャスト一覧
+  tables/               ← テーブル一覧
+  shifts/               ← 出勤記録
+  assignments/          ← テーブルアサイン情報
+  bizDays/              ← 営業日管理
+  backups/              ← バックアップデータ
+  config/
+    password            ← POSログインパスワード
+    accountingPassword  ← 経理システムパスワード
+    printerIP           ← レシートプリンターIP
+    printerPort         ← レシートプリンターポート
+
+# 主要な仕様メモ
+- 本指名売上: テーブル小計 ÷ 本指名キャスト数（均等分配）
+- 場内延長: オールフリー（本指名なし）のテーブルのみ対象
+- 場内延長売上: 延長アイテム金額 ÷ 場内延長選択キャスト数（均等分配）
+- 本指名テーブルで場内指名が入っても売上分配は本指名キャストのみ
+- アイテムフラグ: isSet / isHonShimei / isBanaiShimei / isExtension / isBanaiExtension / isVipCharge / isDiscount
