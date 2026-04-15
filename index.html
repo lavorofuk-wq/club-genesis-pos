@@ -170,7 +170,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.20</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.21</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -218,7 +218,7 @@ let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,receipt:false,splits:[]}; // 会計終了ステート（splits:分割払い）
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
-let banaiExtCastId=null; // 場内延長キャスト選択用
+let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
 
 // ===== DEVICE DETECTION =====
 function getDevice(){
@@ -388,12 +388,13 @@ function startSession(){
 }
 function addExt(ext,wsc){
   const gid="eg_"+Date.now();const s=S.sessions[at];
-  const bec=banaiExtCastId;const bec_c=bec?S.casts.find(c=>c.id===bec):null;
-  const becExtra=bec?{isBanaiExtension:true,banaiExtCastId:bec,banaiExtCastName:bec_c?.name||""}:{};
+  const becs=banaiExtCastIds.length>0?banaiExtCastIds:[];
+  const becNames=becs.map(id=>S.casts.find(c=>c.id===id)?.name||"").filter(Boolean);
+  const becExtra=becs.length>0?{isBanaiExtension:true,banaiExtCastIds:becs,banaiExtCastNames:becNames}:{};
   const ni=[{id:"e_"+gid,label:ext.label,price:ext.price,qty:s.guests,isExtension:true,extMinutes:ext.minutes,groupId:gid,...becExtra}];
   if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid,...becExtra});
   s.items=[...s.items,...ni];s.setEndTime=(s.setEndTime||Date.now())+ext.minutes*60000;
-  banaiExtCastId=null;
+  banaiExtCastIds=[];
   save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
 function addVip(vip){
@@ -2722,7 +2723,7 @@ ${isGuest?"":'<div class="rcp-sub">店舗控え</div>'}
 <div class="rcp-meta">テーブル: <strong>${tl}</strong> &nbsp; ${sessionOrEst.guests}名様</div>
 <div class="rcp-meta">発行: ${now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
 ${!isEstimate&&sessionOrEst.payMethod?`<div class="rcp-meta">お支払い: <strong>${sessionOrEst.payMethod==="card"?"カード":"現金"}</strong>${sessionOrEst.receiptIssued?" &nbsp;|&nbsp; 領収書:発行":""}</div>`:""}
-${(()=>{if(isGuest)return"";const _bn=[...new Set((sessionOrEst.items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];return _bn.length?`<div class="rcp-meta">場内延長 ${_bn.map(n=>"（"+n+"）").join("")}</div>`:"";})()}
+${(()=>{if(isGuest)return"";const _bn=[...new Set((sessionOrEst.items||[]).filter(i=>i.isBanaiExtension).flatMap(i=>i.banaiExtCastNames||[i.banaiExtCastName].filter(Boolean)))];return _bn.length?`<div class="rcp-meta">場内延長 ${_bn.map(n=>"（"+n+"）").join("")}</div>`:"";})()}
 <hr class="rcp-divider">
 ${rows}
 <hr class="rcp-divider">
@@ -2825,7 +2826,7 @@ function buildEposXML(data,isEstimate){
   if(startTime){const st=new Date(startTime);ln("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));}
   const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
   if(honNames.length)ln("本指名 "+honNames.map(n=>"（"+n+"）").join(""));
-  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];if(_bn.length)ln("場内延長 "+_bn.map(n=>"（"+n+"）").join(""));}
+  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension).flatMap(i=>i.banaiExtCastNames||[i.banaiExtCastName].filter(Boolean)))];if(_bn.length)ln("場内延長 "+_bn.map(n=>"（"+n+"）").join(""));}
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;});
   ln(DIV);
@@ -2890,7 +2891,7 @@ function buildEposCommands(prn,data,isEstimate){
   if(startTime){const st=new Date(startTime);prn.addText("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");}
   const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
   if(honNames.length)prn.addText("本指名 "+honNames.map(n=>"（"+n+"）").join("")+"\n");
-  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];if(_bn.length)prn.addText("場内延長 "+_bn.map(n=>"（"+n+"）").join("")+"\n");}
+  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension).flatMap(i=>i.banaiExtCastNames||[i.banaiExtCastName].filter(Boolean)))];if(_bn.length)prn.addText("場内延長 "+_bn.map(n=>"（"+n+"）").join("")+"\n");}
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";prn.addText("お支払い: "+pm+(receiptIssued?" | 領収書:発行":"")+"\n");}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":"")+"\n");});
   prn.addText("-".repeat(W)+"\n");
@@ -3625,19 +3626,24 @@ function rModal(){
       +'</div></div>';
   }
   else if(md==="banai-ext-cast"&&s){
-    // 場内延長: このテーブルの場内指名キャスト一覧を表示
+    // 場内延長: このテーブルの場内指名キャスト一覧を複数選択
     const banaiCids=s.banaiShimeis||[];
     let cb="";
     banaiCids.forEach(cid=>{
       const c=S.casts.find(c=>c.id===cid);if(!c)return;
-      cb+='<button class="btn" data-cid="'+c.id+'" onclick="selBanaiExtCast(parseInt(this.dataset.cid))" style="padding:16px 12px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.35);color:#ffa500;border-radius:6px;font-size:15px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'<div style="font-size:11px;color:#ffa50099;margin-top:4px;">場内延長で選択</div></button>';
+      const sel=banaiExtCastIds.includes(cid);
+      cb+='<button class="btn" data-cid="'+c.id+'" onclick="toggleBanaiExtCast(parseInt(this.dataset.cid))" style="padding:16px 12px;background:'+(sel?"rgba(255,165,0,.3)":"rgba(255,165,0,.08)")+';border:1px solid '+(sel?"rgba(255,165,0,.8)":"rgba(255,165,0,.3)")+';color:'+(sel?"#ffd066":"#ffa500")+';border-radius:6px;font-size:15px;font-weight:700;text-align:center;touch-action:manipulation;">'+(sel?"✓ ":"")+c.name+'<div style="font-size:10px;opacity:.7;margin-top:4px;">'+(sel?"選択中":"タップで選択")+'</div></button>';
     });
     if(!cb)cb='<div style="font-size:13px;color:#555;padding:16px;text-align:center;">場内指名キャストなし</div>';
+    const selCount=banaiExtCastIds.length;
+    const confirmDisabled=selCount===0;
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
-      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffa500;">場内延長</h3>'
-      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">延長売上を帰属させるキャストを選択</div>'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffa500;">場内延長 — キャスト選択</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">延長売上を帰属させるキャストを選択（複数可）</div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:14px;">'+cb+'</div>'
-      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +(selCount>0?'<div style="font-size:12px;color:#ffa500;margin-bottom:10px;padding:6px 10px;background:rgba(255,165,0,.08);border-radius:4px;">'+selCount+'名選択中（延長売上を均等分配）</div>':"")
+      +'<button class="btn" onclick="confirmBanaiExtCasts()" '+(confirmDisabled?'disabled style="opacity:.35;cursor:default;"':"")+' style="width:100%;padding:12px;background:rgba(255,165,0,.15);border:1px solid rgba(255,165,0,.4);color:#ffa500;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">延長時間を選択 →</button>'
+      +'<button class="btn" onclick="banaiExtCastIds=[];closeM()" style="width:100%;margin-top:8px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
       +'</div></div>';
   }
   else if(md==="banai"&&s){
@@ -4114,15 +4120,19 @@ function rModal(){
     } else {
       const cid=String(castId);
       const allRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
-      // 場内延長: banaiExtCastIdがこのキャストのextensionアイテムを含む履歴
-      const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiExtension&&String(i.banaiExtCastId)===cid));
+      // 場内延長: banaiExtCastIds(複数対応)にこのキャストを含むextensionアイテムを持つ履歴
+      const _becMatch=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
+      const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatch));
       const honRecs=allRecs.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
       const kumi=allRecs.length;
       const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
       const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
-      // 場内延長売上: 場内延長アイテムの合計金額のみ（場内指名料は含まない）
+      // 場内延長売上: 延長アイテム金額をキャスト数で均等分配
       const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
-        const extAmt=(h.items||[]).filter(i=>i.isBanaiExtension&&String(i.banaiExtCastId)===cid).reduce((s,i)=>s+Math.abs(i.price*(i.qty||1)),0);
+        const extAmt=(h.items||[]).filter(_becMatch).reduce((s,i)=>{
+          const n=Math.max(1,(i.banaiExtCastIds||[i.banaiExtCastId]).filter(Boolean).length);
+          return s+Math.abs(i.price*(i.qty||1))/n;
+        },0);
         return a+extAmt;
       },0);
       const hon=honRecs.length;
@@ -4454,13 +4464,17 @@ function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.v
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function tryExt(){
-  banaiExtCastId=null;
+  banaiExtCastIds=[];
   const s=S.sessions[at];if(!s){om('ext');return;}
   const isAllFree=!(s.honShimeis&&s.honShimeis.length>0);
   const hasBanai=(s.banaiShimeis||[]).length>0;
   if(isAllFree&&hasBanai){om('banai-ext-cast');}else{om('ext');}
 }
-function selBanaiExtCast(cid){banaiExtCastId=cid;om('ext');}
+function toggleBanaiExtCast(cid){
+  banaiExtCastIds=banaiExtCastIds.includes(cid)?banaiExtCastIds.filter(id=>id!==cid):[...banaiExtCastIds,cid];
+  rModal();
+}
+function confirmBanaiExtCasts(){if(banaiExtCastIds.length>0)om('ext');}
 function addSCToSession(){
   const s=S.sessions[at];if(!s)return;
   const scPrice=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
