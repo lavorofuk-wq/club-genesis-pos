@@ -170,7 +170,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.22</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.23</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -4164,8 +4164,8 @@ function rModal(){
       const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
       const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
       statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
-      statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(sub)+'</div></div>';
-      statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(banaiExtSub)+'</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(Math.round(banaiExtSub))+'</div></div>';
       statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
       statsHtml+='</div>';
       statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
