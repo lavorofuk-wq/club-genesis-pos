@@ -170,7 +170,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.19</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.20</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -218,6 +218,7 @@ let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,receipt:false,splits:[]}; // 会計終了ステート（splits:分割払い）
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
+let banaiExtCastId=null; // 場内延長キャスト選択用
 
 // ===== DEVICE DETECTION =====
 function getDevice(){
@@ -387,9 +388,12 @@ function startSession(){
 }
 function addExt(ext,wsc){
   const gid="eg_"+Date.now();const s=S.sessions[at];
-  const ni=[{id:"e_"+gid,label:ext.label,price:ext.price,qty:s.guests,isExtension:true,extMinutes:ext.minutes,groupId:gid}];
-  if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid});
+  const bec=banaiExtCastId;const bec_c=bec?S.casts.find(c=>c.id===bec):null;
+  const becExtra=bec?{isBanaiExtension:true,banaiExtCastId:bec,banaiExtCastName:bec_c?.name||""}:{};
+  const ni=[{id:"e_"+gid,label:ext.label,price:ext.price,qty:s.guests,isExtension:true,extMinutes:ext.minutes,groupId:gid,...becExtra}];
+  if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid,...becExtra});
   s.items=[...s.items,...ni];s.setEndTime=(s.setEndTime||Date.now())+ext.minutes*60000;
+  banaiExtCastId=null;
   save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
 function addVip(vip){
@@ -2718,6 +2722,7 @@ ${isGuest?"":'<div class="rcp-sub">店舗控え</div>'}
 <div class="rcp-meta">テーブル: <strong>${tl}</strong> &nbsp; ${sessionOrEst.guests}名様</div>
 <div class="rcp-meta">発行: ${now2.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
 ${!isEstimate&&sessionOrEst.payMethod?`<div class="rcp-meta">お支払い: <strong>${sessionOrEst.payMethod==="card"?"カード":"現金"}</strong>${sessionOrEst.receiptIssued?" &nbsp;|&nbsp; 領収書:発行":""}</div>`:""}
+${(()=>{if(isGuest)return"";const _bn=[...new Set((sessionOrEst.items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];return _bn.length?`<div class="rcp-meta">場内延長 ${_bn.map(n=>"（"+n+"）").join("")}</div>`:"";})()}
 <hr class="rcp-divider">
 ${rows}
 <hr class="rcp-divider">
@@ -2820,6 +2825,7 @@ function buildEposXML(data,isEstimate){
   if(startTime){const st=new Date(startTime);ln("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}));}
   const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
   if(honNames.length)ln("本指名 "+honNames.map(n=>"（"+n+"）").join(""));
+  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];if(_bn.length)ln("場内延長 "+_bn.map(n=>"（"+n+"）").join(""));}
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";ln("お支払い: "+pm+(receiptIssued?" | 領収書:発行":""));}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";x+=`<text>${esc("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":""))}\n</text>`;});
   ln(DIV);
@@ -2884,6 +2890,7 @@ function buildEposCommands(prn,data,isEstimate){
   if(startTime){const st=new Date(startTime);prn.addText("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");}
   const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
   if(honNames.length)prn.addText("本指名 "+honNames.map(n=>"（"+n+"）").join("")+"\n");
+  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension&&i.banaiExtCastName).map(i=>i.banaiExtCastName))];if(_bn.length)prn.addText("場内延長 "+_bn.map(n=>"（"+n+"）").join("")+"\n");}
   if(payMethod){const pm=payMethod==="card"?"カード":"現金";prn.addText("お支払い: "+pm+(receiptIssued?" | 領収書:発行":"")+"\n");}
   if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+(sp.receipt?" [領]":"")+"\n");});
   prn.addText("-".repeat(W)+"\n");
@@ -3617,6 +3624,22 @@ function rModal(){
       +'<button class="btn" onclick="closeM();qv=1;" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
       +'</div></div>';
   }
+  else if(md==="banai-ext-cast"&&s){
+    // 場内延長: このテーブルの場内指名キャスト一覧を表示
+    const banaiCids=s.banaiShimeis||[];
+    let cb="";
+    banaiCids.forEach(cid=>{
+      const c=S.casts.find(c=>c.id===cid);if(!c)return;
+      cb+='<button class="btn" data-cid="'+c.id+'" onclick="selBanaiExtCast(parseInt(this.dataset.cid))" style="padding:16px 12px;background:rgba(255,165,0,.12);border:1px solid rgba(255,165,0,.35);color:#ffa500;border-radius:6px;font-size:15px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'<div style="font-size:11px;color:#ffa50099;margin-top:4px;">場内延長で選択</div></button>';
+    });
+    if(!cb)cb='<div style="font-size:13px;color:#555;padding:16px;text-align:center;">場内指名キャストなし</div>';
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffa500;">場内延長</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">延長売上を帰属させるキャストを選択</div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin-bottom:14px;">'+cb+'</div>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
   else if(md==="banai"&&s){
     const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
     let alh="";
@@ -3658,7 +3681,7 @@ function rModal(){
     addBtns+='<button class="menu-btn" onclick="om(\'add-hon\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">本指名追加<br><small>¥3,000</small></button>';
     if(onIds.size>0)addBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥1,500</small></button>';
     addBtns+='<button class="menu-btn" onclick="addSCToSession()" style="background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.15);color:#ccc;">SC追加<br><small>¥'+fmt(_scP)+'</small></button>';
-    addBtns+='<button class="menu-btn" onclick="om(\'ext\')" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
+    addBtns+='<button class="menu-btn" onclick="tryExt()" style="background:rgba(255,165,0,.1);border-color:rgba(255,165,0,.3);color:#ffa500;">延長<br><small>30/60分</small></button>';
     if(isV(at))addBtns+='<button class="menu-btn" onclick="om(\'vip\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">VIP室料<br><small>追加</small></button>';
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
       +'<h3 style="margin-bottom:12px;font-size:16px;color:#d4a017;">セット</h3>'
@@ -4091,26 +4114,40 @@ function rModal(){
     } else {
       const cid=String(castId);
       const allRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
+      // 場内延長: banaiExtCastIdがこのキャストのextensionアイテムを含む履歴
+      const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiExtension&&String(i.banaiExtCastId)===cid));
       const honRecs=allRecs.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
       const kumi=allRecs.length;
       const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
       const sub=honRecs.reduce((a,h)=>a+(h.subtotal||h.total),0);
+      // 場内延長売上: 場内延長アイテムの合計金額のみ（場内指名料は含まない）
+      const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
+        const extAmt=(h.items||[]).filter(i=>i.isBanaiExtension&&String(i.banaiExtCastId)===cid).reduce((s,i)=>s+Math.abs(i.price*(i.qty||1)),0);
+        return a+extAmt;
+      },0);
       const hon=honRecs.length;
       const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
+      const banaiExt=banaiExtRecs.length;
       const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
       const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
       statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
       statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(sub)+'</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(banaiExtSub)+'</div></div>';
       statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
-      statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">総客数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+guests+'<span style="font-size:11px;color:#888;">名</span></div></div>';
       statsHtml+='</div>';
-      statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
+      statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
+      statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">総客数</div><div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+guests+'<span style="font-size:10px;color:#888;">名</span></div></div>';
       statsHtml+='<div style="padding:8px;background:rgba(255,68,68,.06);border:1px solid rgba(255,68,68,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">本指名</div><div style="font-size:14px;font-weight:700;color:#ff4444;">'+hon+'件</div></div>';
       statsHtml+='<div style="padding:8px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場内指名</div><div style="font-size:14px;font-weight:700;color:#4ade80;">'+ban+'件</div></div>';
+      statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場内延長</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+banaiExt+'件</div></div>';
       statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">同伴</div><div style="font-size:14px;font-weight:700;color:#e8dcc8;">'+dohan+'件</div></div>';
+      statsHtml+='</div>';
+      statsHtml+='<div style="display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:4px;">';
       statsHtml+='<div style="padding:8px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">稼働時間</div><div style="font-size:14px;font-weight:700;color:#38bdf8;">'+workHStr+'h</div></div>';
       statsHtml+='</div>';
-      relevantRecs=allRecs;
+      // 場内延長のあるレコードも含める
+      const allRelevant=[...new Map([...allRecs,...banaiExtRecs].map(r=>[r.id,r])).values()];
+      relevantRecs=allRelevant;
       csvCall="exportUriageCSV(getFilteredHist(),'"+castId+"','"+castName+"')";
     }
     if(relevantRecs.length){
@@ -4416,6 +4453,14 @@ function scc(id){cdc=id;cds=1;rModal();}
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc}];save("sessions",S.sessions);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
+function tryExt(){
+  banaiExtCastId=null;
+  const s=S.sessions[at];if(!s){om('ext');return;}
+  const isAllFree=!(s.honShimeis&&s.honShimeis.length>0);
+  const hasBanai=(s.banaiShimeis||[]).length>0;
+  if(isAllFree&&hasBanai){om('banai-ext-cast');}else{om('ext');}
+}
+function selBanaiExtCast(cid){banaiExtCastId=cid;om('ext');}
 function addSCToSession(){
   const s=S.sessions[at];if(!s)return;
   const scPrice=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
