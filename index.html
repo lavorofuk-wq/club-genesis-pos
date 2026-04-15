@@ -44,6 +44,9 @@
     // 本番(club-genesis-pos.vercel.app): 'pos' / 開発環境: 'pos-dev'
     const FB_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'pos' : 'pos-dev';
     window._fbRoot = FB_ROOT;
+    // 本番: 'backup' / 開発環境: 'backup-dev'
+    const BACKUP_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'backup' : 'backup-dev';
+    window._backupRoot = BACKUP_ROOT;
     window._ref=function(db,path){return db.ref(path);};
     window._set=function(ref,val){return ref.set(val);};
     window._on=function(ref,cb,err){ref.on("value",cb,err);};
@@ -300,7 +303,7 @@ function initFB(){
   });
 
   // ===== バックアップノード購読 =====
-  db.ref("backup").on("value",(snap)=>{
+  db.ref(BACKUP_ROOT).on("value",(snap)=>{
     S.backups=snap.val()||{};
     if(["admin","backupDetail"].includes(vw))render();
   });
@@ -1059,9 +1062,9 @@ async function endBizDay(){
       // 再編集の場合：元バックアップを上書きせず、別キーで保存
       daySnap.edited=true;
       daySnap.editedAt=day.endedAt;
-      await window._db.ref("backup/bizDays/"+day.date+"_edited").set(daySnap).catch(e=>console.warn("backup error",e));
+      await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date+"_edited").set(daySnap).catch(e=>console.warn("backup error",e));
     }else{
-      await window._db.ref("backup/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
+      await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
     }
     await window._db.ref(FB_ROOT).update({
       bizDays:S.bizDays,
@@ -2409,7 +2412,7 @@ async function deleteBackupBizDay(date){
   if(!confirm("バックアップから「"+date+"」を削除します。\nこの操作は取り消せません。よろしいですか？"))return;
   if(window._db){
     try{
-      await window._db.ref("backup/bizDays/"+date).remove();
+      await window._db.ref(BACKUP_ROOT+"/bizDays/"+date).remove();
       sbs(true,"削除完了 ✓");render();
     }catch(e){sbs(false,"削除エラー");alert("削除に失敗："+e.message);}
   }
@@ -2517,7 +2520,7 @@ async function manualFirebaseBackup(){
     endedAt:null
   };
   try{
-    await window._db.ref("backup/bizDays/"+date).set(snap);
+    await window._db.ref(BACKUP_ROOT+"/bizDays/"+date).set(snap);
     sbs(true,"バックアップ完了 ✓");
     alert("「"+date+"」のバックアップを更新しました");
     render();
