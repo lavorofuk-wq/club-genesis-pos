@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.24</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.25</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -1379,10 +1379,12 @@ function dzDrop(e,zone,tableId){
 }
 
 // ===== タッチDnD（iPad対応）=====
-let _touch={active:false,castId:null,castName:null,fromZone:null,assignId:null,ghost:null};
+let _touch={active:false,castId:null,castName:null,fromZone:null,assignId:null,ghost:null,touchId:null};
 function chipTouchStart(e,castId,castName,zone,assignId){
-  const t=e.touches[0];
-  _touch={active:true,castId,castName,fromZone:zone,assignId,ghost:null,startX:t.clientX,startY:t.clientY,moved:false};
+  // 既にドラッグ中は2本目の指を無視（残像バグ防止）
+  if(_touch.active)return;
+  const t=e.changedTouches[0];
+  _touch={active:true,castId,castName,fromZone:zone,assignId,ghost:null,startX:t.clientX,startY:t.clientY,moved:false,touchId:t.identifier};
   // ゴーストを作成
   const src=e.currentTarget.cloneNode(true);
   src.style.cssText="position:fixed;pointer-events:none;z-index:9999;opacity:.85;width:160px;border-radius:8px;padding:8px 12px;background:#1a1a2e;border:1px solid rgba(212,160,23,.5);color:#e8dcc8;font-size:13px;font-weight:700;transform:scale(1.05);transition:none;left:"+(t.clientX-80)+"px;top:"+(t.clientY-20)+"px;";
@@ -1392,7 +1394,8 @@ function chipTouchStart(e,castId,castName,zone,assignId){
 function chipTouchMove(e){
   if(!_touch.active)return;
   e.preventDefault();
-  const t=e.touches[0];
+  // ドラッグを開始した指のみ追跡
+  const t=Array.from(e.touches).find(x=>x.identifier===_touch.touchId)||e.touches[0];
   if(_touch.ghost){_touch.ghost.style.left=(t.clientX-80)+"px";_touch.ghost.style.top=(t.clientY-20)+"px";}
   _touch.moved=true;
   // ドロップ候補ハイライト
@@ -1405,10 +1408,13 @@ function chipTouchMove(e){
 }
 function chipTouchEnd(e){
   if(!_touch.active)return;
+  // ドラッグを開始した指が離れたかチェック（別の指なら無視）
+  const changed=Array.from(e.changedTouches).find(x=>x.identifier===_touch.touchId);
+  if(!changed)return;
   if(_touch.ghost){_touch.ghost.remove();_touch.ghost=null;}
   document.querySelectorAll("[id^='dz-']").forEach(el=>{el.style.background="";el.style.boxShadow="";});
   if(!_touch.moved){_touch.active=false;return;} // タップは chipTap で処理
-  const t=e.changedTouches[0];
+  const t=changed;
   let zone=null,tableId=null;
   document.querySelectorAll("[id^='dz-']").forEach(el=>{
     const r=el.getBoundingClientRect();
