@@ -1795,19 +1795,26 @@ function execDeleteSession(){
   if(!at||!S.sessions[at])return;
   const deletedTableId=at;
   const now_del=Date.now();
-  // アクティブなアサインをすべて終了扱いにする
+  // アクティブなアサインを終了し、キャストのshiftステータスをwaitingに戻す
   Object.values(S.assignments||{}).forEach(a=>{
     if(a.tableId===deletedTableId&&!a.endTime){
       a.endTime=now_del;
-      // statusLogの最後のエントリも閉じる
-      if(Array.isArray(a.statusLog)){const last=a.statusLog[a.statusLog.length-1];if(last&&!last.endTime)last.endTime=now_del;}
+      const sh=getShiftByCastId(a.castId);
+      if(sh){
+        if(!sh.statusLog)sh.statusLog=[];
+        const last=sh.statusLog[sh.statusLog.length-1];
+        if(last&&!last.endTime)last.endTime=now_del;
+        sh.statusLog.push({status:"waiting",startTime:now_del,endTime:null});
+        sh.status="waiting";
+      }
     }
   });
   delete S.sessions[deletedTableId];
   if(window._db){
     window._db.ref(FB_ROOT).update({
       sessions:Object.keys(S.sessions).length>0?S.sessions:null,
-      assignments:Object.keys(S.assignments||{}).length>0?S.assignments:null
+      assignments:Object.keys(S.assignments||{}).length>0?S.assignments:null,
+      shifts:Object.keys(S.shifts||{}).length>0?S.shifts:null
     }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
