@@ -219,7 +219,7 @@ let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
 let priceHidden=false;
 let expandedHist={};
-let histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};
+let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,receipt:false,splits:[]}; // 会計終了ステート（splits:分割払い）
 let editPayHid=null; // 履歴支払変更対象ID
@@ -1951,7 +1951,7 @@ function setHistToday(){
   histFilter.toTime="18:59";
   render();
 }
-function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
+function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};render();}
 function getFilteredHist(){
   // 現在の営業日 + 全過去営業日のhistoryをマージ
   let allHist=Array.isArray(S.history)?[...S.history]:[];
@@ -1963,8 +1963,8 @@ function getFilteredHist(){
   allHist=allHist.filter(h=>{if(seen.has(h.id))return false;seen.add(h.id);return true;});
   // フィルター適用
   return allHist.filter(h=>{
-    if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"00:00")).getTime();if(h.startTime<from)return false;}
-    if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"23:59")+":59").getTime();if(h.startTime>to)return false;}
+    if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime();if(h.startTime<from)return false;}
+    if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime();if(h.startTime>to)return false;}
     return true;
   }).sort((a,b)=>b.startTime-a.startTime);
 }
@@ -1981,7 +1981,7 @@ function exportCSV(){
   const csv=bom+header+"\n"+rows.join("\n");
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||new Date().toISOString().slice(0,10))+".csv";a.click();URL.revokeObjectURL(url);
+  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
 }
 function cdh(id){dhi=id;om("dh");}
 
