@@ -1942,13 +1942,19 @@ function rHist(){
 }
 function toggleHist(id){expandedHist[id]=!expandedHist[id];render();}
 function setHistToday(){
-  const start=getBizDayStart(Date.now());
-  const end=getBizDayEnd(Date.now());
-  const s=new Date(start);const e=new Date(end);
-  histFilter.from=s.toLocaleDateString("sv-SE");
-  histFilter.fromTime="19:00";
-  histFilter.to=e.toLocaleDateString("sv-SE");
-  histFilter.toTime="18:59";
+  if(S.activeBizDay){
+    histFilter.from=S.activeBizDay;
+    histFilter.fromTime="19:00";
+    const nd=new Date(S.activeBizDay+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");
+    histFilter.toTime="18:59";
+  }else{
+    const start=getBizDayStart(Date.now());const end=getBizDayEnd(Date.now());
+    histFilter.from=new Date(start).toLocaleDateString("sv-SE");
+    histFilter.fromTime="19:00";
+    histFilter.to=new Date(end).toLocaleDateString("sv-SE");
+    histFilter.toTime="18:59";
+  }
   render();
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};render();}
