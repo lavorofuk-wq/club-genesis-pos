@@ -187,6 +187,7 @@
       <button class="nb" id="nm" onclick="sv('admin')">管理</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
+      <button class="btn" id="lo-btn" onclick="toggleLO()" title="ラストオーダー" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">LO</button>
       <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
       <button class="btn" id="admin-btn" onclick="toggleAdminMode()" title="管理モード" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">管理</button>
       <button class="btn" id="end-biz-btn" onclick="om('endBizDay')" style="display:none;padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;">営業終了</button>
@@ -211,7 +212,7 @@ const DM={normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minute
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{}};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -337,6 +338,8 @@ function initFB(){
     S.assignments=d.assignments||{};
     S.bizDays=d.bizDays||{};
     S.activeBizDay=d.activeBizDay||null;
+    S.loMode=d.loMode||false;
+    S.loStatus=d.loStatus||{};
     if(d.config){
       S.config={password:d.config.password||'genesis0127',pwEnabled:d.config.pwEnabled!==false,printerIP:d.config.printerIP||'192.168.150.76',printerPort:d.config.printerPort||8008};
       // キャッシュ更新（次回起動時に使用）
@@ -662,6 +665,15 @@ function updateNav(){
     else{el.style.display="";}
     el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
+  // LOボタン更新
+  const loBtn=document.getElementById("lo-btn");
+  if(loBtn){
+    loBtn.style.background=S.loMode?"rgba(255,68,68,.18)":"rgba(255,255,255,.05)";
+    loBtn.style.color=S.loMode?"#ff4444":"#888";
+    loBtn.style.borderColor=S.loMode?"rgba(255,68,68,.4)":"rgba(255,255,255,.1)";
+    loBtn.style.fontWeight=S.loMode?"700":"400";
+    loBtn.style.display=inBiz?"":"none";
+  }
   // 管理モードボタン更新
   const ab=document.getElementById("admin-btn");
   if(ab){ab.textContent=isAdmin?"管理中":"管理";ab.style.background=isAdmin?"rgba(212,160,23,.15)":"rgba(255,255,255,.05)";ab.style.color=isAdmin?"#d4a017":"#888";ab.style.borderColor=isAdmin?"rgba(212,160,23,.3)":"rgba(255,255,255,.1)";}
@@ -1120,7 +1132,12 @@ function rFloor(){
         +'</div>'
         :"")
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
-    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
+    const loBadgeFs=(parseFloat(lblFs)*2)+"px";
+    const loSt=S.loMode&&s?(S.loStatus[t.id]==="done"?"done":"pending"):null;
+    const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#ff4444;line-height:1;">LO未</span>'
+      :loSt==="done"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#38bdf8;line-height:1;">LO完</span>':"";
+    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
+      +(loBadge?'<div style="position:absolute;top:4px;right:6px;pointer-events:none;">'+loBadge+'</div>':"")
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
       +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
       +(isV(t.id)?'<span class="tag tv2" style="flex-shrink:0;">VIP</span>':"")
@@ -1813,6 +1830,33 @@ function execDeleteSession(){
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;md=null;vw="floor";render();
+}
+
+// ===== ラストオーダー機能 =====
+function toggleLO(){
+  if(!S.loMode){om("loModeOn");}
+  else{md="loList";rModal();}
+}
+function execLOStart(){
+  S.loMode=true;S.loStatus={};
+  if(window._db)window._db.ref(FB_ROOT).update({loMode:true,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  closeM();render();
+}
+function execLOComplete(){
+  const tid=window._loTableId;if(!tid)return;
+  S.loStatus[tid]="done";
+  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).set("done").then(()=>sbs(true,"同期済み ✓"));
+  window._loTableId=null;md="loList";rModal();
+}
+function execLOUndone(tid){
+  delete S.loStatus[tid];
+  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).remove().then(()=>sbs(true,"同期済み ✓"));
+  md="loFix";rModal();
+}
+function execLOEnd(){
+  S.loMode=false;S.loStatus={};
+  if(window._db)window._db.ref(FB_ROOT).update({loMode:false,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  closeM();render();
 }
 
 
@@ -3450,6 +3494,60 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
       +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
       +'</div></div></div>';
+  }
+  else if(md==="loModeOn"){
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
+      +'<h3 style="font-size:17px;color:#ff4444;margin-bottom:16px;">ラストオーダーモード</h3>'
+      +'<div style="font-size:14px;color:#aaa;margin-bottom:22px;">ラストオーダーモードをオンにしますか？<br><span style="font-size:12px;color:#666;">全テーブルにLO未が表示されます</span></div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
+      +'<button class="btn" onclick="execLOStart()" style="flex:1;padding:12px;background:rgba(255,68,68,.15);border:1px solid rgba(255,68,68,.35);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">オンにする</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loList"){
+    const activeTbls=S.tables.filter(t=>S.sessions[t.id]);
+    const pending=activeTbls.filter(t=>S.loStatus[t.id]!=="done");
+    const done=activeTbls.filter(t=>S.loStatus[t.id]==="done");
+    let tblHtml='';
+    pending.forEach(t=>{
+      tblHtml+='<button class="btn" data-tid="'+t.id+'" onclick="window._loTableId=this.dataset.tid;md=\'loConfirm\';rModal()" style="width:100%;text-align:left;padding:10px 14px;margin-bottom:6px;background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.2);color:#ff4444;border-radius:6px;font-size:15px;font-weight:700;touch-action:manipulation;">'+t.label+'　<span style="font-size:12px;font-weight:400;color:#ff6666;">LO未</span></button>';
+    });
+    if(!pending.length)tblHtml='<div style="font-size:13px;color:#4ade80;padding:12px 0;text-align:center;">全テーブルのLOが完了しています</div>';
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+      +'<h3 style="font-size:16px;color:#ff4444;margin-bottom:4px;">LO未テーブル一覧</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">LO未: '+pending.length+'卓　LO完: '+done.length+'卓</div>'
+      +tblHtml
+      +'<div style="margin-top:14px;display:flex;gap:8px;">'
+      +(done.length?'<button class="btn" onclick="md=\'loFix\';rModal()" style="flex:1;padding:10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:6px;font-size:13px;touch-action:manipulation;">LO修正</button>':"")
+      +'<button class="btn" onclick="execLOEnd()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#666;border-radius:6px;font-size:13px;touch-action:manipulation;">LO終了</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loConfirm"){
+    const tbl=S.tables.find(t=>t.id===window._loTableId);
+    const tl=tbl?tbl.label:window._loTableId;
+    h='<div class="mo" onclick="md=\'loList\';rModal()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
+      +'<div style="font-size:14px;color:#888;margin-bottom:8px;">ラストオーダー完了確認</div>'
+      +'<div style="font-size:22px;font-weight:700;color:#d4a017;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.25);border-radius:6px;padding:8px 20px;margin-bottom:12px;">'+tl+'</div>'
+      +'<div style="font-size:14px;color:#aaa;margin-bottom:22px;">のラストオーダーを完了しますか？</div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="md=\'loList\';rModal()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">いいえ</button>'
+      +'<button class="btn" onclick="execLOComplete()" style="flex:1;padding:12px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">はい</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loFix"){
+    const activeTbls=S.tables.filter(t=>S.sessions[t.id]);
+    const done=activeTbls.filter(t=>S.loStatus[t.id]==="done");
+    let tblHtml='';
+    done.forEach(t=>{
+      tblHtml+='<button class="btn" data-tid="'+t.id+'" onclick="execLOUndone(this.dataset.tid)" style="width:100%;text-align:left;padding:10px 14px;margin-bottom:6px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:6px;font-size:15px;font-weight:700;touch-action:manipulation;">'+t.label+'　<span style="font-size:12px;font-weight:400;">LO完 → LO未に戻す</span></button>';
+    });
+    if(!done.length)tblHtml='<div style="font-size:13px;color:#666;padding:12px 0;text-align:center;">LO完了のテーブルはありません</div>';
+    h='<div class="mo" onclick="md=\'loList\';rModal()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+      +'<h3 style="font-size:16px;color:#38bdf8;margin-bottom:14px;">LO修正</h3>'
+      +tblHtml
+      +'<button class="btn" onclick="md=\'loList\';rModal()" style="width:100%;margin-top:10px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">戻る</button>'
+      +'</div></div>';
   }
   else if(md==="confirm-del"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;text-align:center;">'
