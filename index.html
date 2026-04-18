@@ -1946,9 +1946,9 @@ function setHistToday(){
   const end=getBizDayEnd(Date.now());
   const s=new Date(start);const e=new Date(end);
   histFilter.from=s.toLocaleDateString("sv-SE");
-  histFilter.fromTime="20:00";
+  histFilter.fromTime="19:00";
   histFilter.to=e.toLocaleDateString("sv-SE");
-  histFilter.toTime="02:59";
+  histFilter.toTime="18:59";
   render();
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
@@ -2095,15 +2095,15 @@ function saveHistPay(){
   save("history",S.history);editPayHid=null;closeM();render();
 }
 
-// ===== 営業日（20:00〜翌3:00）=====
+// ===== 営業日（19:00〜翌18:59）=====
 function getBizDayStart(t){
   const d=new Date(t||Date.now());
-  if(d.getHours()<3)d.setDate(d.getDate()-1);
-  d.setHours(20,0,0,0);return d.getTime();
+  if(d.getHours()<19)d.setDate(d.getDate()-1);
+  d.setHours(19,0,0,0);return d.getTime();
 }
 function getBizDayEnd(t){
   const s=new Date(getBizDayStart(t));
-  s.setDate(s.getDate()+1);s.setHours(3,0,0,0);return s.getTime();
+  s.setDate(s.getDate()+1);s.setHours(18,59,59,999);return s.getTime();
 }
 
 
@@ -4580,16 +4580,16 @@ function adjustHHMM(hhmm,deltaMins){
 }
 function hhmm2ts(hhmm){
   // HH:MM を現在の営業日内のtimestampに変換
-  // 営業時間: 前日20:00〜翌3:00
+  // 営業時間: 当日19:00〜翌18:59
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の20:00
+  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の19:00
   const d=new Date(bizStart);
-  if(h>=20){
-    // 20:00〜23:59 → 営業日開始日（bizStartと同日）
+  if(h>=19){
+    // 19:00〜23:59 → 営業日開始日（bizStartと同日）
     d.setHours(h,m,0,0);
   } else {
-    // 0:00〜19:59 → 翌日（bizStart+1日）
+    // 0:00〜18:59 → 翌日（bizStart+1日）
     d.setDate(d.getDate()+1);
     d.setHours(h,m,0,0);
   }
