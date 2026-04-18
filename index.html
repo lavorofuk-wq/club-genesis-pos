@@ -770,7 +770,7 @@ function buildFloorOrderContent(){
   const setItems=(s.items||[]).filter(isSetCatItem);
   const guestItems=(s.items||[]).filter(isGuestCatItem);
   const castItems=(s.items||[]).filter(isCastCatItem);
-  return '<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
+  let html='<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
     // HEADER
     +'<div style="flex-shrink:0;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:8px;">'
     +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
@@ -813,16 +813,19 @@ function buildFloorOrderContent(){
     +colItems(castItems,'#a78bfa')
     +'<button class="btn" onclick="om(\'castDetail\')" style="'+dtSt+'">詳細'+(castCount?' ('+castCount+')':'')+'</button>'
     +'</div>'
-    +'</div></div>'
+    +'</div></div>';
     // BOTTOM
-    +'<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);">'
+    const _isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+    html+='<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);">'
     +'<div style="flex:1;"><div style="font-size:'+fColH+';color:#666;margin-bottom:2px;">合計</div>'
     +'<div style="font-size:'+fTotal+';font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
     +'<button class="btn gbg" onclick="om(\'co\')" style="padding:'+bPad+';font-size:'+bFs+';font-weight:700;border-radius:6px;touch-action:manipulation;">会計</button>'
     +'<button class="btn" onclick="om(\'est\')" style="padding:'+bPad+';background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">概算</button>'
     +'<button class="btn" onclick="om(\'disc\')" style="padding:'+bPad+';background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">割引</button>'
+    +(_isAdmin?'<button class="btn" onclick="om(\'deleteSession\')" style="padding:'+bPad+';background:rgba(255,30,30,.12);border:1px solid rgba(255,30,30,.35);color:#ff4444;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">削除</button>':'')
     +'</div>'
-    +'</div>';
+    +'</div>'
+    return html;
 }
 
 // ===== HOME & 営業日管理 =====
@@ -1788,6 +1791,16 @@ function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id
 function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;return (S.menus.champagne||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
+function execDeleteSession(){
+  if(!at||!S.sessions[at])return;
+  delete S.sessions[at];
+  if(window._db){
+    window._db.ref(FB_ROOT+'/sessions').set(Object.keys(S.sessions).length>0?S.sessions:null)
+      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  }
+  const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
+  at=null;md=null;vw="floor";render();
+}
 
 
 function odq(id){
@@ -3401,6 +3414,20 @@ function rModal(){
       +'<button class="btn gbg" onclick="execRestoreAllWithChoices()" style="width:100%;padding:13px;font-weight:700;font-size:15px;border-radius:6px;touch-action:manipulation;margin-top:4px;">選択したデータで全件復旧</button>'
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;touch-action:manipulation;">キャンセル</button>'
       +'</div></div>';
+  }
+  else if(md==="deleteSession"&&s){
+    const tl=S.tables.find(t=>t.id===at)?.label||at;
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
+      +'<div style="font-size:30px;margin-bottom:10px;">⚠️</div>'
+      +'<h3 style="font-size:16px;color:#ff4444;margin-bottom:14px;">セッション削除</h3>'
+      +'<div style="font-size:14px;color:#888;margin-bottom:8px;">本当に</div>'
+      +'<div style="font-size:22px;font-weight:700;color:#ff4444;background:rgba(255,68,68,.12);border:1px solid rgba(255,68,68,.3);border-radius:6px;padding:8px 20px;margin-bottom:8px;letter-spacing:.05em;">'+tl+'</div>'
+      +'<div style="font-size:14px;color:#888;margin-bottom:6px;">を削除しますか？</div>'
+      +'<div style="font-size:11px;color:#ff4444;margin-bottom:22px;font-weight:700;">この操作は取り消せません</div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
+      +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
+      +'</div></div></div>';
   }
   else if(md==="confirm-del"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;text-align:center;">'
