@@ -1795,18 +1795,12 @@ function execDeleteSession(){
   if(!at||!S.sessions[at])return;
   const deletedTableId=at;
   const now_del=Date.now();
-  // アクティブなアサインを終了し、キャストのshiftステータスをwaitingに戻す
-  Object.values(S.assignments||{}).forEach(a=>{
+  // アクティブなアサインを削除（履歴に残さない）し、キャストのshiftステータスをwaitingに戻す
+  Object.keys(S.assignments||{}).forEach(aid=>{
+    const a=S.assignments[aid];
     if(a.tableId===deletedTableId&&!a.endTime){
-      a.endTime=now_del;
-      const sh=getShiftByCastId(a.castId);
-      if(sh){
-        if(!sh.statusLog)sh.statusLog=[];
-        const last=sh.statusLog[sh.statusLog.length-1];
-        if(last&&!last.endTime)last.endTime=now_del;
-        sh.statusLog.push({status:"waiting",startTime:now_del,endTime:null});
-        sh.status="waiting";
-      }
+      setCastStatus(a.castId,"waiting");
+      delete S.assignments[aid];
     }
   });
   delete S.sessions[deletedTableId];
