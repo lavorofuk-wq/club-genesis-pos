@@ -1949,10 +1949,13 @@ function setHistToday(){
     histFilter.to=nd.toLocaleDateString("sv-SE");
     histFilter.toTime="18:59";
   }else{
-    const start=getBizDayStart(Date.now());const end=getBizDayEnd(Date.now());
-    histFilter.from=new Date(start).toLocaleDateString("sv-SE");
+    // 営業外: S.bizDaysから最新の営業日を取得
+    const lastDay=Object.values(S.bizDays||{}).filter(d=>d.endedAt).sort((a,b)=>b.endedAt-a.endedAt)[0];
+    const dateStr=lastDay?lastDay.date:getBizDate();
+    histFilter.from=dateStr;
     histFilter.fromTime="19:00";
-    histFilter.to=new Date(end).toLocaleDateString("sv-SE");
+    const nd=new Date(dateStr+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");
     histFilter.toTime="18:59";
   }
   render();
@@ -1987,7 +1990,7 @@ function exportCSV(){
   const csv=bom+header+"\n"+rows.join("\n");
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
+  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||S.activeBizDay||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
 }
 function cdh(id){dhi=id;om("dh");}
 
@@ -4810,7 +4813,7 @@ function deleteAssign(aid){
 
 // ===== 出勤画面 =====
 function rShifts(){
-  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  // S.shiftsは現在の営業日データのみ含むため、追加フィルタリング不要
   const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
   const onIds=getOndutyIds();
   const allToday=Object.values(S.shifts||{});
