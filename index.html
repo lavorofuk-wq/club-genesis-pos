@@ -187,10 +187,8 @@
       <button class="nb" id="nm" onclick="sv('admin')">管理</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
-      <button class="btn" id="lo-btn" onclick="toggleLO()" title="ラストオーダー" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">LO</button>
-      <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
-      <button class="btn" id="admin-btn" onclick="toggleAdminMode()" title="管理モード" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">管理</button>
-      <button class="btn" id="end-biz-btn" onclick="om('endBizDay')" style="display:none;padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;">営業終了</button>
+      <button class="btn" id="ops-btn" onclick="om('opsMenu')" style="display:none;padding:4px 10px;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">営業</button>
+      <button class="btn" id="mgmt-btn" onclick="om('mgmtMenu')" style="padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">管理</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
@@ -652,8 +650,8 @@ function updateNav(){
   const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
   const nav=document.getElementById("main-nav");
   if(nav)nav.style.display="flex"; // 常時表示
-  const endBtn=document.getElementById("end-biz-btn");
-  if(endBtn)endBtn.style.display=inBiz?"block":"none";
+  const opsBtn=document.getElementById("ops-btn");
+  if(opsBtn)opsBtn.style.display=inBiz?"":"none";
   [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     // フロア・リスト・出勤・売上は営業中のみ表示
@@ -665,18 +663,14 @@ function updateNav(){
     else{el.style.display="";}
     el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
-  // LOボタン更新
-  const loBtn=document.getElementById("lo-btn");
-  if(loBtn){
-    loBtn.style.background=S.loMode?"rgba(255,68,68,.18)":"rgba(255,255,255,.05)";
-    loBtn.style.color=S.loMode?"#ff4444":"#888";
-    loBtn.style.borderColor=S.loMode?"rgba(255,68,68,.4)":"rgba(255,255,255,.1)";
-    loBtn.style.fontWeight=S.loMode?"700":"400";
-    loBtn.style.display=inBiz?"":"none";
-  }
-  // 管理モードボタン更新
-  const ab=document.getElementById("admin-btn");
-  if(ab){ab.textContent=isAdmin?"管理中":"管理";ab.style.background=isAdmin?"rgba(212,160,23,.15)":"rgba(255,255,255,.05)";ab.style.color=isAdmin?"#d4a017":"#888";ab.style.borderColor=isAdmin?"rgba(212,160,23,.3)":"rgba(255,255,255,.1)";}
+  // 営業ボタン: LOモード中は赤ハイライト
+  const opsBtn2=document.getElementById("ops-btn");
+  if(opsBtn2&&S.loMode){opsBtn2.style.background="rgba(255,68,68,.18)";opsBtn2.style.color="#ff4444";opsBtn2.style.borderColor="rgba(255,68,68,.4)";}
+  else if(opsBtn2){opsBtn2.style.background="rgba(212,160,23,.12)";opsBtn2.style.color="#d4a017";opsBtn2.style.borderColor="rgba(212,160,23,.3)";}
+  // 管理ボタン: 管理モード中はゴールドハイライト
+  const mgmtBtn=document.getElementById("mgmt-btn");
+  if(mgmtBtn&&isAdmin){mgmtBtn.style.background="rgba(212,160,23,.15)";mgmtBtn.style.color="#d4a017";mgmtBtn.style.borderColor="rgba(212,160,23,.3)";}
+  else if(mgmtBtn){mgmtBtn.style.background="rgba(255,80,80,.12)";mgmtBtn.style.color="#ff6b6b";mgmtBtn.style.borderColor="rgba(255,80,80,.3)";}
   // 管理モード中のヘッダー強調
   const header=document.querySelector("header");
   if(header){header.style.borderBottom=isAdmin?"2px solid rgba(212,160,23,.5)":"";header.style.background=isAdmin?"rgba(212,160,23,.04)":"";}
@@ -3494,6 +3488,32 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
       +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
       +'</div></div></div>';
+  }
+  else if(md==="opsMenu"){
+    const loLbl=S.loMode?"LO（オン中）":"LO";
+    const loCol=S.loMode?"rgba(255,68,68,.18)":"rgba(255,255,255,.05)";
+    const loBdr=S.loMode?"rgba(255,68,68,.35)":"rgba(255,255,255,.1)";
+    const loTxt=S.loMode?"#ff4444":"#e8dcc8";
+    const prLbl=priceHidden?"¥表示（非表示中）":"¥表示";
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;">'
+      +'<h3 style="font-size:15px;color:#d4a017;margin-bottom:16px;">営業メニュー</h3>'
+      +'<button class="btn" onclick="closeM();toggleLO()" style="width:100%;padding:14px;margin-bottom:10px;background:'+loCol+';border:1px solid '+loBdr+';color:'+loTxt+';border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+loLbl+'</button>'
+      +'<button class="btn" onclick="closeM();togglePriceHide()" style="width:100%;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+prLbl+'</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:12px;padding:10px;background:none;border:none;color:#555;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div>';
+  }
+  else if(md==="mgmtMenu"){
+    const isAdm=sessionStorage.getItem("genesis_admin")==="1";
+    const admLbl=isAdm?"管理モード（オン中）":"管理モード";
+    const admCol=isAdm?"rgba(212,160,23,.18)":"rgba(255,255,255,.05)";
+    const admBdr=isAdm?"rgba(212,160,23,.35)":"rgba(255,255,255,.1)";
+    const admTxt=isAdm?"#d4a017":"#e8dcc8";
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;">'
+      +'<h3 style="font-size:15px;color:#ff6b6b;margin-bottom:16px;">管理メニュー</h3>'
+      +'<button class="btn" onclick="closeM();toggleAdminMode()" style="width:100%;padding:14px;margin-bottom:10px;background:'+admCol+';border:1px solid '+admBdr+';color:'+admTxt+';border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+admLbl+'</button>'
+      +(S.activeBizDay?'<button class="btn" onclick="closeM();om(\'endBizDay\')" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">営業終了</button>':"")
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:12px;padding:10px;background:none;border:none;color:#555;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div>';
   }
   else if(md==="loModeOn"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
