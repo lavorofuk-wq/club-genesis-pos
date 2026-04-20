@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.25</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.26</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -187,9 +187,8 @@
       <button class="nb" id="nm" onclick="sv('admin')">管理</button>
     </nav>
     <div style="display:flex;align-items:center;gap:8px;">
-      <button class="btn" id="price-toggle" onclick="togglePriceHide()" title="金額表示切替" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">¥表示</button>
-      <button class="btn" id="admin-btn" onclick="toggleAdminMode()" title="管理モード" style="padding:4px 8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:11px;">管理</button>
-      <button class="btn" id="end-biz-btn" onclick="om('endBizDay')" style="display:none;padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;">営業終了</button>
+      <button class="btn" id="ops-btn" onclick="om('opsMenu')" style="display:none;padding:4px 10px;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">営業</button>
+      <button class="btn" id="mgmt-btn" onclick="om('mgmtMenu')" style="padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">管理</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
@@ -207,11 +206,11 @@
 <script>
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
-const DM={normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
+const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{}};
+let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -219,7 +218,7 @@ let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
 let priceHidden=false;
 let expandedHist={};
-let histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};
+let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,receipt:false,splits:[]}; // 会計終了ステート（splits:分割払い）
 let editPayHid=null; // 履歴支払変更対象ID
@@ -321,6 +320,7 @@ function initFB(){
       // 未定義カテゴリを空配列で初期化
       if(!S.menus.champagne)S.menus.champagne=[];
       if(!S.menus.normalSets)S.menus.normalSets=[];
+      if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
     }
     if(d.tables)S.tables=d.tables;
     // オーダー中テーブルのitemsは自分のローカル状態を優先（Firebase同期タイミング問題を防ぐ）
@@ -337,6 +337,8 @@ function initFB(){
     S.assignments=d.assignments||{};
     S.bizDays=d.bizDays||{};
     S.activeBizDay=d.activeBizDay||null;
+    S.loMode=d.loMode||false;
+    S.loStatus=d.loStatus||{};
     if(d.config){
       S.config={password:d.config.password||'genesis0127',pwEnabled:d.config.pwEnabled!==false,printerIP:d.config.printerIP||'192.168.150.76',printerPort:d.config.printerPort||8008};
       // キャッシュ更新（次回起動時に使用）
@@ -516,6 +518,22 @@ function addCustom(){
   s.items=[...s.items,{id:"cu_"+Date.now(),label:l,price:p,qty:1}];
   save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
+function addGuestCustom(){
+  const lEl=document.getElementById("gcu-label");
+  const pEl=document.getElementById("gcu-price");
+  const p=parseInt(pEl?.value||"",10);
+  if(isNaN(p)||p<0){if(pEl)pEl.focus();return;}
+  const l=lEl?.value||"その他";
+  const s=S.sessions[at];
+  s.items=[...s.items,{id:"gcu_"+Date.now(),label:l,price:p,qty:1}];
+  save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
+}
+function addCastCustomItem(itemId){
+  const item=(S.menus.castCustomItems||[]).find(x=>x.id===itemId);if(!item)return;
+  const s=S.sessions[at];
+  s.items=[...s.items,{id:"cci_"+itemId+"_"+Date.now(),label:item.label,price:item.price,qty:1}];
+  save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
+}
 function addDiscount(id){
   const d=(S.menus.discounts||[]).find(x=>x.id===id);if(!d)return;
   const s=S.sessions[at];const tgt=window._discTarget||'subtotal';
@@ -551,6 +569,11 @@ function addSetToSession(setId, addGuests){
   if(!s.setEndTime)s.setEndTime=Date.now()+sm.minutes*60000;
   // 人数のみ加算（FD・SCは連動しない）
   s.guests=s.guests+n;
+  save("sessions",S.sessions);closeM();render();refreshFloorModal();
+}
+function reduceGuests(n){
+  const s=S.sessions[at];if(!s)return;
+  s.guests=Math.max(1,n);
   save("sessions",S.sessions);closeM();render();refreshFloorModal();
 }
 function addHonShimeiToSession(cid){
@@ -649,8 +672,8 @@ function updateNav(){
   const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
   const nav=document.getElementById("main-nav");
   if(nav)nav.style.display="flex"; // 常時表示
-  const endBtn=document.getElementById("end-biz-btn");
-  if(endBtn)endBtn.style.display=inBiz?"block":"none";
+  const opsBtn=document.getElementById("ops-btn");
+  if(opsBtn)opsBtn.style.display=inBiz?"":"none";
   [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     // フロア・リスト・出勤・売上は営業中のみ表示
@@ -662,9 +685,14 @@ function updateNav(){
     else{el.style.display="";}
     el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
-  // 管理モードボタン更新
-  const ab=document.getElementById("admin-btn");
-  if(ab){ab.textContent=isAdmin?"管理中":"管理";ab.style.background=isAdmin?"rgba(212,160,23,.15)":"rgba(255,255,255,.05)";ab.style.color=isAdmin?"#d4a017":"#888";ab.style.borderColor=isAdmin?"rgba(212,160,23,.3)":"rgba(255,255,255,.1)";}
+  // 営業ボタン: LOモード中は赤ハイライト
+  const opsBtn2=document.getElementById("ops-btn");
+  if(opsBtn2&&S.loMode){opsBtn2.style.background="rgba(255,68,68,.18)";opsBtn2.style.color="#ff4444";opsBtn2.style.borderColor="rgba(255,68,68,.4)";}
+  else if(opsBtn2){opsBtn2.style.background="rgba(212,160,23,.12)";opsBtn2.style.color="#d4a017";opsBtn2.style.borderColor="rgba(212,160,23,.3)";}
+  // 管理ボタン: 管理モード中はゴールドハイライト
+  const mgmtBtn=document.getElementById("mgmt-btn");
+  if(mgmtBtn&&isAdmin){mgmtBtn.style.background="rgba(212,160,23,.15)";mgmtBtn.style.color="#d4a017";mgmtBtn.style.borderColor="rgba(212,160,23,.3)";}
+  else if(mgmtBtn){mgmtBtn.style.background="rgba(255,80,80,.12)";mgmtBtn.style.color="#ff6b6b";mgmtBtn.style.borderColor="rgba(255,80,80,.3)";}
   // 管理モード中のヘッダー強調
   const header=document.querySelector("header");
   if(header){header.style.borderBottom=isAdmin?"2px solid rgba(212,160,23,.5)":"";header.style.background=isAdmin?"rgba(212,160,23,.04)":"";}
@@ -779,6 +807,7 @@ function buildFloorOrderContent(){
     +'<span style="font-size:'+fInfo+';color:#e8dcc8;font-weight:600;">'+s.guests+'名</span>'
     +(hasDh?'<span style="background:rgba(255,160,0,.18);border:1px solid #ffa000;color:#ffa000;border-radius:4px;padding:1px 6px;font-size:'+fColH+';font-weight:700;">同伴</span>':"")
     +'<button class="btn" onclick="om(\'add-set\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">人数追加</button>'
+    +(s.guests>1?'<button class="btn" onclick="om(\'reduce-guests\')" style="'+btnSm+'background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;">人数削減</button>':"")
     +'<span style="font-size:'+fColH+';color:'+(hn.length?'#ff4444':'#555')+'">'+(hn.length?'本指名 '+hn.join('・'):'フリー')+'</span>'
     +'<button class="btn" onclick="om(\'add-hon\')" style="'+btnSm+'background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;">本指名追加</button>'
     +'<button class="btn" onclick="om(\'tc\')" style="'+btnSm+'background:rgba(0,200,255,.08);border:1px solid rgba(0,200,255,.25);color:#38bdf8;">TC</button>'
@@ -1120,7 +1149,12 @@ function rFloor(){
         +'</div>'
         :"")
     :'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
-    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
+    const loBadgeFs=(parseFloat(lblFs)*2)+"px";
+    const loSt=S.loMode&&s?(S.loStatus[t.id]==="done"?"done":"pending"):null;
+    const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#ff4444;line-height:1;">LO未</span>'
+      :loSt==="done"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#38bdf8;line-height:1;">LO完</span>':"";
+    html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
+      +(loBadge?'<div style="position:absolute;top:4px;right:6px;pointer-events:none;">'+loBadge+'</div>':"")
       +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
       +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
       +(isV(t.id)?'<span class="tag tv2" style="flex-shrink:0;">VIP</span>':"")
@@ -1787,19 +1821,59 @@ function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save
 // タイマーや注文リストは差分更新（renderOrderPartial）で更新
 // アイテム分類ヘルパー
 function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.isExtension||i.isVipCharge||i.label==="同伴料"||(i.label||"").includes("シングルチャージ"));}
-function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
-function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;return (S.menus.champagne||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
+function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return true;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
+function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return (S.menus.champagne||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
 function execDeleteSession(){
   if(!at||!S.sessions[at])return;
-  delete S.sessions[at];
+  const deletedTableId=at;
+  const now_del=Date.now();
+  // アクティブなアサインを削除（履歴に残さない）し、キャストのshiftステータスをwaitingに戻す
+  Object.keys(S.assignments||{}).forEach(aid=>{
+    const a=S.assignments[aid];
+    if(a.tableId===deletedTableId&&!a.endTime){
+      setCastStatus(a.castId,"waiting");
+      delete S.assignments[aid];
+    }
+  });
+  delete S.sessions[deletedTableId];
   if(window._db){
-    window._db.ref(FB_ROOT+'/sessions').set(Object.keys(S.sessions).length>0?S.sessions:null)
-      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    window._db.ref(FB_ROOT).update({
+      sessions:Object.keys(S.sessions).length>0?S.sessions:null,
+      assignments:Object.keys(S.assignments||{}).length>0?S.assignments:null,
+      shifts:Object.keys(S.shifts||{}).length>0?S.shifts:null
+    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;md=null;vw="floor";render();
+}
+
+// ===== ラストオーダー機能 =====
+function toggleLO(){
+  if(!S.loMode){om("loModeOn");}
+  else{md="loList";rModal();}
+}
+function execLOStart(){
+  S.loMode=true;S.loStatus={};
+  if(window._db)window._db.ref(FB_ROOT).update({loMode:true,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  closeM();render();
+}
+function execLOComplete(){
+  const tid=window._loTableId;if(!tid)return;
+  S.loStatus[tid]="done";
+  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).set("done").then(()=>sbs(true,"同期済み ✓"));
+  window._loTableId=null;md="loList";rModal();
+}
+function execLOUndone(tid){
+  delete S.loStatus[tid];
+  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).remove().then(()=>sbs(true,"同期済み ✓"));
+  md="loFix";rModal();
+}
+function execLOEnd(){
+  S.loMode=false;S.loStatus={};
+  if(window._db)window._db.ref(FB_ROOT).update({loMode:false,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  closeM();render();
 }
 
 
@@ -1942,16 +2016,25 @@ function rHist(){
 }
 function toggleHist(id){expandedHist[id]=!expandedHist[id];render();}
 function setHistToday(){
-  const start=getBizDayStart(Date.now());
-  const end=getBizDayEnd(Date.now());
-  const s=new Date(start);const e=new Date(end);
-  histFilter.from=s.toLocaleDateString("sv-SE");
-  histFilter.fromTime="20:00";
-  histFilter.to=e.toLocaleDateString("sv-SE");
-  histFilter.toTime="02:59";
+  if(S.activeBizDay){
+    histFilter.from=S.activeBizDay;
+    histFilter.fromTime="19:00";
+    const nd=new Date(S.activeBizDay+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");
+    histFilter.toTime="18:59";
+  }else{
+    // 営業外: S.bizDaysから最新の営業日を取得
+    const lastDay=Object.values(S.bizDays||{}).filter(d=>d.endedAt).sort((a,b)=>b.endedAt-a.endedAt)[0];
+    const dateStr=lastDay?lastDay.date:getBizDate();
+    histFilter.from=dateStr;
+    histFilter.fromTime="19:00";
+    const nd=new Date(dateStr+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");
+    histFilter.toTime="18:59";
+  }
   render();
 }
-function clearHistFilter(){histFilter={from:"",to:"",fromTime:"00:00",toTime:"23:59"};render();}
+function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};render();}
 function getFilteredHist(){
   // 現在の営業日 + 全過去営業日のhistoryをマージ
   let allHist=Array.isArray(S.history)?[...S.history]:[];
@@ -1963,8 +2046,8 @@ function getFilteredHist(){
   allHist=allHist.filter(h=>{if(seen.has(h.id))return false;seen.add(h.id);return true;});
   // フィルター適用
   return allHist.filter(h=>{
-    if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"00:00")).getTime();if(h.startTime<from)return false;}
-    if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"23:59")+":59").getTime();if(h.startTime>to)return false;}
+    if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime();if(h.startTime<from)return false;}
+    if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime();if(h.startTime>to)return false;}
     return true;
   }).sort((a,b)=>b.startTime-a.startTime);
 }
@@ -1981,7 +2064,7 @@ function exportCSV(){
   const csv=bom+header+"\n"+rows.join("\n");
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||new Date().toISOString().slice(0,10))+".csv";a.click();URL.revokeObjectURL(url);
+  const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||S.activeBizDay||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
 }
 function cdh(id){dhi=id;om("dh");}
 
@@ -2095,15 +2178,15 @@ function saveHistPay(){
   save("history",S.history);editPayHid=null;closeM();render();
 }
 
-// ===== 営業日（20:00〜翌3:00）=====
+// ===== 営業日（19:00〜翌18:59）=====
 function getBizDayStart(t){
   const d=new Date(t||Date.now());
-  if(d.getHours()<3)d.setDate(d.getDate()-1);
-  d.setHours(20,0,0,0);return d.getTime();
+  if(d.getHours()<19)d.setDate(d.getDate()-1);
+  d.setHours(19,0,0,0);return d.getTime();
 }
 function getBizDayEnd(t){
   const s=new Date(getBizDayStart(t));
-  s.setDate(s.getDate()+1);s.setHours(3,0,0,0);return s.getTime();
+  s.setDate(s.getDate()+1);s.setHours(18,59,59,999);return s.getTime();
 }
 
 
@@ -2239,6 +2322,22 @@ function rSettings(){
     html+='<input class="ip" placeholder="銘柄名" data-k="champagne" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
     html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="champagne" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
     html+='<button class="btn gbg" data-k="champagne" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
+    html+='</div></div>';}
+    // キャストプリセット品名（CASTオーダー追加ボタン）
+    {const ni=nmi["castCustomItems"]||{label:"",price:""};
+    html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#c4b5fd;letter-spacing:.1em;margin-bottom:4px;border-bottom:1px solid rgba(196,181,253,.15);padding-bottom:4px;">プリセット品名（CAST）</div>';
+    html+='<div style="font-size:11px;color:#666;margin-bottom:8px;">キャストオーダー詳細に追加ボタンとして表示されます</div>';
+    (S.menus.castCustomItems||[]).forEach(item=>{
+      html+='<div class="ir" style="gap:8px;">';
+      html+='<input class="ip" value="'+item.label+'" data-k="castCustomItems" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
+      html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="castCustomItems" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+      html+='<button class="btn" data-k="castCustomItems" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
+      html+='</div>';
+    });
+    html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
+    html+='<input class="ip" placeholder="品名" data-k="castCustomItems" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
+    html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="castCustomItems" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+    html+='<button class="btn gbg" data-k="castCustomItems" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
     html+='</div></div>';}
     html+='</div>';
   }
@@ -3429,6 +3528,86 @@ function rModal(){
       +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
       +'</div></div></div>';
   }
+  else if(md==="opsMenu"){
+    const loLbl=S.loMode?"LO（オン中）":"LO";
+    const loCol=S.loMode?"rgba(255,68,68,.18)":"rgba(255,255,255,.05)";
+    const loBdr=S.loMode?"rgba(255,68,68,.35)":"rgba(255,255,255,.1)";
+    const loTxt=S.loMode?"#ff4444":"#e8dcc8";
+    const prLbl=priceHidden?"¥表示（非表示中）":"¥表示";
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;">'
+      +'<h3 style="font-size:15px;color:#d4a017;margin-bottom:16px;">営業メニュー</h3>'
+      +'<button class="btn" onclick="closeM();toggleLO()" style="width:100%;padding:14px;margin-bottom:10px;background:'+loCol+';border:1px solid '+loBdr+';color:'+loTxt+';border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+loLbl+'</button>'
+      +'<button class="btn" onclick="closeM();togglePriceHide()" style="width:100%;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+prLbl+'</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:12px;padding:10px;background:none;border:none;color:#555;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div>';
+  }
+  else if(md==="mgmtMenu"){
+    const isAdm=sessionStorage.getItem("genesis_admin")==="1";
+    const admLbl=isAdm?"管理モード（オン中）":"管理モード";
+    const admCol=isAdm?"rgba(212,160,23,.18)":"rgba(255,255,255,.05)";
+    const admBdr=isAdm?"rgba(212,160,23,.35)":"rgba(255,255,255,.1)";
+    const admTxt=isAdm?"#d4a017":"#e8dcc8";
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;">'
+      +'<h3 style="font-size:15px;color:#ff6b6b;margin-bottom:16px;">管理メニュー</h3>'
+      +'<button class="btn" onclick="closeM();toggleAdminMode()" style="width:100%;padding:14px;margin-bottom:10px;background:'+admCol+';border:1px solid '+admBdr+';color:'+admTxt+';border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">'+admLbl+'</button>'
+      +(S.activeBizDay?'<button class="btn" onclick="closeM();om(\'endBizDay\')" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:15px;font-weight:700;text-align:left;touch-action:manipulation;">営業終了</button>':"")
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:12px;padding:10px;background:none;border:none;color:#555;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div>';
+  }
+  else if(md==="loModeOn"){
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
+      +'<h3 style="font-size:17px;color:#ff4444;margin-bottom:16px;">ラストオーダーモード</h3>'
+      +'<div style="font-size:14px;color:#aaa;margin-bottom:22px;">ラストオーダーモードをオンにしますか？<br><span style="font-size:12px;color:#666;">全テーブルにLO未が表示されます</span></div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
+      +'<button class="btn" onclick="execLOStart()" style="flex:1;padding:12px;background:rgba(255,68,68,.15);border:1px solid rgba(255,68,68,.35);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">オンにする</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loList"){
+    const activeTbls=S.tables.filter(t=>S.sessions[t.id]);
+    const pending=activeTbls.filter(t=>S.loStatus[t.id]!=="done");
+    const done=activeTbls.filter(t=>S.loStatus[t.id]==="done");
+    let tblHtml='';
+    pending.forEach(t=>{
+      tblHtml+='<button class="btn" data-tid="'+t.id+'" onclick="window._loTableId=this.dataset.tid;md=\'loConfirm\';rModal()" style="width:100%;text-align:left;padding:10px 14px;margin-bottom:6px;background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.2);color:#ff4444;border-radius:6px;font-size:15px;font-weight:700;touch-action:manipulation;">'+t.label+'　<span style="font-size:12px;font-weight:400;color:#ff6666;">LO未</span></button>';
+    });
+    if(!pending.length)tblHtml='<div style="font-size:13px;color:#4ade80;padding:12px 0;text-align:center;">全テーブルのLOが完了しています</div>';
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+      +'<h3 style="font-size:16px;color:#ff4444;margin-bottom:4px;">LO未テーブル一覧</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:14px;">LO未: '+pending.length+'卓　LO完: '+done.length+'卓</div>'
+      +tblHtml
+      +'<div style="margin-top:14px;display:flex;gap:8px;">'
+      +(done.length?'<button class="btn" onclick="md=\'loFix\';rModal()" style="flex:1;padding:10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:6px;font-size:13px;touch-action:manipulation;">LO修正</button>':"")
+      +'<button class="btn" onclick="execLOEnd()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#666;border-radius:6px;font-size:13px;touch-action:manipulation;">LO終了</button>'
+      +'<button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loConfirm"){
+    const tbl=S.tables.find(t=>t.id===window._loTableId);
+    const tl=tbl?tbl.label:window._loTableId;
+    h='<div class="mo" onclick="md=\'loList\';rModal()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;text-align:center;">'
+      +'<div style="font-size:14px;color:#888;margin-bottom:8px;">ラストオーダー完了確認</div>'
+      +'<div style="font-size:22px;font-weight:700;color:#d4a017;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.25);border-radius:6px;padding:8px 20px;margin-bottom:12px;">'+tl+'</div>'
+      +'<div style="font-size:14px;color:#aaa;margin-bottom:22px;">のラストオーダーを完了しますか？</div>'
+      +'<div style="display:flex;gap:8px;">'
+      +'<button class="btn" onclick="md=\'loList\';rModal()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">いいえ</button>'
+      +'<button class="btn" onclick="execLOComplete()" style="flex:1;padding:12px;background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);color:#38bdf8;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">はい</button>'
+      +'</div></div></div>';
+  }
+  else if(md==="loFix"){
+    const activeTbls=S.tables.filter(t=>S.sessions[t.id]);
+    const done=activeTbls.filter(t=>S.loStatus[t.id]==="done");
+    let tblHtml='';
+    done.forEach(t=>{
+      tblHtml+='<button class="btn" data-tid="'+t.id+'" onclick="execLOUndone(this.dataset.tid)" style="width:100%;text-align:left;padding:10px 14px;margin-bottom:6px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:6px;font-size:15px;font-weight:700;touch-action:manipulation;">'+t.label+'　<span style="font-size:12px;font-weight:400;">LO完 → LO未に戻す</span></button>';
+    });
+    if(!done.length)tblHtml='<div style="font-size:13px;color:#666;padding:12px 0;text-align:center;">LO完了のテーブルはありません</div>';
+    h='<div class="mo" onclick="md=\'loList\';rModal()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+      +'<h3 style="font-size:16px;color:#38bdf8;margin-bottom:14px;">LO修正</h3>'
+      +tblHtml
+      +'<button class="btn" onclick="md=\'loList\';rModal()" style="width:100%;margin-top:10px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">戻る</button>'
+      +'</div></div>';
+  }
   else if(md==="confirm-del"){
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:320px;text-align:center;">'
       +'<div style="font-size:32px;margin-bottom:10px;">⚠️</div>'
@@ -3547,6 +3726,29 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
       +'</div></div>';
   }
+  else if(md==="gcu"){
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+      +'<h3 style="margin-bottom:16px;font-size:16px;color:#38bdf8;">カスタム金額（ゲスト）</h3>'
+      +'<div class="st" style="margin-bottom:6px;">品名（任意）</div>'
+      +'<input class="ip" id="gcu-label" placeholder="例：サービス料" autocomplete="off" style="margin-bottom:12px;" />'
+      +'<div class="st" style="margin-bottom:6px;">金額 *</div>'
+      +'<input type="number" inputmode="numeric" class="ip" id="gcu-price" pattern="[0-9]*" placeholder="例：5000" style="margin-bottom:16px;" />'
+      +'<button class="btn" onclick="addGuestCustom()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;background:rgba(56,189,248,.2);border:1px solid rgba(56,189,248,.4);color:#38bdf8;touch-action:manipulation;">追加する</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
+      +'</div></div>';
+  }
+  else if(md==="reduce-guests"&&s){
+    let gbs="";
+    for(let n=s.guests-1;n>=1;n--){
+      gbs+='<button class="btn" onclick="reduceGuests('+n+')" style="width:56px;height:56px;border-radius:6px;font-weight:700;font-size:22px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.3);color:#38bdf8;touch-action:manipulation;">'+n+'</button>';
+    }
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:380px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#38bdf8;">人数削減</h3>'
+      +'<div style="font-size:12px;color:#666;margin-bottom:16px;">現在 '+s.guests+'名 → 削減後の人数を選択（既存明細は変更されません）</div>'
+      +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">'+gbs+'</div>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+      +'</div></div>';
+  }
   else if(md==="add-set"&&s){
     // 追加人数の状態（nmi流用せず専用変数）
     const addN=window._addSetN||1;
@@ -3647,7 +3849,8 @@ function rModal(){
     // ・かつ追加セット（addedGuests）がない（1名のままの場合のみ）
     const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
     const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
-    const showSCBtn=(hasSC||s.guests===1)&&!hasAddedGuests;
+    // 1人の場合は（人数削減含む）常にSC込み延長を表示
+    const showSCBtn=s.guests===1||(hasSC&&!hasAddedGuests);
     let ns='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
     S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
     ns+='</div>';
@@ -3762,6 +3965,7 @@ function rModal(){
     const cols2='repeat(auto-fill,minmax(110px,1fr))';
     let addBtns='<button class="menu-btn" onclick="ofdq()" style="background:rgba(0,180,255,.1);border-color:rgba(0,180,255,.3);color:#38bdf8;">フリードリンク<br><small>¥2,000</small></button>';
     (S.menus.drinks||[]).forEach(d=>{addBtns+='<button class="menu-btn" data-did="'+d.id+'" onclick="odq(this.dataset.did)">'+d.label+'<br><small>¥'+fmt(d.price)+'</small></button>';});
+    addBtns+='<button class="menu-btn" onclick="om(\'gcu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
       +'<h3 style="margin-bottom:12px;font-size:16px;color:#38bdf8;">ゲストオーダー</h3>'
       +'<div style="max-height:35vh;overflow-y:auto;margin-bottom:12px;">'+rows+'</div>'
@@ -3777,8 +3981,10 @@ function rModal(){
     if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
     const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
     const champItems2=S.menus.champagne||[];
+    const castPresets=S.menus.castCustomItems||[];
     let addBtns='<button class="menu-btn" onclick="om(\'liquor_champagne\')" style="background:rgba(255,215,0,.12);border-color:rgba(255,215,0,.35);color:#ffd700;">シャンパン<br><small>'+(champItems2.length?champItems2.length+'種':'未設定')+'</small></button>';
     if(onIds.size>0)addBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink<br><small>各種</small></button>';
+    castPresets.forEach(cp=>{addBtns+='<button class="menu-btn" data-cpid="'+cp.id+'" onclick="addCastCustomItem(this.dataset.cpid)" style="background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.25);color:#c4b5fd;">'+cp.label+'<br><small>¥'+fmt(cp.price)+'</small></button>';});
     addBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';
     h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
       +'<h3 style="margin-bottom:12px;font-size:16px;color:#a78bfa;">キャストオーダー</h3>'
@@ -4580,16 +4786,16 @@ function adjustHHMM(hhmm,deltaMins){
 }
 function hhmm2ts(hhmm){
   // HH:MM を現在の営業日内のtimestampに変換
-  // 営業時間: 前日20:00〜翌3:00
+  // 営業時間: 当日19:00〜翌18:59
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の20:00
+  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の19:00
   const d=new Date(bizStart);
-  if(h>=20){
-    // 20:00〜23:59 → 営業日開始日（bizStartと同日）
+  if(h>=19){
+    // 19:00〜23:59 → 営業日開始日（bizStartと同日）
     d.setHours(h,m,0,0);
   } else {
-    // 0:00〜19:59 → 翌日（bizStart+1日）
+    // 0:00〜18:59 → 翌日（bizStart+1日）
     d.setDate(d.getDate()+1);
     d.setHours(h,m,0,0);
   }
@@ -4804,7 +5010,7 @@ function deleteAssign(aid){
 
 // ===== 出勤画面 =====
 function rShifts(){
-  const bs=getBizDayStart(Date.now());const be=getBizDayEnd(Date.now());
+  // S.shiftsは現在の営業日データのみ含むため、追加フィルタリング不要
   const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
   const onIds=getOndutyIds();
   const allToday=Object.values(S.shifts||{});
