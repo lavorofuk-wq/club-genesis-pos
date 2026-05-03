@@ -176,13 +176,14 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.27</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.28</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
       <button class="nb" id="nli" onclick="sv('list')">リスト</button>
       <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">データ</button>
+      <button class="nb" id="nan" onclick="sv('analysis')">分析</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
       <button class="nb" id="nm" onclick="sv('admin')">管理</button>
     </nav>
@@ -677,7 +678,7 @@ function updateNav(){
   [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     // フロア・リスト・出勤・売上は営業中のみ表示
-    const bizOnly=["floor","list","shifts","history"].includes(v);
+    const bizOnly=["floor","list","shifts","history","analysis"].includes(v);
     if(bizOnly){el.style.display=inBiz?"":"none";}
     // 管理は管理モード時のみ
     else if(v==="admin"){el.style.display=isAdmin?"":"none";}
@@ -708,6 +709,7 @@ function render(){
     else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
     else if(vw==="checkin")m.innerHTML=rCI();
     else if(vw==="history")m.innerHTML=rHist();
+    else if(vw==="analysis")m.innerHTML=rAnalysis();
     else if(vw==="shifts")m.innerHTML=rShifts();
     else if(vw==="settings")m.innerHTML=rSettings();
     else if(vw==="admin")m.innerHTML=rAdmin();
@@ -724,7 +726,7 @@ function sv(v,extra){
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -1894,7 +1896,7 @@ function oet(){
 // ===== HISTORY / SETTINGS は省略なし =====
 function rHist(){
   let html='<div style="max-width:720px;margin:0 auto;">';
-  html+=html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">会計履歴</h2>';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">会計履歴</h2>';
   // 現状サマリー（現在の営業日のデータ）
   const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
   const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
@@ -1931,46 +1933,22 @@ function rHist(){
   html+='<span style="font-size:15px;font-weight:700;color:#38bdf8;">'+workHStr+'<span style="font-size:11px;font-weight:400;color:#888;">時間</span></span>';
   html+='</div>';
   html+='</div>';
-  // ===== 期間フィルター・エクスポート =====
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
-  html+='<div class="st">期間フィルター・エクスポート</div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">';
-  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.from+'" onchange="histFilter.from=this.value;render()" />';
-  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.fromTime+'" onchange="histFilter.fromTime=this.value;render()" />';
-  html+='<span style="color:#555;font-size:12px;">〜</span>';
-  html+='<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+histFilter.to+'" onchange="histFilter.to=this.value;render()" />';
-  html+='<input type="time" class="ip" style="width:100px;" value="'+histFilter.toTime+'" onchange="histFilter.toTime=this.value;render()" />';
-  html+='</div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  html+='<button class="btn" onclick="setHistToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;">今営業日</button>';
-  html+='<button class="btn" onclick="clearHistFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;">クリア</button>';
-  html+='<button class="btn" onclick="exportCSV()" style="padding:6px 14px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;">CSV出力</button>';
-  html+='</div></div>';
-  const filtered=getFilteredHist();
 
-  // ===== データ分析エリア =====
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
-  html+='<div class="st" style="margin-bottom:12px;">データ分析 <span style="font-size:10px;color:#555;font-weight:400;">(フィルター期間対象)</span></div>';
-  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">';
-  html+='<button class="btn" onclick="analysisSt.mode=\'shimei\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaCastSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(255,68,68,.08);border:1px solid rgba(255,68,68,.25);color:#ff6b6b;touch-action:manipulation;">指名情報</button>';
-  html+='<button class="btn" onclick="analysisSt.mode=\'uriage\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaCastSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上</button>';
-  html+='</div>';
-  html+='</div>';
-
-  // ===== フィルター件数・合計 =====
-  if(filtered.length>0){
-    const totalAmt=filtered.reduce((a,h)=>a+h.total,0);
-    const subtotalAmt=filtered.reduce((a,h)=>a+(h.subtotal||h.total),0);
+  // ===== 会計履歴（開いている営業日のみ）=====
+  const todayHist=[...(S.history||[])].sort((a,b)=>b.startTime-a.startTime);
+  if(todayHist.length>0){
+    const totalAmt=todayHist.reduce((a,h)=>a+h.total,0);
+    const subtotalAmt=todayHist.reduce((a,h)=>a+(h.subtotal||h.total),0);
     html+='<div class="glass" style="border-radius:8px;padding:12px 16px;margin-bottom:16px;">';
     html+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;">';
-    html+='<span style="font-size:12px;color:#888;">'+filtered.length+'件</span>';
+    html+='<span style="font-size:12px;color:#888;">'+todayHist.length+'件</span>';
     html+='<span style="font-size:12px;color:#666;">小計 '+pAmt(subtotalAmt)+'</span>';
     html+='<span style="font-size:16px;font-weight:700;color:#d4a017;">合計 '+pAmt(totalAmt)+'</span>';
     html+='</div>';
     html+='</div>';
   }
-  if(filtered.length===0){html+='<div style="color:#555;font-size:14px;">該当する履歴がありません</div>';}
-  else filtered.forEach(h=>{
+  if(todayHist.length===0){html+='<div style="color:#555;font-size:14px;">会計履歴がありません</div>';}
+  else todayHist.forEach(h=>{
     const exp=expandedHist[h.id];
     const hHon=(h.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
     const hBan=(h.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
@@ -2015,6 +1993,33 @@ function rHist(){
   return html;
 }
 function toggleHist(id){expandedHist[id]=!expandedHist[id];render();}
+function rAnalysis(){
+  let html='<div style="max-width:720px;margin:0 auto;">';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">分析</h2>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
+  html+='<div class="st" style="margin-bottom:12px;">売上情報</div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+  html+='<button class="btn" onclick="analysisSt.mode=\'uriage\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaDateSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上情報</button>';
+  html+='</div>';
+  html+='</div>';
+  html+='</div>';
+  return html;
+}
+function anaSetToday(){
+  if(S.activeBizDay){
+    histFilter.from=S.activeBizDay;histFilter.fromTime="19:00";
+    const nd=new Date(S.activeBizDay+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");histFilter.toTime="18:59";
+  }else{
+    const lastDay=Object.values(S.bizDays||{}).filter(d=>d.endedAt).sort((a,b)=>b.endedAt-a.endedAt)[0];
+    const dateStr=lastDay?lastDay.date:getBizDate();
+    histFilter.from=dateStr;histFilter.fromTime="19:00";
+    const nd=new Date(dateStr+"T19:00:00");nd.setDate(nd.getDate()+1);
+    histFilter.to=nd.toLocaleDateString("sv-SE");histFilter.toTime="18:59";
+  }
+  rModal();
+}
+function anaClrFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};rModal();}
 function setHistToday(){
   if(S.activeBizDay){
     histFilter.from=S.activeBizDay;
@@ -4331,9 +4336,28 @@ function rModal(){
       +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
       +'</div></div>';
   }
+  else if(md==="anaDateSel"){
+    const periodLabel=histFilter.from||"";
+    const periodTo=histFilter.to||"";
+    h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
+      +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">売上情報 — 期間選択</h3>'
+      +'<div style="font-size:12px;color:#888;margin-bottom:16px;">表示したい期間を選択してください</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
+      +'<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+periodLabel+'" onchange="histFilter.from=this.value;" />'
+      +'<span style="color:#555;font-size:12px;">〜</span>'
+      +'<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+periodTo+'" onchange="histFilter.to=this.value;" />'
+      +'</div>'
+      +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">'
+      +'<button class="btn" onclick="anaSetToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;touch-action:manipulation;">今営業日</button>'
+      +'<button class="btn" onclick="anaClrFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">クリア</button>'
+      +'</div>'
+      +'<button class="btn gbg" onclick="md=\'anaCastSel\';rModal()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:6px;touch-action:manipulation;margin-bottom:8px;">次へ（キャスト選択）</button>'
+      +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
+      +'</div></div>';
+  }
   else if(md==="anaCastSel"){
     const isShimei=analysisSt.mode==="shimei";
-    const modeLabel=isShimei?"指名情報":"売上";
+    const modeLabel=isShimei?"指名情報":"売上情報";
     const modeColor=isShimei?"#ff6b6b":"#d4a017";
     const modeBg=isShimei?"rgba(255,68,68,.08)":"rgba(212,160,23,.08)";
     const modeBdr=isShimei?"rgba(255,68,68,.25)":"rgba(212,160,23,.25)";
@@ -4345,6 +4369,7 @@ function rModal(){
       +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:8px;margin-bottom:16px;">'
       +castBtns
       +'</div>'
+      +(!isShimei?'<button class="btn" onclick="md=\'anaDateSel\';rModal()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 期間選択に戻る</button>':"")
       +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
       +'</div></div>';
   }
