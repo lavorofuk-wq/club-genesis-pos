@@ -2005,18 +2005,11 @@ function rAnalysis(){
   html+='</div>';
   return html;
 }
-function anaSetToday(){
-  if(S.activeBizDay){
-    histFilter.from=S.activeBizDay;histFilter.fromTime="19:00";
-    const nd=new Date(S.activeBizDay+"T19:00:00");nd.setDate(nd.getDate()+1);
-    histFilter.to=nd.toLocaleDateString("sv-SE");histFilter.toTime="18:59";
-  }else{
-    const lastDay=Object.values(S.bizDays||{}).filter(d=>d.endedAt).sort((a,b)=>b.endedAt-a.endedAt)[0];
-    const dateStr=lastDay?lastDay.date:getBizDate();
-    histFilter.from=dateStr;histFilter.fromTime="19:00";
-    const nd=new Date(dateStr+"T19:00:00");nd.setDate(nd.getDate()+1);
-    histFilter.to=nd.toLocaleDateString("sv-SE");histFilter.toTime="18:59";
-  }
+function anaSetMonth(){
+  const biz=S.activeBizDay||getBizDate();
+  histFilter.from=biz.substring(0,7)+"-01";histFilter.fromTime="19:00";
+  const nd=new Date(biz+"T19:00:00");nd.setDate(nd.getDate()+1);
+  histFilter.to=nd.toLocaleDateString("sv-SE");histFilter.toTime="18:59";
   rModal();
 }
 function anaClrFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};rModal();}
@@ -4348,7 +4341,7 @@ function rModal(){
       +'<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+periodTo+'" onchange="histFilter.to=this.value;" />'
       +'</div>'
       +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">'
-      +'<button class="btn" onclick="anaSetToday()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;touch-action:manipulation;">今営業日</button>'
+      +'<button class="btn" onclick="anaSetMonth()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;touch-action:manipulation;">当月</button>'
       +'<button class="btn" onclick="anaClrFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">クリア</button>'
       +'</div>'
       +'<button class="btn gbg" onclick="md=\'anaCastSel\';rModal()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:6px;touch-action:manipulation;margin-bottom:8px;">次へ（キャスト選択）</button>'
