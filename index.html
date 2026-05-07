@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.30</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.31</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -675,7 +675,7 @@ function updateNav(){
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
   if(opsBtn)opsBtn.style.display=inBiz?"":"none";
-  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
     const el=document.getElementById(id);if(!el)return;
     // フロア・リスト・出勤・売上は営業中のみ表示
     const bizOnly=["floor","list","shifts","history","analysis"].includes(v);
@@ -702,7 +702,7 @@ function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
   try{
-    if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail"].includes(vw)))m.innerHTML=rHome();
+    if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
     else if(vw==="floor")m.innerHTML=rFloor();
     else if(vw==="list")m.innerHTML=rList();
     else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -726,7 +726,7 @@ function sv(v,extra){
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
