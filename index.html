@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.32</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.33</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -934,13 +934,23 @@ function rHistLog(){
 function rDayDetail(day){
   let html='<div style="padding:16px;border-top:1px solid rgba(255,255,255,.08);">';
   // 売上
-  const hist=day.history||[];
+  const hist=(day.history||[]).sort((a,b)=>a.startTime-b.startTime);
   const sales=hist.reduce((a,h)=>a+h.total,0);
   html+='<div class="st" style="margin-bottom:10px;">売上 ('+hist.length+'件 合計 '+pAmt(sales)+')</div>';
   hist.forEach(h=>{
-    html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+h.tableLabel+' '+h.guests+'名</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div>';
+    const honN=(h.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+    const banN=(h.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+    html+='<div data-hid="'+h.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.hid));window._histDetailBack=null;if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
+    html+='<span style="font-size:13px;font-weight:700;color:#d4a017;">'+h.tableLabel+'</span>';
+    html+='<span style="font-size:12px;color:#aaa;">'+h.guests+'名</span>';
+    if(h.note)html+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:1px 6px;border-radius:8px;">'+h.note+'</span>';
+    if(honN.length)html+='<span style="font-size:10px;color:#ff4444;background:rgba(255,68,68,.1);padding:1px 6px;border-radius:8px;">本: '+honN.join("・")+'</span>';
+    if(banN.length)html+='<span style="font-size:10px;color:#4ade80;background:rgba(74,222,128,.1);padding:1px 6px;border-radius:8px;">場: '+banN.join("・")+'</span>';
+    html+='<span style="margin-left:auto;font-size:12px;color:#d4a017aa;">'+pAmt(h.total)+'</span>';
+    html+='<span style="font-size:10px;color:#d4a017;padding:1px 6px;border:1px solid rgba(212,160,23,.3);border-radius:3px;flex-shrink:0;">明細 ▶</span>';
+    html+='</div>';
   });
-  // 出勤
+  // 出退勤
   const shifts=Object.values(day.shifts||{});
   if(shifts.length){
     html+='<div class="st" style="margin-top:14px;margin-bottom:10px;">出退勤 ('+shifts.length+'名)</div>';
@@ -950,21 +960,6 @@ function rDayDetail(day){
       const dur=sh.clockOut?fmtDur(sh.clockOut-sh.clockIn):"";
       const durStr=dur?"("+dur+")":"";
       html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+sh.castName+'</span><span style="color:#888;">'+inT+' → '+outT+' '+durStr+'</span></div>';
-    });
-  }
-  // 付け回し
-  const assigns=Object.values(day.assignments||{});
-  if(assigns.length){
-    html+='<div class="st" style="margin-top:14px;margin-bottom:10px;">付け回し ('+assigns.length+'件)</div>';
-    assigns.sort((a,b)=>a.startTime-b.startTime).forEach(a=>{
-      const col=ASSIGN_TYPES[a.type]?.col||"#888";
-      const lbl=ASSIGN_TYPES[a.type]?.label||a.type;
-      const tbl=S.tables.find(t=>t.id===a.tableId)?.label||a.tableId;
-      const sT=new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-      const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"継続中";
-      const dur=a.endTime?fmtDur(a.endTime-a.startTime):"";
-      const durStr=dur?"("+dur+")":"";
-      html+='<div class="ir" style="font-size:13px;"><span style="color:'+col+';">'+a.castName+'</span><span style="color:#888;font-size:11px;">'+lbl+' '+tbl+' '+sT+'〜'+eT+' '+durStr+'</span></div>';
     });
   }
   // CSV出力ボタン
@@ -4453,7 +4448,7 @@ function rModal(){
         const dT=new Date(rec.startTime).toLocaleString("ja-JP",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
         const honN=(rec.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
         const banN=(rec.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
-        histListHtml+='<div data-arid="'+rec.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.arid));if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
+        histListHtml+='<div data-arid="'+rec.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.arid));window._histDetailBack=\'anaDetail\';if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
         histListHtml+='<span style="font-size:12px;font-weight:700;color:#d4a017;">'+rec.tableLabel+'</span>';
         if(rec.note)histListHtml+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:1px 6px;border-radius:8px;">'+rec.note+'</span>';
         histListHtml+='<span style="font-size:11px;color:#888;">'+dT+'</span>';
@@ -4499,8 +4494,8 @@ function rModal(){
         +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||.25)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
         +'<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(_hr.total)+'</span></div>'
         +'</div>'
-        +'<button class="btn" onclick="md=\'anaDetail\';rModal()" style="width:100%;margin-top:16px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上情報に戻る</button>'
-        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
+        +(window._histDetailBack?'<button class="btn" onclick="md=\''+window._histDetailBack+'\';rModal()" style="width:100%;margin-top:16px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上情報に戻る</button>':'')
+        +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:'+(window._histDetailBack?'6':'16')+'px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
         +'</div></div>';
     }
   }
