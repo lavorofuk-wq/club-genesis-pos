@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.33</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.34</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -586,6 +586,7 @@ function addHonShimeiToSession(cid){
   save("sessions",S.sessions);renderOrderPartial();refreshFloorModal();
 }
 function checkout(){
+  if(!at||!S.sessions[at])return;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
     if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
@@ -1474,8 +1475,8 @@ function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
     if(assignId)endAssign(assignId);
     else if(fromZone==="break")moveToWaiting(castId);
   } else if(toZone==="break"){
-    // テーブル or 待機 → 休憩
-    if(assignId){endAssign(assignId);}
+    // テーブル or 待機 → 休憩（アサイン終了とstatus="break"を1回のFirebase writeにまとめる）
+    if(assignId){const _ba=S.assignments[assignId];if(_ba)_ba.endTime=Date.now();}
     moveToBreak(castId);
   } else if(toZone==="tbl"&&tableId){
     // 待機 or 休憩 or テーブル → テーブル
@@ -5032,7 +5033,7 @@ function rShifts(){
   const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
 
   let html='<div style="max-width:720px;margin:0 auto;">';
-  html+=html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
 
   // アクションボタン
   html+='<div style="display:flex;gap:10px;margin-bottom:16px;">';
