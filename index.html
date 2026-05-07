@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.33</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.35</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -328,12 +328,17 @@ function initFB(){
     const prevSession=at?S.sessions[at]:null;
     S.sessions=d.sessions||{};
     if(prevSession&&at&&S.sessions[at]&&d.sessions&&d.sessions[at]){
-      // Firebaseのitemsが古い場合（自分の書き込みが反映前）はローカルを保持
-      if((prevSession.items||[]).length>(S.sessions[at].items||[]).length){
-        S.sessions[at]=prevSession;
+      // 同時編集対策: ローカルアイテムを基準にFirebase側のみのアイテムをマージ
+      const _fbItems=d.sessions[at].items||[];
+      const _localItems=prevSession.items||[];
+      const _localIds=new Set(_localItems.map(i=>i.id));
+      const _fbOnly=_fbItems.filter(i=>!_localIds.has(i.id));
+      if(_localItems.length>=_fbItems.length||_fbOnly.length>0){
+        S.sessions[at]={...d.sessions[at],...prevSession,items:[..._localItems,..._fbOnly]};
       }
     }
-    S.history=d.history||[];
+    // historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
+    S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
     S.shifts=d.shifts||{};
     S.assignments=d.assignments||{};
     S.bizDays=d.bizDays||{};
@@ -363,7 +368,7 @@ function initFB(){
       at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
     }
     // 営業日が終了していたらホームへ
-    if(S.activeBizDay===null&&["floor","checkin","shifts","history","settings"].includes(vw)){
+    if(S.activeBizDay===null&&["floor","checkin","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
       vw="home";closeM();render();return;
     }
     if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
@@ -586,6 +591,7 @@ function addHonShimeiToSession(cid){
   save("sessions",S.sessions);renderOrderPartial();refreshFloorModal();
 }
 function checkout(){
+  if(!at||!S.sessions[at])return;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
     if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
@@ -608,7 +614,6 @@ function checkout(){
     splits:splits||null,
     ...totals
   };
-  const newHistory=[rec,...S.history];
   const newSessions={...S.sessions};
   delete newSessions[checkoutTableId];
 
@@ -627,16 +632,16 @@ function checkout(){
     }
   });
 
-  // 全データを1回だけアトミックにFirebaseへ保存
+  // 全データをアトミックに保存（historyはレコード単位書き込みで同時会計の上書き競合を防ぐ）
   S.sessions=newSessions;
-  S.history=newHistory;
+  S.history=[rec,...S.history];
   if(window._db){
-    window._db.ref(FB_ROOT).update({
-      sessions: Object.keys(newSessions).length>0 ? newSessions : null,
-      history: newHistory,
-      assignments: Object.keys(S.assignments||{}).length>0 ? S.assignments : null,
-      shifts: Object.keys(S.shifts||{}).length>0 ? S.shifts : null
-    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    const _cu={};
+    _cu[FB_ROOT+"/history/"+rec.id]=rec;
+    _cu[FB_ROOT+"/sessions"]=Object.keys(newSessions).length>0?newSessions:null;
+    _cu[FB_ROOT+"/assignments"]=Object.keys(S.assignments||{}).length>0?S.assignments:null;
+    _cu[FB_ROOT+"/shifts"]=Object.keys(S.shifts||{}).length>0?S.shifts:null;
+    window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,receipt:false,splits:[]};closeM();render();
@@ -1031,10 +1036,11 @@ async function loadBizDayForReEdit(dayId){
   S.assignments=JSON.parse(JSON.stringify(day.assignments||{}));
   S.sessions={};
   if(window._db){
+    const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
     await window._db.ref(FB_ROOT).update({
       bizDays:S.bizDays,
       activeBizDay:S.activeBizDay,
-      history:S.history,
+      history:Object.keys(_lhObj).length>0?_lhObj:null,
       shifts:S.shifts,
       assignments:S.assignments,
       sessions:null
@@ -1474,8 +1480,8 @@ function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
     if(assignId)endAssign(assignId);
     else if(fromZone==="break")moveToWaiting(castId);
   } else if(toZone==="break"){
-    // テーブル or 待機 → 休憩
-    if(assignId){endAssign(assignId);}
+    // テーブル or 待機 → 休憩（アサイン終了とstatus="break"を1回のFirebase writeにまとめる）
+    if(assignId){const _ba=S.assignments[assignId];if(_ba)_ba.endTime=Date.now();}
     moveToBreak(castId);
   } else if(toZone==="tbl"&&tableId){
     // 待機 or 休憩 or テーブル → テーブル
@@ -2168,7 +2174,7 @@ function saveHistPay(){
   });
   if(splits.length===0)return;
   h.splits=splits;h.payMethod=splits[0].method;h.receiptIssued=splits.some(sp=>sp.receipt);
-  save("history",S.history);editPayHid=null;closeM();render();
+  save("history/"+h.id,h);editPayHid=null;closeM();render();
 }
 
 // ===== 営業日（19:00〜翌18:59）=====
@@ -4766,7 +4772,7 @@ function addSCToSession(){
   save("sessions",S.sessions);closeM();renderOrderPartial();refreshFloorModal();
 }
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];render();rModal();}
-function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history",S.history);dhi=null;closeM();render();}
+function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history/"+dhi,null);dhi=null;closeM();render();}
 
 // ===== 出勤・退勤 =====
 const ASSIGN_TYPES={hon:{label:"本指名",col:"#ff4444"},free:{label:"フリー",col:"#38bdf8"},help:{label:"ヘルプ",col:"#e8dcc8"},banai:{label:"場内指名",col:"#4ade80"}};
@@ -5032,7 +5038,7 @@ function rShifts(){
   const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
 
   let html='<div style="max-width:720px;margin:0 auto;">';
-  html+=html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
+  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
 
   // アクションボタン
   html+='<div style="display:flex;gap:10px;margin-bottom:16px;">';
