@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.35.2</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.36</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -427,9 +427,12 @@ function addBanai(cid){
   s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
   const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
   if(freeA){freeA.type="banai";}
-  // sessionsとassignmentsを同時にアトミック保存
+  // sessionsとassignmentsをレコード単位でアトミック保存
   if(window._db){
-    window._db.ref(FB_ROOT).update({sessions:S.sessions,assignments:S.assignments})
+    const _cu={};
+    _cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];
+    if(freeA)_cu[FB_ROOT+"/assignments/"+freeA.id]=freeA;
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();
@@ -470,7 +473,7 @@ function remItem(id){
     const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
     if(banaiA){
       banaiA.type="free";
-      if(window._db){window._db.ref(FB_ROOT).update({sessions:S.sessions,assignments:S.assignments}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+      if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
       _savedInline=true;
     }
   }else{
@@ -632,15 +635,21 @@ function checkout(){
     }
   });
 
-  // 全データをアトミックに保存（historyはレコード単位書き込みで同時会計の上書き競合を防ぐ）
+  // 全データをアトミックに保存（history/assignment/shiftはレコード単位書き込みで同時会計の上書き競合を防ぐ）
   S.sessions=newSessions;
   S.history=[rec,...S.history];
   if(window._db){
     const _cu={};
     _cu[FB_ROOT+"/history/"+rec.id]=rec;
     _cu[FB_ROOT+"/sessions"]=Object.keys(newSessions).length>0?newSessions:null;
-    _cu[FB_ROOT+"/assignments"]=Object.keys(S.assignments||{}).length>0?S.assignments:null;
-    _cu[FB_ROOT+"/shifts"]=Object.keys(S.shifts||{}).length>0?S.shifts:null;
+    const _chkShiftIds=new Set();
+    Object.values(S.assignments||{}).forEach(a=>{
+      if(a.tableId===checkoutTableId&&a.endTime===now_co){
+        _cu[FB_ROOT+"/assignments/"+a.id]=a;
+        const _sh=getShiftByCastId(a.castId);
+        if(_sh&&!_chkShiftIds.has(_sh.id)){_chkShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
+      }
+    });
     window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
@@ -1749,7 +1758,7 @@ function saveAssignTimeEdit(){
   }
   if(eEl&&eEl.value)a.endTime=hhmm2ts(eEl.value);
   else if(eEl&&eEl.value==="")a.endTime=null;
-  save("assignments",S.assignments);closeM();render();
+  save("assignments/"+window._editAid,a);closeM();render();
 }
 
 // ===== CHECKIN =====
@@ -4840,7 +4849,7 @@ function clockIn(castId,time){
   const sid="sh_"+Date.now();
   // statusLogは待機・休憩の開始/終了を記録する配列
   S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
-  save("shifts",S.shifts);closeM();render();
+  save("shifts/"+sid,S.shifts[sid]);closeM();render();
 }
 function setCastStatus(castId,newStatus){
   const sh=getShiftByCastId(castId);if(!sh)return;
@@ -4860,7 +4869,7 @@ function clockOut(shiftId,time){
   sh.clockOut=hhmm2ts(time||nowHHMM());
   // 退勤が出勤より前なら翌日扱い
   if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
-  save("shifts",S.shifts);closeM();render();
+  save("shifts/"+shiftId,sh);closeM();render();
 }
 function saveLocalBackup(){/* localStorageバックアップは廃止、Firebase backup/bizDaysを使用 */}
 
@@ -4870,7 +4879,7 @@ function cancelClockOut(shiftId){
   delete sh.clockOut;
   // statusをwaitingに戻す
   sh.status="waiting";
-  save("shifts",S.shifts);closeM();render();
+  save("shifts/"+shiftId,sh);closeM();render();
 }
 function confirmShiftTime(){
   const el=document.getElementById("shift-time");
@@ -4897,10 +4906,10 @@ function saveShiftEdit(){
     sh.clockOut=hhmm2ts(outEl.value);
     if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
   }else{sh.clockOut=null;}
-  save("shifts",S.shifts);closeM();render();
+  save("shifts/"+shiftMd.shiftId,sh);closeM();render();
 }
 function deleteShift(sid){
-  delete S.shifts[sid];save("shifts",S.shifts);closeM();render();
+  delete S.shifts[sid];save("shifts/"+sid,null);closeM();render();
 }
 function exportShiftCSV(){
   const data=Object.values(S.shifts||{});
@@ -4949,7 +4958,10 @@ function startAssignNow(castId,tableId,type){
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active");
   if(window._db){
-    window._db.ref(FB_ROOT).update({assignments:S.assignments,shifts:S.shifts})
+    const _cu={};
+    _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
+    const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -4972,7 +4984,10 @@ function startAssign(castId,tableId,type,time){
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
   if(window._db){
-    window._db.ref(FB_ROOT).update({assignments:S.assignments,shifts:S.shifts})
+    const _cu={};
+    _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
+    const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -4980,7 +4995,7 @@ function startAssign(castId,tableId,type,time){
 function changeAssignType(aid,newType){
   const a=S.assignments[aid];if(!a)return;
   a.type=newType;
-  save("assignments",S.assignments);closeM();render();
+  save("assignments/"+aid,a);closeM();render();
 }
 function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
@@ -4990,7 +5005,10 @@ function endAssign(aid){
   a.endTime=now2;
   setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
   if(window._db){
-    window._db.ref(FB_ROOT).update({assignments:S.assignments,shifts:S.shifts})
+    const _cu={};
+    _cu[FB_ROOT+"/assignments/"+aid]=a;
+    const _sh=getShiftByCastId(a.castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5001,7 +5019,10 @@ function moveToBreak(castId){
   if(a)a.endTime=now2;
   setCastStatus(castId,"break"); // statusLogに新エントリを追加
   if(window._db){
-    window._db.ref(FB_ROOT).update({assignments:S.assignments,shifts:S.shifts})
+    const _cu={};
+    if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
+    const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5009,19 +5030,21 @@ function moveToBreak(castId){
 function moveToWaiting(castId){
   setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
   if(window._db){
-    window._db.ref(FB_ROOT).update({shifts:S.shifts})
-      .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    const _sh=getShiftByCastId(castId);
+    if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   }
   render();
 }
 function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
-  if(!a.endTime){
-    setCastStatus(a.castId,"waiting");
-  }
+  const _wasActive=!a.endTime;const _cid=a.castId;
+  if(_wasActive){setCastStatus(_cid,"waiting");}
   delete S.assignments[aid];
   if(window._db){
-    window._db.ref(FB_ROOT).update({assignments:S.assignments,shifts:S.shifts})
+    const _cu={};
+    _cu[FB_ROOT+"/assignments/"+aid]=null;
+    if(_wasActive){const _sh=getShiftByCastId(_cid);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
+    window._db.ref("/").update(_cu)
       .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
