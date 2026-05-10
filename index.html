@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.36</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.36.1</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -396,7 +396,7 @@ function startSession(){
   if(etv){const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);st=d.getTime();if(st>Date.now()+3600000)st-=86400000;}
   const si=items.find(i=>i.isSet);
   S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""};
-  save("sessions",S.sessions);
+  save("sessions/"+at,S.sessions[at]);
   vw="floor";ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
   render();openFloorDetail(at);
 }
@@ -641,7 +641,7 @@ function checkout(){
   if(window._db){
     const _cu={};
     _cu[FB_ROOT+"/history/"+rec.id]=rec;
-    _cu[FB_ROOT+"/sessions"]=Object.keys(newSessions).length>0?newSessions:null;
+    _cu[FB_ROOT+"/sessions/"+checkoutTableId]=null;
     const _chkShiftIds=new Set();
     Object.values(S.assignments||{}).forEach(a=>{
       if(a.tableId===checkoutTableId&&a.endTime===now_co){
@@ -658,21 +658,25 @@ function checkout(){
 function tableChange(newId){
   if(!at||!newId||newId===at)return;
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
-  // deleteより前にセッションIDを取得（deleteするとS.sessions[at]がundefinedになるため）
-  const tcSessionId=S.sessions[at]?.startTime||null;
-  S.sessions[newId]={...S.sessions[at],tableId:newId};
-  delete S.sessions[at];
+  const oldTid=at;
+  const tcSessionId=S.sessions[oldTid]?.startTime||null;
+  S.sessions[newId]={...S.sessions[oldTid],tableId:newId};
+  delete S.sessions[oldTid];
   // アクティブなアサイン＋同セッションの終了済みアサイン（付け回し履歴）のtableIdも移動先に更新
+  const _movedAids=[];
   Object.values(S.assignments||{}).forEach(a=>{
-    if(a.tableId===at&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId)))a.tableId=newId;
+    if(a.tableId===oldTid&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId))){
+      a.tableId=newId;_movedAids.push(a.id);
+    }
   });
   at=newId;
-  // sessionsとassignmentsをアトミックに保存（別々の保存だとリスナーが中間状態を見てキャストが戻る）
+  // レコード単位書き込みで他端末のアサインを上書きしない
   if(window._db){
-    window._db.ref(FB_ROOT).update({
-      sessions: Object.keys(S.sessions).length>0 ? S.sessions : null,
-      assignments: Object.keys(S.assignments||{}).length>0 ? S.assignments : null
-    }).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+    const _cu={};
+    _cu[FB_ROOT+"/sessions/"+newId]=S.sessions[newId];
+    _cu[FB_ROOT+"/sessions/"+oldTid]=null;
+    _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
+    window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();refreshFloorModal();
 }
