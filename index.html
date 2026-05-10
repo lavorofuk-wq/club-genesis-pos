@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.36.1</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.37</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -194,9 +194,10 @@
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
   </header>
-  <!-- オフライン警告バナー -->
-  <div id="offline-banner" style="display:none;position:sticky;top:0;z-index:900;background:rgba(255,80,80,.95);color:#fff;font-size:13px;font-weight:700;text-align:center;padding:8px 16px;letter-spacing:.05em;">
-    オフライン — データは同期されていません。接続を確認してください。
+  <!-- オフライン操作ブロックオーバーレイ（初回sync後のみ表示） -->
+  <div id="offline-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99999;flex-direction:column;align-items:center;justify-content:center;gap:20px;touch-action:none;">
+    <div style="font-size:28px;font-weight:900;color:#ff4444;letter-spacing:.08em;">OFFLINE</div>
+    <div style="font-size:14px;color:#aaa;text-align:center;line-height:1.9;">WiFi接続を確認してください<br>接続が回復すると自動的に再開されます</div>
   </div>
   <main id="m"></main>
 </div>
@@ -296,9 +297,13 @@ function initFB(){
   // ===== 接続状態監視 =====
   db.ref(".info/connected").on("value",(snap)=>{
     const connected=snap.val()===true;
-    const banner=document.getElementById("offline-banner");
-    if(banner)banner.style.display=connected?"none":"block";
-    if(connected){sbs(true,"接続中 ✓");}
+    window._fbConnected=connected;
+    // 初回sync前はオーバーレイを出さない（ページ読み込み中の瞬断を避ける）
+    if(window._fbFirstSync){
+      const ov=document.getElementById("offline-overlay");
+      if(ov)ov.style.display=connected?"none":"flex";
+    }
+    if(connected){sbs(true,"同期済み ✓");}
     else{sbs(false,"⚠ オフライン");}
   });
 
