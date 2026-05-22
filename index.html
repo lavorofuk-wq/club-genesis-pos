@@ -305,8 +305,14 @@ function initFB(){
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
     if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))db.ref(FB_ROOT+"/appVersion").set(APP_VERSION);
   });
-  // Service Workerの更新を即座にチェック（開いたままの端末でも新SW検知→強制リロード）
-  if('serviceWorker' in navigator){navigator.serviceWorker.getRegistration().then(reg=>{if(reg)reg.update();}).catch(()=>{});}
+  // Service Workerの更新を即座にチェック
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.getRegistration().then(reg=>{if(reg)reg.update();}).catch(()=>{});
+    // SW更新通知を受信したら再読み込みオーバーレイを表示
+    navigator.serviceWorker.addEventListener('message',e=>{
+      if(e.data?.type==='SW_UPDATED'){const ov=document.getElementById('version-overlay');if(ov)ov.style.display='flex';}
+    });
+  }
 
   // ===== 接続状態監視 =====
   db.ref(".info/connected").on("value",(snap)=>{

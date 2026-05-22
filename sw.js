@@ -12,7 +12,7 @@ self.addEventListener('activate', e => {
       .then(keys => Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))
       .then(() => self.clients.claim())
       .then(() => self.clients.matchAll({ type: 'window' }))
-      .then(clients => Promise.all(clients.map(c => c.navigate(c.url).catch(()=>{}))))
+      .then(clients => clients.forEach(c => c.postMessage({ type: 'SW_UPDATED' })))
   );
 });
 
