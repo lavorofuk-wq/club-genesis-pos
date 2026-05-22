@@ -305,6 +305,8 @@ function initFB(){
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
     if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))db.ref(FB_ROOT+"/appVersion").set(APP_VERSION);
   });
+  // Service Workerの更新を即座にチェック（開いたままの端末でも新SW検知→強制リロード）
+  if('serviceWorker' in navigator){navigator.serviceWorker.getRegistration().then(reg=>{if(reg)reg.update();}).catch(()=>{});}
 
   // ===== 接続状態監視 =====
   db.ref(".info/connected").on("value",(snap)=>{
