@@ -176,7 +176,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.38</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.39</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -194,6 +194,12 @@
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
   </header>
+  <!-- バージョン不一致オーバーレイ（古いバージョンの端末に再読み込みを要求） -->
+  <div id="version-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.97);z-index:999999;flex-direction:column;align-items:center;justify-content:center;gap:20px;touch-action:none;">
+    <div style="font-size:22px;font-weight:900;color:#d4a017;letter-spacing:.08em;">アップデートがあります</div>
+    <div style="font-size:14px;color:#aaa;text-align:center;line-height:1.9;">新しいバージョンが配信されました<br>再読み込みしてください</div>
+    <button onclick="location.reload(true)" style="padding:16px 40px;background:linear-gradient(135deg,#b8960c,#e8c84a);color:#1a1200;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.05em;">再読み込み</button>
+  </div>
   <!-- オフライン操作ブロックオーバーレイ（初回sync後のみ表示） -->
   <div id="offline-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:99999;flex-direction:column;align-items:center;justify-content:center;gap:20px;touch-action:none;">
     <div style="font-size:28px;font-weight:900;color:#ff4444;letter-spacing:.08em;">OFFLINE</div>
@@ -212,6 +218,8 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
+const APP_VERSION="6.39";
+function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
@@ -293,6 +301,10 @@ function applyPWConfig(config){
 function initFB(){
   const db=window._db;
   sbs(false,"接続中…");
+  // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
+  db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
+    if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))db.ref(FB_ROOT+"/appVersion").set(APP_VERSION);
+  });
 
   // ===== 接続状態監視 =====
   db.ref(".info/connected").on("value",(snap)=>{
@@ -319,6 +331,10 @@ function initFB(){
       sbs(true,"同期済み ✓");
       if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
       render();return;
+    }
+    // バージョン不一致チェック（初回sync後のみ。自分より新しいバージョンが来たら再読み込みを要求）
+    if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
+      const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
     }
     if(d.casts)S.casts=d.casts;
     if(d.menus){
