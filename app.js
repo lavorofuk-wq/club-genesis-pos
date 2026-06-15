@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.40";
+const APP_VERSION="6.41";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
@@ -17,6 +17,7 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
+let closingState={date:null,forms:{},submitting:false,submitted:{}};
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -507,7 +508,7 @@ function updateNav(){
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
   if(opsBtn)opsBtn.style.display=inBiz?"":"none";
-  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ncl","closing"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
 const el=document.getElementById(id);if(!el)return;
 // フロア・リスト・出勤・売上は営業中のみ表示
 const bizOnly=["floor","list","shifts","history"].includes(v);
@@ -542,6 +543,7 @@ else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
 else if(vw==="checkin")m.innerHTML=rCI();
 else if(vw==="history")m.innerHTML=rHist();
 else if(vw==="analysis")m.innerHTML=rAnalysis();
+else if(vw==="closing")m.innerHTML=rClosing();
 else if(vw==="shifts")m.innerHTML=rShifts();
 else if(vw==="settings")m.innerHTML=rSettings();
 else if(vw==="admin")m.innerHTML=rAdmin();
@@ -558,7 +560,7 @@ function sv(v,extra){
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","closing","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -716,6 +718,7 @@ html+='<div style="text-align:center;padding:12px;background:rgba(212,160,23,.06
 html+='</div>';
 // フロアへ
 html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
+html+='<button class="btn" onclick="sv(\'closing\')" style="width:100%;padding:13px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;margin-bottom:12px;touch-action:manipulation;">締め作業</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">過去の営業履歴</button>';
 html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
   } else {
@@ -724,6 +727,7 @@ html+='<div style="text-align:center;margin-bottom:32px;">';
 html+='<div style="font-size:13px;color:#555;margin-bottom:4px;">現在営業中の日はありません</div>';
 html+='</div>';
 html+='<button class="btn gbg" onclick="om(\'startBizDay\')" style="width:100%;padding:18px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:16px;touch-action:manipulation;">営業を開始する</button>';
+html+='<button class="btn" onclick="sv(\'closing\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;margin-bottom:12px;touch-action:manipulation;">締め作業</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">過去の営業履歴</button>';
   }
   html+='</div>';
@@ -3332,6 +3336,20 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div style="display:flex;gap:8px;">'
   +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
   +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
+  +'</div></div></div>';
+  }
+  else if(md==="closingConfirm"){
+const p=window._closingPayload;
+h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
+  +'<h3 style="font-size:17px;color:#4ade80;margin-bottom:12px;">締め確定</h3>'
+  +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
+  +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
+  +'保存先: <strong style="color:#e8dcc8;">'+(typeof CLOSING_ROOT!=="undefined"?CLOSING_ROOT:"dailyClosings-dev")+'/'+(p?.businessDate||"")+'</strong><br>'
+  +'総売上 '+pAmt(p?.sales?.totalSales||0)+' / 現金差異 <span style="color:'+((p?.cashReconciliation?.difference||0)===0?"#4ade80":"#ff6b6b")+';">'+pAmt(p?.cashReconciliation?.difference||0)+'</span>'
+  +'</div>'
+  +'<div style="display:flex;gap:8px;">'
+  +'<button class="btn" onclick="closeM()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;">戻る</button>'
+  +'<button class="btn gbg" onclick="clSubmit()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;border-radius:6px;font-size:14px;font-weight:700;'+(closingState.submitting?"opacity:.5;":"")+'">'+(closingState.submitting?"保存中...":"確定する")+'</button>'
   +'</div></div></div>';
   }
   else if(md==="opsMenu"){

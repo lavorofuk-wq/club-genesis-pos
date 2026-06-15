@@ -20,6 +20,7 @@
   <script src="printer-loader.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="firebase-init.js"></script>
   <link rel="stylesheet" href="styles.css"/>
 </head>
@@ -51,13 +52,14 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.40</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.41</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
       <button class="nb" id="nli" onclick="sv('list')">リスト</button>
       <button class="nb" id="nsh" onclick="sv('shifts')">出勤</button>
       <button class="nb" id="nh" onclick="sv('history')">データ</button>
+      <button class="nb" id="ncl" onclick="sv('closing')">締め</button>
       <button class="nb" id="nan" onclick="sv('analysis')">分析</button>
       <button class="nb" id="ns" onclick="sv('settings')">設定</button>
       <button class="nb" id="nm" onclick="sv('admin')">管理</button>
@@ -87,5 +89,6 @@
   <div id="fom-inner" style="background:#141418;border:1px solid rgba(184,150,12,.3);border-radius:10px;padding:18px;width:100%;max-width:min(1400px,98vw);max-height:96vh;display:flex;flex-direction:column;overflow:hidden;"></div>
 </div>
 <script src="app.js"></script>
+<script src="closing.js"></script>
 </body>
 </html>
