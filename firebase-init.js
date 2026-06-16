@@ -4,6 +4,11 @@ const _fbDb=firebase.database();
 window._db=_fbDb;
 const _fsDb=firebase.firestore();
 window._fs=_fsDb;
+const accountingCfg={apiKey:"AIzaSyBX0LqE5XKywU8ERzJl738SQq2QUuCsDQ8",authDomain:"club-genesis-accountin.firebaseapp.com",projectId:"club-genesis-accountin",storageBucket:"club-genesis-accountin.firebasestorage.app",messagingSenderId:"1086890949782",appId:"1:1086890949782:web:d9425cd2157adea94a16b7"};
+const _accountingApp=firebase.initializeApp(accountingCfg,"accounting");
+const _accountingFsDb=firebase.firestore(_accountingApp);
+window._accountingFs=_accountingFsDb;
+window._closingProjectId=accountingCfg.projectId;
 // 本番(club-genesis-pos.vercel.app): 'pos' / 開発環境: 'pos-dev'
 const FB_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'pos' : 'pos-dev';
 window._fbRoot = FB_ROOT;

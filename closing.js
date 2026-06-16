@@ -94,9 +94,10 @@ function clValidate(date,payload){
 function clConfirmSubmit(){const date=clDefaultDate();closingState.date=date;const payload=clBuildPayload(date);const errs=clValidate(date,payload);if(errs.length){alert(errs.join("\n"));return;}window._closingPayload=payload;md="closingConfirm";rModal();}
 async function clSubmit(){
   const payload=window._closingPayload;if(!payload||closingState.submitting)return;
-  if(!window._fs){alert("Firestoreが初期化されていません");return;}
+  const closingDb=window._accountingFs||window._fs;
+  if(!closingDb){alert("Firestoreが初期化されていません");return;}
   closingState.submitting=true;rModal();
-  try{await window._fs.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true});closingState.submitted[payload.businessDate]={status:"submitted",savedAt:Date.now()};sbs(true,"締め保存済み ✓");closeM();render();}
+  try{await closingDb.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true});if(window._fs&&window._fs!==closingDb){window._fs.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true}).catch(e=>console.warn("local closing backup failed",e));}closingState.submitted[payload.businessDate]={status:"submitted",savedAt:Date.now()};sbs(true,"締め保存済み ✓");closeM();render();}
   catch(e){console.error("closing submit error",e);alert("締め保存に失敗しました: "+e.message);closingState.submitting=false;rModal();}
   closingState.submitting=false;
 }

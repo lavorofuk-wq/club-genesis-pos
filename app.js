@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.41";
+const APP_VERSION="6.42";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
@@ -3344,7 +3344,7 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<h3 style="font-size:17px;color:#4ade80;margin-bottom:12px;">締め確定</h3>'
   +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
   +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
-  +'保存先: <strong style="color:#e8dcc8;">'+(typeof CLOSING_ROOT!=="undefined"?CLOSING_ROOT:"dailyClosings-dev")+'/'+(p?.businessDate||"")+'</strong><br>'
+  +'保存先: <strong style="color:#e8dcc8;">'+(window._closingProjectId?window._closingProjectId+'/':'')+(typeof CLOSING_ROOT!=="undefined"?CLOSING_ROOT:"dailyClosings-dev")+'/'+(p?.businessDate||"")+'</strong><br>'
   +'総売上 '+pAmt(p?.sales?.totalSales||0)+' / 現金差異 <span style="color:'+((p?.cashReconciliation?.difference||0)===0?"#4ade80":"#ff6b6b")+';">'+pAmt(p?.cashReconciliation?.difference||0)+'</span>'
   +'</div>'
   +'<div style="display:flex;gap:8px;">'
