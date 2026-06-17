@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.44";
+const APP_VERSION="6.45";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -920,6 +920,13 @@ sbs(true,"同期済み ✓");
 async function endBizDay(){
   const id=S.activeBizDay;if(!id)return;
   const day=S.bizDays[id];if(!day)return;
+  const onduty=getOnduty();
+  if(onduty.length){
+    md="endBizDay";
+    sbs(false,"未退勤のキャストがいます");
+    rModal();
+    return;
+  }
   const wasReEdit=!!day.isReEdit;
   day.endedAt=Date.now();
   day.history=[...S.history];
@@ -4567,6 +4574,8 @@ const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
 const shiftCount=Object.values(S.shifts||{}).length;
 const assignCount=Object.values(S.assignments||{}).filter(a=>a.endTime).length;
 const openSessions=Object.values(S.sessions||{}).length;
+const onduty=getOnduty().sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
+const hasOnduty=onduty.length>0;
 h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
   +'<h3 style="margin-bottom:4px;font-size:18px;color:#ff6b6b;">営業終了</h3>'
   +'<div style="font-size:13px;color:#888;margin-bottom:'+(active?.isReEdit?"8px":"20px")+'">'+(active?active.date:"")+'</div>'
@@ -4577,8 +4586,9 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +(pendingSales>0?'<div style="padding:12px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.15);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#ff6b6b;margin-bottom:4px;">未会計</div><div style="font-size:18px;font-weight:700;color:#ffa500;">'+pAmt(pendingSales)+'</div></div>':'<div style="padding:12px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;text-align:center;"><div style="font-size:10px;color:#888;margin-bottom:4px;">出退勤</div><div style="font-size:18px;font-weight:700;color:#bbb;">'+shiftCount+'名</div></div>')
   +'</div>'
   +(openSessions>0?'<div style="padding:10px 14px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;margin-bottom:16px;font-size:13px;color:#ff6b6b;">会計未了のテーブルが '+openSessions+' 卓あります</div>':"")
+  +(hasOnduty?'<div style="padding:12px 14px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:8px;margin-bottom:16px;color:#ff6b6b;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;">未退勤のキャストがいます。営業終了には全員の退勤が必須です。</div><div style="display:flex;flex-direction:column;gap:5px;">'+onduty.map(sh=>'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#ffd1d1;"><span>'+((sh.castName||"不明"))+'</span><span>出勤 '+new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span></div>').join("")+'</div></div>':"")
   +'<div style="display:flex;gap:8px;">'
-  +'<button class="btn" onclick="endBizDay()" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;">終了して保存する</button>'
+  +'<button class="btn" '+(hasOnduty?'disabled':'onclick="endBizDay()"')+' style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;'+(hasOnduty?'opacity:.45;cursor:not-allowed;':'')+'">終了して保存する</button>'
   +'<button class="btn" onclick="closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">戻る</button>'
   +'</div></div></div>';
   }
