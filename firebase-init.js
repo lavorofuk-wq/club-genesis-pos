@@ -15,8 +15,8 @@ window._fbRoot = FB_ROOT;
 // 本番: 'backup' / 開発環境: 'backup-dev'
 const BACKUP_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'backup' : 'backup-dev';
 window._backupRoot = BACKUP_ROOT;
-// 本番: dailyClosings / 開発環境: dailyClosings-dev
-const CLOSING_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'dailyClosings' : 'dailyClosings-dev';
+// 本番: shopClosings / 開発環境: shopClosings-dev
+const CLOSING_ROOT = window.location.hostname === 'club-genesis-pos.vercel.app' ? 'shopClosings' : 'shopClosings-dev';
 window._closingRoot = CLOSING_ROOT;
 window._serverTimestamp=function(){return firebase.firestore.FieldValue.serverTimestamp();};
 window._ref=function(db,path){return db.ref(path);};
