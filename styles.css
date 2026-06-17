@@ -328,6 +328,97 @@ textarea.ip:focus{
   background:#eff6ff!important;
 }
 
+.floor-grid,
+.list-table-grid{
+  align-items:start!important;
+}
+
+.floor-table-card,
+.list-table-card{
+  aspect-ratio:1 / 1!important;
+  inline-size:100%!important;
+  min-width:0!important;
+  min-height:0!important;
+  height:auto!important;
+  display:flex!important;
+  flex-direction:column!important;
+}
+
+.floor-table-card{
+  padding:clamp(8px,1.5vw,14px)!important;
+}
+
+.floor-table-card > div,
+.list-table-card > div{
+  min-width:0!important;
+}
+
+.floor-table-card span,
+.list-table-card span{
+  min-width:0!important;
+}
+
+.floor-table-card > div:first-child span:first-child,
+.list-table-card > div:first-child span:first-child{
+  font-size:clamp(11px,1.45vw,14px)!important;
+  line-height:1.15!important;
+}
+
+.floor-table-card [data-countdown]{
+  font-size:clamp(14px,2.2vw,20px)!important;
+  line-height:1.05!important;
+}
+
+.floor-nomination-row,
+.list-nomination-row{
+  display:grid!important;
+  gap:4px!important;
+  width:100%!important;
+}
+
+.floor-nomination-row.has-one,
+.list-nomination-row.has-one{
+  grid-template-columns:1fr!important;
+}
+
+.floor-nomination-row.has-both,
+.list-nomination-row.has-both{
+  grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;
+}
+
+.floor-nomination-row > div,
+.list-nomination-row > div{
+  min-width:0!important;
+  text-align:inherit!important;
+}
+
+.floor-nomination-row.has-one > div:empty,
+.list-nomination-row.has-one > div:empty{
+  display:none!important;
+}
+
+.floor-nomination,
+.list-nomination{
+  display:block!important;
+  max-width:100%!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  word-break:keep-all!important;
+  line-height:1.25!important;
+  font-size:clamp(9px,1.65vw,14px)!important;
+}
+
+.floor-nomination-row.has-both .floor-nomination,
+.list-nomination-row.has-both .list-nomination{
+  font-size:clamp(8px,1.35vw,12px)!important;
+}
+
+.floor-nomination-banai,
+.list-nomination-banai{
+  text-align:right!important;
+}
+
 .list-table-card{
   background:#ffffff!important;
   border:1px solid var(--gms-line-strong)!important;
@@ -354,7 +445,7 @@ textarea.ip:focus{
   border-radius:6px!important;
   background:#dbeafe!important;
   color:var(--gms-primary-dark)!important;
-  font-size:14px!important;
+  font-size:clamp(12px,1.6vw,14px)!important;
   font-weight:900!important;
   letter-spacing:0!important;
 }
@@ -363,7 +454,7 @@ textarea.ip:focus{
   padding:3px 6px!important;
   border-radius:5px!important;
   font-weight:900!important;
-  line-height:1.45!important;
+  line-height:1.25!important;
   text-shadow:none!important;
 }
 

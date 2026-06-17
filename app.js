@@ -975,9 +975,9 @@ sbs(true,"同期済み ✓");
 
 // ===== FLOOR =====
 function rFloor(){
-  const cols=DEV==="mobile"?"repeat(auto-fill,minmax(135px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(160px,1fr))":"repeat(auto-fill,minmax(200px,1fr))";
+  const cols="repeat(auto-fit,minmax(min(100%,clamp(118px,22vw,220px)),1fr))";
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
-  html+='<div style="display:grid;grid-template-columns:'+cols+';gap:12px;">';
+  html+='<div class="floor-grid" style="display:grid;grid-template-columns:'+cols+';gap:clamp(8px,1.6vw,14px);align-items:start;">';
   S.tables.forEach(t=>{
 try{
 const s=S.sessions[t.id];const rv=rem(s?.setEndTime);
@@ -1003,12 +1003,12 @@ let inn=s?
   +'</div>'
   +'<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'" data-fmt="p"':'')+' style="text-align:right;font-size:'+timerFs+';font-weight:700;color:'+(exp?"#ff4444":urg?"#ff6b6b":"#d4a017")+';margin-bottom:4px;" class="'+(urg||exp?"urg":"")+'">'+( rv===null?"—":exp?"-"+ts(-rv):ts(rv))+'</div>'
   +(hn.length||bn.length?
-    '<div style="display:flex;gap:4px;margin-top:2px;">'
+    '<div class="floor-nomination-row '+((hn.length&&bn.length)?"has-both":"has-one")+'" style="display:flex;gap:4px;margin-top:2px;">'
     +'<div style="flex:1;min-width:0;">'
-    +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
+    +(hn.length?'<div class="floor-nomination floor-nomination-hon" style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
     +'</div>'
     +'<div style="flex:1;min-width:0;text-align:right;">'
-    +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.6;word-break:break-all;text-align:right;">'+bn.map(n=>'場指名 '+n).join('<br>')+'</div>':'')
+    +(bn.length?'<div class="floor-nomination floor-nomination-banai" style="font-size:'+nomFs+';color:#4ade80;line-height:1.6;word-break:break-all;text-align:right;">'+bn.map(n=>'場指名 '+n).join('<br>')+'</div>':'')
     +'</div>'
     +'</div>'
     :"")
@@ -1017,7 +1017,7 @@ const loBadgeFs=(parseFloat(lblFs)*2)+"px";
 const loSt=S.loMode&&s?(S.loStatus[t.id]==="done"?"done":"pending"):null;
 const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#ff4444;line-height:1;">LO未</span>'
   :loSt==="done"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#38bdf8;line-height:1;">LO完</span>':"";
-html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
+html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
   +(loBadge?'<div style="position:absolute;top:4px;right:6px;pointer-events:none;">'+loBadge+'</div>':"")
   +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
   +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
@@ -1027,7 +1027,7 @@ html+='<div class="tc '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.
   +'</div>'+inn+'</div>';
 }catch(e){
   // データ不整合のテーブルは空席として表示
-  html+='<div class="tc te '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
+  html+='<div class="tc floor-table-card te '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
     +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
     +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
     +(isV(t.id)?'<span class="tag tv2">VIP</span>':"")
@@ -1108,8 +1108,8 @@ html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:
   html+='</div>';
 
   // ===== 右: テーブルゾーン =====
-  const tblCols=isMob?"repeat(auto-fill,minmax(140px,1fr))":DEV==="tablet"?"repeat(auto-fill,minmax(160px,1fr))":"repeat(auto-fill,minmax(180px,1fr))";
-  html+='<div style="display:grid;grid-template-columns:'+tblCols+';gap:10px;align-content:start;">';
+  const tblCols="repeat(auto-fit,minmax(min(100%,clamp(130px,20vw,190px)),1fr))";
+  html+='<div class="list-table-grid" style="display:grid;grid-template-columns:'+tblCols+';gap:clamp(8px,1.4vw,12px);align-content:start;align-items:start;">';
   S.tables.forEach(t=>{
 const s=S.sessions[t.id];
 const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
@@ -1175,7 +1175,7 @@ if(isActive&&s){
       :DEV==="tablet"
       ?(maxSide>=8?'7px':maxSide>=7?'8px':maxSide>=6?'9px':maxSide>=5?'10px':'12px')
       :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
-    html+='<div style="display:flex;gap:4px;margin-top:2px;">'
+    html+='<div class="list-nomination-row '+((hn.length&&bn.length)?"has-both":"has-one")+'" style="display:flex;gap:4px;margin-top:2px;">'
       +'<div style="flex:1;min-width:0;">'
       +(hn.length?'<div class="list-nomination list-nomination-hon" style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
       +'</div>'
@@ -5047,7 +5047,7 @@ const urg=rv<600000&&rv>0;const exp=rv<=0;
 const fmt=el.dataset.fmt||"p";
 el.textContent=fmt==="r"?(exp?"- "+ts(-rv):"残 "+ts(rv)):(exp?"-"+ts(-rv):ts(rv));
 el.style.color=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
-el.className=(urg||exp)?"urg":"";
+el.classList.toggle("urg",urg||exp);
   });
   // 経過タイマー（アサイン・付け回し）
   document.querySelectorAll("[data-timer]").forEach(el=>{
