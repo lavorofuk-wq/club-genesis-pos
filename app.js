@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.46";
+const APP_VERSION="6.47";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -1341,7 +1341,6 @@ if(assignId)endAssign(assignId);
 else if(fromZone==="break")moveToWaiting(castId);
   } else if(toZone==="break"){
 // テーブル or 待機 → 休憩（アサイン終了とstatus="break"を1回のFirebase writeにまとめる）
-if(assignId){const _ba=S.assignments[assignId];if(_ba)_ba.endTime=Date.now();}
 moveToBreak(castId);
   } else if(toZone==="tbl"&&tableId){
 // 待機 or 休憩 or テーブル → テーブル
@@ -1362,12 +1361,11 @@ function getAutoType(castId,tableId){
   return{autoType:null,limitedTypes:["free","help"]};
 }
 function openTsukeAuto(castId,castName,tableId,prevAssignId){
-  if(prevAssignId)endAssign(prevAssignId);
   const{autoType,limitedTypes}=getAutoType(castId,tableId);
   if(autoType){
-tsukeMd={step:"time",castId,castName,type:autoType,tableId,time:"",useNow:true,limitedTypes:null};
+tsukeMd={step:"time",castId,castName,type:autoType,tableId,time:"",useNow:true,limitedTypes:null,prevAssignId:prevAssignId||null};
   }else{
-tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true,limitedTypes};
+tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true,limitedTypes,prevAssignId:prevAssignId||null};
   }
   md="tsuke";rModal();
 }
@@ -4829,29 +4827,33 @@ function confirmTsuke(){
   if(!tsukeMd.castId){alert("キャストを選択してください");return;}
   if(!tsukeMd.type){alert("種別を選択してください");return;}
   const useNow=tsukeMd.useNow!==false; // デフォルトtrue
+  const prevAssignId=tsukeMd.prevAssignId||null;
   if(useNow){
-startAssignNow(tsukeMd.castId,tableId,tsukeMd.type);
+startAssignNow(tsukeMd.castId,tableId,tsukeMd.type,prevAssignId);
   }else{
 const el=document.getElementById("tsuke-time");
 const t=(el&&el.value)?el.value:nowHHMM();
-startAssign(tsukeMd.castId,tableId,tsukeMd.type,t);
+startAssign(tsukeMd.castId,tableId,tsukeMd.type,t,prevAssignId);
   }
-  tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true};
+  tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true,prevAssignId:null};
 }
-function startAssignNow(castId,tableId,type){
+function startAssignNow(castId,tableId,type,prevAssignId=null){
   // Nowモード：確定した瞬間のtimestampをstartTime・attachedAt両方に使う
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
-  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
+  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!prevAssignId);
   if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
   const now_sa=Date.now();
   const aid="a_"+now_sa;
   const sessionId=S.sessions[tableId]?.startTime||null;
   S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:now_sa,attachedAt:now_sa,endTime:null,sessionId};
+  const closingAssignments=prevAssignId?Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(castId)&&!a.endTime&&a.id!==aid):[];
+  closingAssignments.forEach(a=>{a.endTime=now_sa;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active");
   if(window._db){
 const _cu={};
+closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
 window._db.ref("/").update(_cu)
@@ -4859,11 +4861,11 @@ window._db.ref("/").update(_cu)
   }
   closeM();render();
 }
-function startAssign(castId,tableId,type,time){
+function startAssign(castId,tableId,type,time,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
   // 既にテーブルについている（active）は付けられない
-  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime);
+  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!prevAssignId);
   if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
   const aid="a_"+Date.now();
   // sessionId = そのテーブルの現在セッション開始時刻（会計単位でグループ化に使う）
@@ -4874,10 +4876,13 @@ function startAssign(castId,tableId,type,time){
   const startTs=hhmm2ts(time||nowHHMM());
   const attachedAt=startTs;
   S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt,endTime:null,sessionId};
+  const closingAssignments=prevAssignId?Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(castId)&&!a.endTime&&a.id!==aid):[];
+  closingAssignments.forEach(a=>{a.endTime=startTs;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
   if(window._db){
 const _cu={};
+closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
 window._db.ref("/").update(_cu)
