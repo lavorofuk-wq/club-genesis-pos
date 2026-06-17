@@ -1129,7 +1129,7 @@ if(isActive&&s){
   // diff===0: 均衡は表示しない
 }
 // テーブルカード（ドロップゾーン）
-html+='<div id="dz-tbl-'+t.id+'" '
+html+='<div id="dz-tbl-'+t.id+'" class="list-table-card '+(isActive?"list-table-active":"list-table-empty")+'" '
   +'style="border-radius:10px;padding:10px;min-height:100px;transition:all .2s;cursor:'+(isActive?"pointer":"default")+';'
   +'background:'+(isActive?"rgba(255,255,255,.05)":"rgba(255,255,255,.02)")+';'
   +'border:1px solid '+(isActive?"rgba(212,160,23,.3)":"rgba(255,255,255,.06)")+';'
@@ -1166,7 +1166,7 @@ html+='</div>';
 html+='</div>';
 if(isActive&&s){
   // 残り時間
-  html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'" data-fmt="r"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="'+(urg||exp?"urg":"")+'">'+tr+'</div>';
+  html+='<div'+(s.setEndTime?' data-countdown="'+s.setEndTime+'" data-fmt="r"':'')+' style="font-size:12px;font-weight:700;color:'+tc+';" class="list-countdown '+(urg||exp?"urg":"")+'">'+tr+'</div>';
   // 本指名・場内指名の名前表示（フロアタブと同じ2列レイアウト）
   if(hn.length||bn.length){
     const maxSide=Math.max(hn.length,bn.length);
@@ -1177,10 +1177,10 @@ if(isActive&&s){
       :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
     html+='<div style="display:flex;gap:4px;margin-top:2px;">'
       +'<div style="flex:1;min-width:0;">'
-      +(hn.length?'<div style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
+      +(hn.length?'<div class="list-nomination list-nomination-hon" style="font-size:'+nomFs+';color:#ff4444;line-height:1.6;word-break:break-all;">'+hn.map(n=>'本指名 '+n).join('<br>')+'</div>':'')
       +'</div>'
       +'<div style="flex:1;min-width:0;text-align:right;">'
-      +(bn.length?'<div style="font-size:'+nomFs+';color:#4ade80;line-height:1.6;word-break:break-all;text-align:right;">'+bn.map(n=>'場指名 '+n).join('<br>')+'</div>':'')
+      +(bn.length?'<div class="list-nomination list-nomination-banai" style="font-size:'+nomFs+';color:#4ade80;line-height:1.6;word-break:break-all;text-align:right;">'+bn.map(n=>'場指名 '+n).join('<br>')+'</div>':'')
       +'</div>'
       +'</div>';
   }
@@ -1220,7 +1220,7 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
   const col=isActive?(ASSIGN_TYPES[assign?.type]?.col||"#888"):isWaiting?"#4ade80":"#ffa500";
   const sfx=isActive?(TYPE_SFX[assign?.type]||"?"):"";
   const aid=assign?.id||"";
-  return '<div draggable="true" '
+  return '<div class="list-cast-chip list-cast-'+zone+'" draggable="true" '
 +'data-cast-id="'+castId+'" data-cast-name="'+castName+'" data-zone="'+zone+'" data-assign-id="'+aid+'" '
 +'onclick="event.stopPropagation();chipTap(\''+castId+'\',\''+zone+'\',\''+aid+'\')" '
 +'ondragstart="chipDragStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
@@ -1233,9 +1233,9 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
 +'border:1px solid '+col+'44;">'
 +'<div style="display:flex;align-items:center;gap:6px;min-width:0;">'
 +(isActive?'<span style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
-+'<span style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
++'<span class="list-cast-name" style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
 +'</div>'
-+'<span data-timer="'+timerBase+'" style="font-size:11px;font-family:monospace;color:'+col+';flex-shrink:0;">'+ts(elapsed).slice(3)+'</span>'
++'<span class="list-elapsed-time" data-timer="'+timerBase+'" style="font-size:11px;font-family:monospace;color:'+col+';flex-shrink:0;">'+ts(elapsed).slice(3)+'</span>'
 +'</div>';
 }
 
