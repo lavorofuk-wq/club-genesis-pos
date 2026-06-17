@@ -4,12 +4,27 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.43";
+const APP_VERSION="6.44";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
-let S={casts:DC,menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+function normalizeCasts(list){
+  let nextNo=1;
+  return (list||[]).map((cast,idx)=>{
+    const internalNo=Number(cast.internalNo)||nextNo;
+    nextNo=Math.max(nextNo,internalNo+1);
+    return {...cast,internalNo,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
+  });
+}
+function castSortValue(c){return Number(c.internalNo)||Number.MAX_SAFE_INTEGER;}
+function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>castSortValue(a)-castSortValue(b)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
+function castNo(c){return String(c?.internalNo||"").padStart(3,"0");}
+function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||getBizDate();}
+function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
+function nextCastInternalNo(){return allCasts().filter(c=>c.castType!=="trial").reduce((m,c)=>Math.max(m,Number(c.internalNo)||0),0)+1;}
+function nextTrialCastInternalNo(date){return Math.max(99,...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||99))+1;}
+let S={casts:normalizeCasts(DC),menus:DM,tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
-let etv="",stab="cast",ncn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
+let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
 let priceHidden=false;
@@ -56,7 +71,7 @@ function ct(ses){
   return{subtotal:sub,discount,subDiscAmt,totalDiscAmt,tax,total,rate:r};
 }
 function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
-function sc(){return[...S.casts].sort((a,b)=>a.name.localeCompare(b.name,"ja"));}
+function sc(){return allCasts().filter(isVisibleCast);}
 function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
 function iso(i){if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(i.label==="同伴料")return 3;if(i.id==="freedrink"||i.label==="フリードリンク")return 4;if(i.label==="シングルチャージ")return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(i.id&&i.id.startsWith("cd_"))return 9;return 8;}
@@ -131,7 +146,7 @@ if(!d){
 if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
   const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
 }
-if(d.casts)S.casts=d.casts;
+if(d.casts)S.casts=normalizeCasts(d.casts);
 if(d.menus){
   S.menus=d.menus;
   // 未定義カテゴリを空配列で初期化
@@ -911,6 +926,14 @@ async function endBizDay(){
   day.shifts={...S.shifts};
   day.assignments={...S.assignments};
   delete day.isReEdit;
+  let castsChanged=false;
+  S.casts=normalizeCasts(S.casts).map(c=>{
+    if(c.castType==="trial"&&c.trialBizDay===id&&c.active!==false){
+      castsChanged=true;
+      return {...c,active:false,trialEndedAt:day.endedAt};
+    }
+    return c;
+  });
   S.bizDays[id]=day;
   S.activeBizDay=null;
   if(window._db){
@@ -934,6 +957,7 @@ if(wasReEdit){
 await window._db.ref(FB_ROOT).update({
   bizDays:S.bizDays,
   activeBizDay:null,
+  ...(castsChanged?{casts:S.casts}:{}),
   history:null,shifts:null,assignments:null,sessions:null
 });
 sbs(true,"同期済み ✓");
@@ -2008,10 +2032,31 @@ function rSettings(){
 html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(this.dataset.stab)">'+l+'</button>';
   });
   html+='</div>';
-  if(stab==="cast"){
-html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">登録キャスト（50音順）</div>';
-sc().forEach(c=>{html+='<div class="ir"><span style="font-size:14px;">'+c.name+'</span><button class="btn" data-cid="'+c.id+'" onclick="dc2(parseInt(this.dataset.cid))" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button></div>';});
-html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">追加</button></div>';
+if(stab==="cast"){
+const activeCasts=sc(),retiredCasts=allCasts().filter(c=>c.active===false&&c.castType!=="trial");
+html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">キャスト名簿（入店順）</div>';
+html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">内部番号は登録順に自動付与されます。名前は編集できます。退店したキャストは過去データ参照用に保持されます。</div>';
+activeCasts.forEach(c=>{
+html+='<div class="ir" style="gap:8px;align-items:center;">'
+  +'<span style="width:48px;font-size:12px;color:#d4a017;font-weight:700;">No.'+castNo(c)+'</span>'
+  +(c.castType==="trial"?'<span style="font-size:10px;color:#38bdf8;border:1px solid rgba(56,189,248,.3);border-radius:4px;padding:2px 6px;">体入</span>':'')
+  +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
+  +'<button class="btn" data-cid="'+c.id+'" onclick="dc2(parseInt(this.dataset.cid))" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">退店</button>'
+  +'</div>';
+});
+if(retiredCasts.length){
+html+='<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);"><div class="st" style="color:#888;">退店済みキャスト</div>';
+retiredCasts.forEach(c=>{
+html+='<div class="ir" style="gap:8px;align-items:center;opacity:.72;">'
+  +'<span style="width:48px;font-size:12px;color:#888;font-weight:700;">No.'+castNo(c)+'</span>'
+  +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
+  +'<span style="font-size:11px;color:#888;white-space:nowrap;">退店済み</span>'
+  +'</div>';
+});
+html+='</div>';
+}
+html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="入店キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">入店登録</button></div>';
+html+='<div style="display:flex;gap:8px;margin-top:10px;"><input class="ip" id="nti" placeholder="体入キャスト名（当日のみ）" value="'+ntn+'" oninput="ntn=this.value" style="flex:1;"/><button class="btn" onclick="actrial()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;">体入登録</button></div>';
 html+='</div>';
   }else if(stab==="menus"){
 const menuSections=[["normalSets","通常セットメニュー",true],["sets","特別セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["discounts","割引メニュー",false]];
@@ -2493,8 +2538,31 @@ window._db.ref(FB_ROOT).update({
 }
 function sst(t){stab=t;render();}
 function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
-function ac2(){if(!ncn.trim())return;S.casts=[...S.casts,{id:Date.now(),name:ncn.trim()}];save("casts",S.casts);ncn="";render();}
-function dc2(id){if(!confirm("このキャストを削除しますか？"))return;S.casts=S.casts.filter(c=>c.id!==id);save("casts",S.casts);render();}
+function ucn(id,name){
+  const n=String(name||"").trim();
+  if(!n)return render();
+  S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,name:n}:c);
+  save("casts",S.casts);render();
+}
+function ac2(){
+  const name=String(ncn||"").trim();if(!name)return;
+  const ts=Date.now(),biz=S.activeBizDay||getBizDate();
+  S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"regular",internalNo:nextCastInternalNo(),active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz}];
+  save("casts",S.casts);ncn="";render();
+}
+function actrial(){
+  const name=String(ntn||"").trim();if(!name)return;
+  const ts=Date.now(),biz=S.activeBizDay||getBizDate();
+  S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz}];
+  save("casts",S.casts);ntn="";render();
+}
+function dc2(id){
+  const cast=S.casts.find(c=>c.id===id);if(!cast)return;
+  if(!confirm(cast.name+" を退店扱いにしますか？\n過去データ参照のため名簿には残ります。"))return;
+  const ts=Date.now(),biz=S.activeBizDay||getBizDate();
+  S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,active:false,exitedAt:ts,exitedBizDay:biz}:c);
+  save("casts",S.casts);render();
+}
 function savePrinterConfig(){
   const ip=(document.getElementById("printer-ip")?.value||"").trim();
   const port=parseInt(document.getElementById("printer-port")?.value)||8008;

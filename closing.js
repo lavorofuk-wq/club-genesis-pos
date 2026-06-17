@@ -55,6 +55,28 @@ function clCastSales(hist){
   });
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+r.drinkSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
+function clCastLifecycle(date,type){
+  const key=type==="entered"?"enteredBizDay":"exitedBizDay";
+  const atKey=type==="entered"?"enteredAt":"exitedAt";
+  const casts=(typeof allCasts==="function"?allCasts():(S.casts||[]));
+  return casts.filter(c=>c&&c.castType!=="trial"&&c[key]===date).map(c=>({
+    castId:String(c.id||""),
+    internalNo:Number(c.internalNo)||0,
+    castName:c.name||"",
+    [atKey]:c[atKey]||null
+  })).sort((a,b)=>(a.internalNo||0)-(b.internalNo||0));
+}
+function clTrialCasts(date){
+  const casts=(typeof allCasts==="function"?allCasts():(S.casts||[]));
+  return casts.filter(c=>c&&c.castType==="trial"&&c.trialBizDay===date).map(c=>({
+    castId:String(c.id||""),
+    internalNo:Number(c.internalNo)||0,
+    castName:c.name||"",
+    trialBizDay:c.trialBizDay||date,
+    trialRegisteredAt:c.trialRegisteredAt||c.registeredAt||null,
+    trialEndedAt:c.trialEndedAt||null
+  })).sort((a,b)=>(a.internalNo||0)-(b.internalNo||0));
+}
 function clSummary(date){
   const day=clDayData(date),hist=day.history||[],pay=clPaymentTotals(hist);
   const totalSales=hist.reduce((a,h)=>a+clInt(h.total),0);
@@ -78,7 +100,7 @@ function clBuildPayload(date){
   const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
   const staffWork=form.staffWork.map(r=>({staffId:String(r.staffId||""),staffName:r.staffName||"",role:r.role||"other",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
   const actualCash=clInt(form.actualCash);
-  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,staffWork,castWork,
+  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),staffWork,castWork,
     expenses:form.expenses.filter(r=>r.category||clInt(r.amount)||r.note).map(r=>({category:r.category||"",amount:clInt(r.amount),note:r.note||""})),
     allowances:form.allowances.filter(r=>r.type||clInt(r.amount)||r.recipientName).map(r=>({type:r.type||"",amount:clInt(r.amount),recipientId:String(r.recipientId||""),recipientName:r.recipientName||""})),
     cashReconciliation:{expectedCash:sum.sales.cashSales,actualCash,difference:actualCash-sum.sales.cashSales,note:form.cashNote||""},
@@ -109,6 +131,12 @@ function exportClosingCSV(){
   Object.entries(p.nominations).forEach(([k,v])=>lines.push(["nominations."+k,v]));
   lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","drinkSales","totalAttributedSales"]);
   p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.drinkSales,r.totalAttributedSales]));
+  lines.push([],["enteredCasts"],["internalNo","castId","castName","enteredAt"]);
+  p.enteredCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.enteredAt]));
+  lines.push([],["exitedCasts"],["internalNo","castId","castName","exitedAt"]);
+  p.exitedCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.exitedAt]));
+  lines.push([],["trialCasts"],["internalNo","castId","castName","trialBizDay","trialRegisteredAt"]);
+  p.trialCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.trialBizDay,r.trialRegisteredAt]));
   lines.push([],["expectedCash","actualCash","difference","note"],[p.cashReconciliation.expectedCash,p.cashReconciliation.actualCash,p.cashReconciliation.difference,p.cashReconciliation.note]);
   _dlCSV("\uFEFF"+lines.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),"closing_"+date+".csv");
 }
@@ -121,6 +149,13 @@ function rClosing(){
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">会計済みテーブル</div>'+(sum.hist.length?sum.hist.map(h=>'<div class="ir"><span>'+h.tableLabel+' / '+(h.guests||0)+'名</span><span>'+pAmt(h.total)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">会計済みデータなし</div>')+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">指名集計</div><div style="display:flex;gap:16px;color:#e8dcc8;"><span>本指名 '+sum.nominations.honShimeiCount+'件</span><span>場内指名 '+sum.nominations.jonaiCount+'件</span></div></div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト別売上</div>'+(sum.castSales.length?sum.castSales.map(r=>'<div class="ir"><span>'+r.castName+'</span><span>本 '+pAmt(r.honShimeiSales)+' / 場延 '+pAmt(r.jonaiExtensionSales)+' / D '+pAmt(r.drinkSales)+' / 計 '+pAmt(r.totalAttributedSales)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">対象データなし</div>')+'</div>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">入退店キャスト</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
+    +'<div><div style="font-size:11px;color:#4ade80;margin-bottom:6px;">入店</div>'+(p.enteredCasts.length?p.enteredCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'
+    +'<div><div style="font-size:11px;color:#ff6b6b;margin-bottom:6px;">退店</div>'+(p.exitedCasts.length?p.exitedCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'
+    +'</div>'
+    +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);"><div style="font-size:11px;color:#38bdf8;margin-bottom:6px;">体入</div>'+(p.trialCasts.length?p.trialCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'
+    +'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:flex;justify-content:space-between;"><div class="st">スタッフ勤務</div><button class="btn" onclick="clAdd(\'staffWork\')" style="padding:5px 10px;color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:4px;">追加</button></div>'+form.staffWork.map((r,i)=>'<div style="display:grid;grid-template-columns:1.2fr 1fr .8fr .8fr .7fr .6fr auto;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.staffName||"")+'" oninput="clInput(\'staffWork\','+i+',\'staffName\',this.value)" placeholder="スタッフ名"/><select class="ip" onchange="clInput(\'staffWork\','+i+',\'role\',this.value)">'+clRoleOptions(r.role)+'</select><input class="ip" type="time" value="'+(r.startTime||"")+'" oninput="clInput(\'staffWork\','+i+',\'startTime\',this.value)"/><input class="ip" type="time" value="'+(r.endTime||"")+'" oninput="clInput(\'staffWork\','+i+',\'endTime\',this.value)"/><input class="ip" type="number" value="'+clInt(r.breakMinutes)+'" oninput="clInput(\'staffWork\','+i+',\'breakMinutes\',this.value)"/><div style="padding:8px;color:#38bdf8;">'+clHours(r.startTime,r.endTime,r.breakMinutes)+'h</div><button class="btn" onclick="clRemove(\'staffWork\','+i+')" style="color:#ff6b6b;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);border-radius:4px;">×</button></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト勤務</div>'+form.castWork.map((r,i)=>'<div style="display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .6fr;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.castName||"")+'" oninput="clInput(\'castWork\','+i+',\'castName\',this.value)"/><input class="ip" type="time" value="'+(r.startTime||"")+'" oninput="clInput(\'castWork\','+i+',\'startTime\',this.value)"/><input class="ip" type="time" value="'+(r.endTime||"")+'" oninput="clInput(\'castWork\','+i+',\'endTime\',this.value)"/><input class="ip" type="number" value="'+clInt(r.breakMinutes)+'" oninput="clInput(\'castWork\','+i+',\'breakMinutes\',this.value)"/><div style="padding:8px;color:#38bdf8;">'+clHours(r.startTime,r.endTime,r.breakMinutes)+'h</div></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:flex;justify-content:space-between;"><div class="st">経費</div><button class="btn" onclick="clAdd(\'expenses\')" style="padding:5px 10px;color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:4px;">追加</button></div>'+form.expenses.map((r,i)=>'<div style="display:grid;grid-template-columns:1fr .7fr 1.4fr auto;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.category||"")+'" oninput="clInput(\'expenses\','+i+',\'category\',this.value)" placeholder="カテゴリ"/><input class="ip" type="number" value="'+clInt(r.amount)+'" oninput="clInput(\'expenses\','+i+',\'amount\',this.value)" placeholder="金額"/><input class="ip" value="'+(r.note||"")+'" oninput="clInput(\'expenses\','+i+',\'note\',this.value)" placeholder="メモ"/><button class="btn" onclick="clRemove(\'expenses\','+i+')" style="color:#ff6b6b;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);border-radius:4px;">×</button></div>').join("")+'</div>';
