@@ -1220,7 +1220,7 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
   const col=isActive?(ASSIGN_TYPES[assign?.type]?.col||"#888"):isWaiting?"#4ade80":"#ffa500";
   const sfx=isActive?(TYPE_SFX[assign?.type]||"?"):"";
   const aid=assign?.id||"";
-  return '<div class="list-cast-chip list-cast-'+zone+'" draggable="true" '
+  return '<div class="list-cast-chip list-cast-'+zone+(isActive?' list-cast-type-'+(assign?.type||'unknown'):'')+'" draggable="true" '
 +'data-cast-id="'+castId+'" data-cast-name="'+castName+'" data-zone="'+zone+'" data-assign-id="'+aid+'" '
 +'onclick="event.stopPropagation();chipTap(\''+castId+'\',\''+zone+'\',\''+aid+'\')" '
 +'ondragstart="chipDragStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
@@ -1228,11 +1228,11 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
 +'ontouchstart="chipTouchStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
 +'ontouchmove="chipTouchMove(event)" '
 +'ontouchend="chipTouchEnd(event)" '
-+'style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:grab;user-select:none;touch-action:none;'
++'style="--list-cast-color:'+col+';display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:grab;user-select:none;touch-action:none;'
 +'background:'+(isActive?"rgba(0,0,0,.3)":isWaiting?"rgba(74,222,128,.08)":"rgba(255,165,0,.08)")+';'
 +'border:1px solid '+col+'44;">'
 +'<div style="display:flex;align-items:center;gap:6px;min-width:0;">'
-+(isActive?'<span style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
++(isActive?'<span class="list-cast-type-badge" style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
 +'<span class="list-cast-name" style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
 +'</div>'
 +'<span class="list-elapsed-time" data-timer="'+timerBase+'" style="font-size:11px;font-family:monospace;color:'+col+';flex-shrink:0;">'+ts(elapsed).slice(3)+'</span>'

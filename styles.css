@@ -411,12 +411,14 @@ textarea.ip:focus{
 
 .floor-nomination-row.has-both .floor-nomination,
 .list-nomination-row.has-both .list-nomination{
-  font-size:clamp(8px,1.35vw,12px)!important;
+  font-size:clamp(6px,1.08vw,11px)!important;
+  padding-left:3px!important;
+  padding-right:3px!important;
 }
 
 .floor-nomination-banai,
 .list-nomination-banai{
-  text-align:right!important;
+  text-align:left!important;
 }
 
 .list-table-card{
@@ -488,8 +490,8 @@ textarea.ip:focus{
 }
 
 .list-cast-active{
-  border-color:#7c3aed!important;
-  background:#ede9fe!important;
+  border-color:var(--list-cast-color,#7c3aed)!important;
+  background:color-mix(in srgb,var(--list-cast-color,#7c3aed) 16%,#ffffff)!important;
 }
 
 .list-cast-name{
@@ -685,13 +687,19 @@ textarea:focus-visible{
 }
 
 #list-root .list-cast-active{
-  background:#ede9fe!important;
-  border-color:#7c3aed!important;
+  background:color-mix(in srgb,var(--list-cast-color,#7c3aed) 16%,#ffffff)!important;
+  border-color:var(--list-cast-color,#7c3aed)!important;
 }
 
 #list-root .list-cast-name{
   color:var(--gms-text)!important;
   opacity:1!important;
+}
+
+#list-root .list-cast-type-badge{
+  border-color:var(--list-cast-color,#7c3aed)!important;
+  color:var(--list-cast-color,#7c3aed)!important;
+  background:#ffffff!important;
 }
 
 #list-root .list-elapsed-time{
@@ -718,6 +726,18 @@ textarea:focus-visible{
   background:#dcfce7!important;
   border-color:#86efac!important;
   color:var(--gms-success)!important;
+  text-align:left!important;
+}
+
+#list-root .floor-nomination,
+#list-root .list-nomination{
+  text-align:left!important;
+}
+
+#list-root .list-nomination-row.has-both .list-nomination{
+  font-size:clamp(6px,1.08vw,11px)!important;
+  padding-left:3px!important;
+  padding-right:3px!important;
 }
 
 @media(max-width:720px){

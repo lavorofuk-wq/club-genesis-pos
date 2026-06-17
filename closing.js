@@ -11,14 +11,14 @@ function clDayData(date){
   const d=(S.bizDays||{})[date]||{};
   return{date,history:d.history||[],shifts:d.shifts||{},assignments:d.assignments||{},active:false};
 }
-function clHHMM(ms){return ms?new Date(ms).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";}
+function clHHMM(ms){return ms?new Date(Math.round(ms/60000)*60000).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";}
 function clSeedCastWork(day){
   return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>({castId:String(sh.castId||""),castName:sh.castName||"",startTime:clHHMM(sh.clockIn),endTime:clHHMM(sh.clockOut||Date.now()),breakMinutes:0}));
 }
 function clForm(date){
   if(!closingState.forms[date]){
     const day=clDayData(date);
-    closingState.forms[date]={closedBy:"",staffWork:[],castWork:clSeedCastWork(day),actualCash:"",cashNote:""};
+    closingState.forms[date]={closedBy:"",castWork:clSeedCastWork(day),actualCash:"",cashNote:""};
   }
   return closingState.forms[date];
 }
@@ -87,10 +87,7 @@ function clSummary(date){
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
     castSales:clCastSales(hist)};
 }
-function clRoleOptions(v){return["manager","bartender","kitchen","cleaning","other"].map(r=>'<option value="'+r+'" '+(v===r?"selected":"")+'>'+r+'</option>').join("");}
-function clInput(section,idx,field,val){const f=clForm(clDefaultDate());f[section][idx][field]=val;if(section==="castWork"||section==="staffWork")render();}
-function clAdd(section){const f=clForm(clDefaultDate());if(section==="staffWork")f.staffWork.push({staffId:"st_"+Date.now(),staffName:"",role:"other",startTime:"20:00",endTime:"01:00",breakMinutes:0});render();}
-function clRemove(section,idx){clForm(clDefaultDate())[section].splice(idx,1);render();}
+function clInput(section,idx,field,val){const f=clForm(clDefaultDate());f[section][idx][field]=val;if(section==="castWork")render();}
 function clSetDate(v){closingState.date=v;clForm(v);render();}
 function clSetActual(v){clForm(clDefaultDate()).actualCash=v;render();}
 function clSetCashNote(v){clForm(clDefaultDate()).cashNote=v;}
@@ -98,15 +95,14 @@ function clSetClosedBy(v){clForm(clDefaultDate()).closedBy=v;}
 function clBuildPayload(date){
   const sum=clSummary(date),form=clForm(date);
   const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
-  const staffWork=form.staffWork.map(r=>({staffId:String(r.staffId||""),staffName:r.staffName||"",role:r.role||"other",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
   const actualCash=clInt(form.actualCash);
-  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),staffWork,castWork,
+  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),castWork,
     cashReconciliation:{expectedCash:sum.sales.cashSales,actualCash,difference:actualCash-sum.sales.cashSales,note:form.cashNote||""},
     source:{posVersion:APP_VERSION,closedBy:form.closedBy||"POS",closedAt:window._serverTimestamp?window._serverTimestamp():new Date(),updatedAt:window._serverTimestamp?window._serverTimestamp():new Date()}};
 }
 function clValidate(date,payload){
   const errs=[];if(!date)errs.push("営業日が未選択です");if(date>getBizDate())errs.push("未来日は締めできません");
-  [...payload.staffWork,...payload.castWork].forEach(w=>{if(w.hours<0||w.hours>24)errs.push((w.staffName||w.castName||"勤務")+"の勤務時間が0〜24時間外です");});
+  payload.castWork.forEach(w=>{if(w.hours<0||w.hours>24)errs.push((w.castName||"勤務")+"の勤務時間が0〜24時間外です");});
   return errs;
 }
 function clConfirmSubmit(){const date=clDefaultDate();closingState.date=date;const payload=clBuildPayload(date);const errs=clValidate(date,payload);if(errs.length){alert(errs.join("\n"));return;}window._closingPayload=payload;md="closingConfirm";rModal();}
@@ -152,7 +148,6 @@ function rClosing(){
     +'</div>'
     +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);"><div style="font-size:11px;color:#38bdf8;margin-bottom:6px;">体入</div>'+(p.trialCasts.length?p.trialCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'
     +'</div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:flex;justify-content:space-between;"><div class="st">スタッフ勤務</div><button class="btn" onclick="clAdd(\'staffWork\')" style="padding:5px 10px;color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:4px;">追加</button></div>'+form.staffWork.map((r,i)=>'<div style="display:grid;grid-template-columns:1.2fr 1fr .8fr .8fr .7fr .6fr auto;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.staffName||"")+'" oninput="clInput(\'staffWork\','+i+',\'staffName\',this.value)" placeholder="スタッフ名"/><select class="ip" onchange="clInput(\'staffWork\','+i+',\'role\',this.value)">'+clRoleOptions(r.role)+'</select><input class="ip" type="time" value="'+(r.startTime||"")+'" oninput="clInput(\'staffWork\','+i+',\'startTime\',this.value)"/><input class="ip" type="time" value="'+(r.endTime||"")+'" oninput="clInput(\'staffWork\','+i+',\'endTime\',this.value)"/><input class="ip" type="number" value="'+clInt(r.breakMinutes)+'" oninput="clInput(\'staffWork\','+i+',\'breakMinutes\',this.value)"/><div style="padding:8px;color:#38bdf8;">'+clHours(r.startTime,r.endTime,r.breakMinutes)+'h</div><button class="btn" onclick="clRemove(\'staffWork\','+i+')" style="color:#ff6b6b;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);border-radius:4px;">×</button></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト勤務</div>'+form.castWork.map((r,i)=>'<div style="display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .6fr;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.castName||"")+'" oninput="clInput(\'castWork\','+i+',\'castName\',this.value)"/><input class="ip" type="time" value="'+(r.startTime||"")+'" oninput="clInput(\'castWork\','+i+',\'startTime\',this.value)"/><input class="ip" type="time" value="'+(r.endTime||"")+'" oninput="clInput(\'castWork\','+i+',\'endTime\',this.value)"/><input class="ip" type="number" value="'+clInt(r.breakMinutes)+'" oninput="clInput(\'castWork\','+i+',\'breakMinutes\',this.value)"/><div style="padding:8px;color:#38bdf8;">'+clHours(r.startTime,r.endTime,r.breakMinutes)+'h</div></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;"><div class="st">現金照合</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;"><div><div style="font-size:10px;color:#888;">POS現金</div><div style="font-size:18px;color:#d4a017;font-weight:700;">'+pAmt(sum.sales.cashSales)+'</div></div><div><div style="font-size:10px;color:#888;">実際現金</div><input class="ip" type="number" value="'+form.actualCash+'" oninput="clSetActual(this.value)"/></div><div><div style="font-size:10px;color:#888;">差異</div><div style="font-size:18px;font-weight:700;color:'+(diff===0?"#4ade80":"#ff6b6b")+';">'+(diff>0?"+":"")+pAmt(diff)+'</div></div></div>'+(diff!==0?'<div style="color:#ff6b6b;font-size:12px;margin-bottom:8px;">現金差異があります（保存は可能）</div>':"")+'<input class="ip" value="'+(form.cashNote||"")+'" oninput="clSetCashNote(this.value)" placeholder="現金差異メモ"/></div>';
   html+='<button class="btn gbg" '+(closingState.submitting?"disabled":"")+' onclick="clConfirmSubmit()" style="width:100%;padding:16px;font-size:17px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(closingState.submitting?"opacity:.5;":"")+'">締め確定</button></div>';
