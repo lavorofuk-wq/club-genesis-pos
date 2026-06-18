@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.49";
+const APP_VERSION="6.50";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -49,7 +49,35 @@ function getDevice(){
   return"desktop";
 }
 let DEV=getDevice();
-window.addEventListener("resize",()=>{DEV=getDevice();});
+
+// iPadOS 14系など、古いSafariのレイアウト機能を実測して必要な補正だけ有効にする
+function supportsFlexGap(){
+  const flex=document.createElement("div");
+  flex.style.cssText="position:absolute;left:-9999px;display:flex;flex-direction:column;row-gap:1px;";
+  flex.appendChild(document.createElement("div"));
+  flex.appendChild(document.createElement("div"));
+  document.body.appendChild(flex);
+  const supported=flex.scrollHeight===1;
+  flex.remove();
+  return supported;
+}
+const legacyNoAspectRatio=!(window.CSS&&CSS.supports&&CSS.supports("aspect-ratio","1 / 1"));
+const legacyNoFlexGap=!supportsFlexGap();
+if(legacyNoAspectRatio)document.documentElement.classList.add("legacy-no-aspect-ratio");
+if(legacyNoFlexGap)document.documentElement.classList.add("legacy-no-flex-gap");
+
+let legacyLayoutFrame=0;
+function syncLegacyFloorCardSizes(){
+  if(!legacyNoAspectRatio)return;
+  cancelAnimationFrame(legacyLayoutFrame);
+  legacyLayoutFrame=requestAnimationFrame(()=>{
+    document.querySelectorAll(".floor-table-card").forEach(card=>{
+      card.style.setProperty("height",Math.round(card.getBoundingClientRect().width)+"px","important");
+    });
+  });
+}
+window.addEventListener("resize",()=>{DEV=getDevice();syncLegacyFloorCardSizes();});
+window.addEventListener("orientationchange",syncLegacyFloorCardSizes);
 
 // ===== UTILS =====
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
@@ -568,6 +596,7 @@ else if(vw==="histlog")m.innerHTML=rHistLog();
 console.error("render error:",vw,e);
 m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エラー: '+e.message+'<br><button class="btn" onclick="sv(\'home\')" style="margin-top:12px;padding:8px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">ホームへ戻る</button></div>';
   }
+  syncLegacyFloorCardSizes();
   if(!md)document.getElementById("md").innerHTML="";
 }
 function sv(v,extra){
@@ -1019,7 +1048,7 @@ const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight
   :loSt==="done"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#38bdf8;line-height:1;">LO完</span>':"";
 html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
   +(loBadge?'<div style="position:absolute;top:4px;right:6px;pointer-events:none;">'+loBadge+'</div>':"")
-  +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
+  +'<div class="floor-table-heading" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
   +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
   +(isV(t.id)?'<span class="tag tv2" style="flex-shrink:0;">VIP</span>':"")
   +(s?'<span style="font-size:'+lblFs+';font-weight:600;color:#e8dcc8;flex-shrink:0;">'+s.guests+'名</span>':"")
@@ -1028,7 +1057,7 @@ html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ 
 }catch(e){
   // データ不整合のテーブルは空席として表示
   html+='<div class="tc floor-table-card te '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;">'
-    +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
+    +'<div class="floor-table-heading" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
     +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
     +(isV(t.id)?'<span class="tag tv2">VIP</span>':"")
     +'</div><div style="font-size:12px;color:#444;margin-top:10px;">空席</div></div>';
@@ -1139,7 +1168,7 @@ html+='<div id="dz-tbl-'+t.id+'" class="list-table-card '+(isActive?"list-table-
 // テーブル名行：テーブル名＋人数＋バッジ＋マンツーマン
 html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
 html+='<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">';
-html+='<div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">';
+html+='<div class="list-table-heading" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">';
 html+='<span style="font-size:13px;font-weight:700;color:'+(isActive?"#e8dcc8":"#444")+';">'+t.label+'</span>';
 if(isActive&&s){
   const honCount=hn.length;
@@ -1231,7 +1260,7 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
 +'style="--list-cast-color:'+col+';display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:grab;user-select:none;touch-action:none;'
 +'background:'+(isActive?"rgba(0,0,0,.3)":isWaiting?"rgba(74,222,128,.08)":"rgba(255,165,0,.08)")+';'
 +'border:1px solid '+col+'44;">'
-+'<div style="display:flex;align-items:center;gap:6px;min-width:0;">'
++'<div class="list-cast-main" style="display:flex;align-items:center;gap:6px;min-width:0;">'
 +(isActive?'<span class="list-cast-type-badge" style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
 +'<span class="list-cast-name" style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
 +'</div>'

@@ -348,6 +348,22 @@ textarea.ip:focus{
   padding:clamp(8px,1.5vw,14px)!important;
 }
 
+.legacy-no-aspect-ratio .floor-table-card{
+  aspect-ratio:auto!important;
+}
+
+.legacy-no-flex-gap .floor-table-heading > * + *{
+  margin-left:6px!important;
+}
+
+.legacy-no-flex-gap .list-table-heading > * + *{
+  margin-left:4px!important;
+}
+
+.legacy-no-flex-gap .list-cast-main > * + *{
+  margin-left:6px!important;
+}
+
 .floor-table-card > div,
 .list-table-card > div{
   min-width:0!important;
