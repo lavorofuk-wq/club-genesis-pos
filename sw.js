@@ -1,4 +1,4 @@
-const CACHE = 'genesis-pos-v6.50-legacy-ipad-layout';
+const CACHE = 'genesis-pos-v6.51-closing-without-cash-reconciliation';
 const ASSETS = ['./', './index.html', './styles.css', './printer-loader.js', './firebase-init.js', './app.js', './closing.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

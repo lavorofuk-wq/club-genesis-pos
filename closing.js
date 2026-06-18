@@ -18,7 +18,7 @@ function clSeedCastWork(day){
 function clForm(date){
   if(!closingState.forms[date]){
     const day=clDayData(date);
-    closingState.forms[date]={closedBy:"",castWork:clSeedCastWork(day),actualCash:"",cashNote:""};
+    closingState.forms[date]={closedBy:"",castWork:clSeedCastWork(day)};
   }
   return closingState.forms[date];
 }
@@ -89,15 +89,11 @@ function clSummary(date){
 }
 function clInput(section,idx,field,val){const f=clForm(clDefaultDate());f[section][idx][field]=val;if(section==="castWork")render();}
 function clSetDate(v){closingState.date=v;clForm(v);render();}
-function clSetActual(v){clForm(clDefaultDate()).actualCash=v;render();}
-function clSetCashNote(v){clForm(clDefaultDate()).cashNote=v;}
 function clSetClosedBy(v){clForm(clDefaultDate()).closedBy=v;}
 function clBuildPayload(date){
   const sum=clSummary(date),form=clForm(date);
   const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
-  const actualCash=clInt(form.actualCash);
   return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),castWork,
-    cashReconciliation:{expectedCash:sum.sales.cashSales,actualCash,difference:actualCash-sum.sales.cashSales,note:form.cashNote||""},
     source:{posVersion:APP_VERSION,closedBy:form.closedBy||"POS",closedAt:window._serverTimestamp?window._serverTimestamp():new Date(),updatedAt:window._serverTimestamp?window._serverTimestamp():new Date()}};
 }
 function clValidate(date,payload){
@@ -112,7 +108,13 @@ async function clSubmit(){
   if(!closingDb){alert("Firestoreが初期化されていません");return;}
   closingState.submitting=true;rModal();
   try{await closingDb.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true});if(window._fs&&window._fs!==closingDb){window._fs.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true}).catch(e=>console.warn("local closing backup failed",e));}closingState.submitted[payload.businessDate]={status:"submitted",savedAt:Date.now()};sbs(true,"締め保存済み ✓");closeM();render();}
-  catch(e){console.error("closing submit error",e);alert("締め保存に失敗しました: "+e.message);closingState.submitting=false;rModal();}
+  catch(e){
+    console.error("closing submit error",e);
+    const denied=e&&(e.code==="permission-denied"||/insufficient permissions/i.test(e.message||""));
+    const path=(window._closingProjectId?window._closingProjectId+"/":"")+CLOSING_ROOT+"/"+payload.businessDate;
+    alert(denied?"締め保存先の権限がありません。\n経理FirebaseのFirestoreルールで「"+CLOSING_ROOT+"」への書き込み許可を確認してください。\n保存先: "+path:"締め保存に失敗しました: "+e.message);
+    closingState.submitting=false;rModal();
+  }
   closingState.submitting=false;
 }
 function exportClosingCSV(){
@@ -129,11 +131,10 @@ function exportClosingCSV(){
   p.exitedCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.exitedAt]));
   lines.push([],["trialCasts"],["internalNo","castId","castName","trialBizDay","trialRegisteredAt"]);
   p.trialCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.trialBizDay,r.trialRegisteredAt]));
-  lines.push([],["expectedCash","actualCash","difference","note"],[p.cashReconciliation.expectedCash,p.cashReconciliation.actualCash,p.cashReconciliation.difference,p.cashReconciliation.note]);
   _dlCSV("\uFEFF"+lines.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),"closing_"+date+".csv");
 }
 function rClosing(){
-  const dates=clDates(),date=clDefaultDate();closingState.date=date;const form=clForm(date),sum=clSummary(date),p=clBuildPayload(date),diff=p.cashReconciliation.difference,locked=!!closingState.submitted[date];
+  const dates=clDates(),date=clDefaultDate();closingState.date=date;const form=clForm(date),sum=clSummary(date),p=clBuildPayload(date),locked=!!closingState.submitted[date];
   let html='<div style="max-width:980px;margin:0 auto;">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;"><h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;">締め作業</h2><button class="btn" onclick="exportClosingCSV()" style="padding:8px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:6px;font-size:12px;font-weight:700;">CSV</button></div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><div class="st">営業日</div><select class="ip" onchange="clSetDate(this.value)">'+dates.map(d=>'<option value="'+d+'" '+(d===date?"selected":"")+'>'+d+(d===S.activeBizDay?"（営業中）":"")+'</option>').join("")+'</select></div><div><div class="st">締め担当</div><input class="ip" value="'+(form.closedBy||"")+'" oninput="clSetClosedBy(this.value)" placeholder="担当者名"/></div></div>'+(locked?'<div style="margin-top:10px;color:#4ade80;font-size:12px;">この営業日は店舗締め済みです。再確定するとFirestoreを上書きします。</div>':"")+'</div>';
@@ -149,7 +150,6 @@ function rClosing(){
     +'<div style="margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.06);"><div style="font-size:11px;color:#38bdf8;margin-bottom:6px;">体入</div>'+(p.trialCasts.length?p.trialCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'
     +'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト勤務</div>'+form.castWork.map((r,i)=>'<div style="display:grid;grid-template-columns:1.2fr .8fr .8fr .7fr .6fr;gap:6px;margin-bottom:8px;"><input class="ip" value="'+(r.castName||"")+'" oninput="clInput(\'castWork\','+i+',\'castName\',this.value)"/><input class="ip" type="time" value="'+(r.startTime||"")+'" oninput="clInput(\'castWork\','+i+',\'startTime\',this.value)"/><input class="ip" type="time" value="'+(r.endTime||"")+'" oninput="clInput(\'castWork\','+i+',\'endTime\',this.value)"/><input class="ip" type="number" value="'+clInt(r.breakMinutes)+'" oninput="clInput(\'castWork\','+i+',\'breakMinutes\',this.value)"/><div style="padding:8px;color:#38bdf8;">'+clHours(r.startTime,r.endTime,r.breakMinutes)+'h</div></div>').join("")+'</div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;"><div class="st">現金照合</div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;"><div><div style="font-size:10px;color:#888;">POS現金</div><div style="font-size:18px;color:#d4a017;font-weight:700;">'+pAmt(sum.sales.cashSales)+'</div></div><div><div style="font-size:10px;color:#888;">実際現金</div><input class="ip" type="number" value="'+form.actualCash+'" oninput="clSetActual(this.value)"/></div><div><div style="font-size:10px;color:#888;">差異</div><div style="font-size:18px;font-weight:700;color:'+(diff===0?"#4ade80":"#ff6b6b")+';">'+(diff>0?"+":"")+pAmt(diff)+'</div></div></div>'+(diff!==0?'<div style="color:#ff6b6b;font-size:12px;margin-bottom:8px;">現金差異があります（保存は可能）</div>':"")+'<input class="ip" value="'+(form.cashNote||"")+'" oninput="clSetCashNote(this.value)" placeholder="現金差異メモ"/></div>';
   html+='<button class="btn gbg" '+(closingState.submitting?"disabled":"")+' onclick="clConfirmSubmit()" style="width:100%;padding:16px;font-size:17px;font-weight:700;border-radius:8px;touch-action:manipulation;'+(closingState.submitting?"opacity:.5;":"")+'">締め確定</button></div>';
   return html;
 }

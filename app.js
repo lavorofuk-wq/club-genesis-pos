@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.50";
+const APP_VERSION="6.51";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -3447,7 +3447,7 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
   +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
   +'保存先: <strong style="color:#e8dcc8;">'+(window._closingProjectId?window._closingProjectId+'/':'')+(typeof CLOSING_ROOT!=="undefined"?CLOSING_ROOT:"shopClosings-dev")+'/'+(p?.businessDate||"")+'</strong><br>'
-  +'総売上 '+pAmt(p?.sales?.totalSales||0)+' / 現金差異 <span style="color:'+((p?.cashReconciliation?.difference||0)===0?"#4ade80":"#ff6b6b")+';">'+pAmt(p?.cashReconciliation?.difference||0)+'</span>'
+  +'総売上 '+pAmt(p?.sales?.totalSales||0)
   +'</div>'
   +'<div style="display:flex;gap:8px;">'
   +'<button class="btn" onclick="closeM()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;">戻る</button>'
