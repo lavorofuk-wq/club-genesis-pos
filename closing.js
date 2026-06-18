@@ -55,6 +55,40 @@ function clCastSales(hist){
   });
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+r.drinkSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
+function clTransactionItem(item){
+  return{
+    itemId:String(item.id||""),
+    label:String(item.label||""),
+    price:Number(item.price)||0,
+    quantity:Math.max(0,Number(item.qty)||1),
+    castId:item.castId==null?"":String(item.castId),
+    isSet:!!item.isSet,
+    isHonShimei:!!item.isHonShimei,
+    isBanaiShimei:!!item.isBanaiShimei,
+    isExtension:!!item.isExtension,
+    isBanaiExtension:!!item.isBanaiExtension,
+    isVipCharge:!!item.isVipCharge,
+    isDiscount:!!item.isDiscount
+  };
+}
+function clTransactions(hist){
+  return(hist||[]).map(h=>({
+    transactionId:String(h.id||""),
+    tableId:String(h.tableId||""),
+    tableLabel:String(h.tableLabel||""),
+    startTime:Number(h.startTime)||0,
+    endTime:Number(h.endTime)||0,
+    guests:clInt(h.guests),
+    note:String(h.note||""),
+    payMethod:h.payMethod==="card"?"card":"cash",
+    splits:(h.splits||[]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:clInt(sp.amount)})),
+    subtotal:clInt(h.subtotal),
+    discount:clInt(h.discount),
+    tax:clInt(h.tax),
+    total:clInt(h.total),
+    items:(h.items||[]).filter(Boolean).map(clTransactionItem)
+  })).sort((a,b)=>a.startTime-b.startTime);
+}
 function clCastLifecycle(date,type){
   const key=type==="entered"?"enteredBizDay":"exitedBizDay";
   const atKey=type==="entered"?"enteredAt":"exitedAt";
@@ -93,7 +127,7 @@ function clSetClosedBy(v){clForm(clDefaultDate()).closedBy=v;}
 function clBuildPayload(date){
   const sum=clSummary(date),form=clForm(date);
   const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
-  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),castWork,
+  return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,transactions:clTransactions(sum.hist),castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),castWork,
     source:{posVersion:APP_VERSION,closedBy:form.closedBy||"POS",closedAt:window._serverTimestamp?window._serverTimestamp():new Date(),updatedAt:window._serverTimestamp?window._serverTimestamp():new Date()}};
 }
 function clValidate(date,payload){
@@ -123,6 +157,12 @@ function exportClosingCSV(){
   Object.entries(p.sales).forEach(([k,v])=>lines.push(["sales."+k,v]));
   Object.entries(p.customers).forEach(([k,v])=>lines.push(["customers."+k,v]));
   Object.entries(p.nominations).forEach(([k,v])=>lines.push(["nominations."+k,v]));
+  lines.push([],["transactions"],["transactionId","tableId","tableLabel","startTime","endTime","guests","payMethod","subtotal","discount","tax","total"]);
+  p.transactions.forEach(r=>{
+    lines.push([r.transactionId,r.tableId,r.tableLabel,r.startTime,r.endTime,r.guests,r.payMethod,r.subtotal,r.discount,r.tax,r.total]);
+    lines.push(["items"],["itemId","label","price","quantity","castId"]);
+    r.items.forEach(i=>lines.push([i.itemId,i.label,i.price,i.quantity,i.castId]));
+  });
   lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","drinkSales","totalAttributedSales"]);
   p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.drinkSales,r.totalAttributedSales]));
   lines.push([],["enteredCasts"],["internalNo","castId","castName","enteredAt"]);
