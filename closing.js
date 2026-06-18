@@ -55,13 +55,30 @@ function clCastSales(hist){
   });
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+r.drinkSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
+function clItemCategory(item){
+  const id=String(item.id||"");
+  const menus=S.menus||{};
+  const inMenu=(key)=>(menus[key]||[]).some(menu=>id===String(menu.id)||id.startsWith(String(menu.id)+"_"));
+  if(item.isVipCharge)return"vipRoom";
+  if(item.isHonShimei)return"honShimei";
+  if(item.isBanaiShimei)return"banaiShimei";
+  if(id==="dh"||item.label==="同伴料")return"dohan";
+  if(id.startsWith("cd_"))return"castDrink";
+  if(inMenu("champagne")||/シャンパン/.test(item.label||""))return"champagne";
+  if(inMenu("wine")||/ワイン/.test(item.label||""))return"wine";
+  if(["whisky","shochu","brandy"].some(inMenu)||/キープ|ボトル/.test(item.label||""))return"keepBottle";
+  return"";
+}
 function clTransactionItem(item){
   return{
     itemId:String(item.id||""),
     label:String(item.label||""),
+    category:clItemCategory(item),
     price:Number(item.price)||0,
     quantity:Math.max(0,Number(item.qty)||1),
     castId:item.castId==null?"":String(item.castId),
+    banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
+    banaiExtCastId:item.banaiExtCastId==null?"":String(item.banaiExtCastId),
     isSet:!!item.isSet,
     isHonShimei:!!item.isHonShimei,
     isBanaiShimei:!!item.isBanaiShimei,
