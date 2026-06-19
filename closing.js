@@ -33,6 +33,21 @@ function clPaymentTotals(hist){
   });
   return{cash,card};
 }
+function clBanaiExtensionSalesPhases(items){
+  const phases=new Map();
+  let currentIds=[];
+  (items||[]).forEach(i=>{
+    if(i.isBanaiExtension){
+      currentIds=[...new Set([...(i.banaiExtCastIds||[]),i.banaiExtCastId,i.castId].filter(x=>x!=null&&x!=="").map(String))];
+    }
+    if(!currentIds.length||i.isDiscount)return;
+    const ids=[...currentIds].sort();
+    const key=ids.join("|");
+    if(!phases.has(key))phases.set(key,{ids,total:0});
+    phases.get(key).total+=clInt((i.price||0)*(i.qty||1));
+  });
+  return[...phases.values()];
+}
 function clCastSales(hist){
   const map={};
   const ensure=(id,name)=>{const k=String(id||name||"unknown");if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,totalAttributedSales:0};return map[k];};
@@ -43,12 +58,9 @@ function clCastSales(hist){
       const share=Math.floor(clInt(h.subtotal||h.total)/hon.length);
       hon.forEach(i=>{const c=S.casts.find(c=>String(c.id)===String(i.castId));ensure(i.castId,c?.name||String(i.label||"").replace(/^.*\(/,"").replace(/\).*$/,"")).honShimeiSales+=share;});
     }else{
-      items.filter(i=>i.isBanaiExtension).forEach(i=>{
-        const ids=(i.banaiExtCastIds||[i.banaiExtCastId,i.castId]).filter(x=>x!=null);
-        const names=i.banaiExtCastNames||[];
-        if(!ids.length)return;
-        const share=Math.floor(clInt((i.price||0)*(i.qty||1))/ids.length);
-        ids.forEach((id,idx)=>{const c=S.casts.find(c=>String(c.id)===String(id));ensure(id,c?.name||names[idx]||"").jonaiExtensionSales+=share;});
+      clBanaiExtensionSalesPhases(items).forEach(phase=>{
+        const share=Math.floor(phase.total/phase.ids.length);
+        phase.ids.forEach(id=>{const c=S.casts.find(c=>String(c.id)===String(id));ensure(id,c?.name||"").jonaiExtensionSales+=share;});
       });
     }
   });

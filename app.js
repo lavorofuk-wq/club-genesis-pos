@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.53.1";
+const APP_VERSION="6.53.2";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -3186,6 +3186,28 @@ function exportShimeiCastCSV(filtered,castId,castName){
   const rows=[["キャスト","本指名件数","場内指名件数"],[castName,hon,ban]];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"shimei_"+castName+".csv");
 }
+function banaiExtensionSalesPhases(items){
+  const phases=new Map();
+  let currentIds=[];
+  (items||[]).forEach(i=>{
+    if(i.isBanaiExtension){
+      currentIds=[...new Set([...(i.banaiExtCastIds||[]),i.banaiExtCastId,i.castId].filter(x=>x!=null&&x!=="").map(String))];
+    }
+    if(!currentIds.length||i.isDiscount)return;
+    const ids=[...currentIds].sort();
+    const key=ids.join("|");
+    if(!phases.has(key))phases.set(key,{ids,total:0});
+    phases.get(key).total+=Math.max(0,Number(i.price)||0)*Math.max(1,Number(i.qty)||1);
+  });
+  return[...phases.values()];
+}
+function banaiExtensionSalesForCast(items,castId){
+  const cid=String(castId);
+  return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
+    if(!phase.ids.includes(cid))return total;
+    return total+Math.floor(phase.total/phase.ids.length);
+  },0);
+}
 function exportUriageCSV(filtered,castId,castName){
   const cid=String(castId);
   const records=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
@@ -3197,16 +3219,10 @@ function exportUriageCSV(filtered,castId,castName){
 const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
 return a+(h.subtotal||h.total)/honCount;
   },0);
-  // 場内延長売上: オールフリーのみ・場内延長キャスト数で均等分配
+  // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
   const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
-  const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
-const extAmt=(h.items||[]).filter(_becMatchCSV).reduce((s,i)=>{
-  const n=Math.max(1,(i.banaiExtCastIds||[i.banaiExtCastId]).filter(Boolean).length);
-  return s+Math.abs(i.price*(i.qty||1))/n;
-},0);
-return a+extAmt;
-  },0);
+  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
@@ -4339,14 +4355,8 @@ if(isShimei){
     const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
     return a+(h.subtotal||h.total)/honCount;
   },0);
-  // 場内延長売上: オールフリーのみ・延長アイテム金額を場内延長キャスト数で均等分配
-  const banaiExtSub=banaiExtRecs.reduce((a,h)=>{
-    const extAmt=(h.items||[]).filter(_becMatch).reduce((s,i)=>{
-      const n=Math.max(1,(i.banaiExtCastIds||[i.banaiExtCastId]).filter(Boolean).length);
-      return s+Math.abs(i.price*(i.qty||1))/n;
-    },0);
-    return a+extAmt;
-  },0);
+  // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
+  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
