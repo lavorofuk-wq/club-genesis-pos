@@ -13,7 +13,10 @@ function clDayData(date){
 }
 function clHHMM(ms){return ms?new Date(Math.round(ms/60000)*60000).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";}
 function clSeedCastWork(day){
-  return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>({castId:String(sh.castId||""),castName:sh.castName||"",startTime:clHHMM(sh.clockIn),endTime:clHHMM(sh.clockOut||Date.now()),breakMinutes:0}));
+  return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>{
+    const cast=(S.casts||[]).find(c=>String(c.id)===String(sh.castId));
+    return{castId:String(sh.castId||""),castName:sh.castName||"",castType:cast?.castType||"regular",isTrial:cast?.castType==="trial",startTime:clHHMM(sh.clockIn),endTime:clHHMM(sh.clockOut||Date.now()),breakMinutes:0};
+  });
 }
 function clForm(date){
   if(!closingState.forms[date]){
@@ -154,7 +157,7 @@ function clSetDate(v){closingState.date=v;clForm(v);render();}
 function clSetClosedBy(v){clForm(clDefaultDate()).closedBy=v;}
 function clBuildPayload(date){
   const sum=clSummary(date),form=clForm(date);
-  const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
+  const castWork=form.castWork.map(r=>({castId:String(r.castId||""),castName:r.castName||"",castType:r.castType||"regular",isTrial:r.isTrial===true||r.castType==="trial",startTime:r.startTime||"",endTime:r.endTime||"",breakMinutes:clInt(r.breakMinutes),hours:clHours(r.startTime,r.endTime,r.breakMinutes)}));
   return{businessDate:date,status:"submitted",sales:sum.sales,customers:sum.customers,nominations:sum.nominations,transactions:clTransactions(sum.hist),castSales:sum.castSales,enteredCasts:clCastLifecycle(date,"entered"),exitedCasts:clCastLifecycle(date,"exited"),trialCasts:clTrialCasts(date),castWork,
     source:{posVersion:APP_VERSION,closedBy:form.closedBy||"POS",closedAt:window._serverTimestamp?window._serverTimestamp():new Date(),updatedAt:window._serverTimestamp?window._serverTimestamp():new Date()}};
 }
