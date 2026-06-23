@@ -173,12 +173,14 @@ async function clSubmit(){
   const payload=window._closingPayload;if(!payload||closingState.submitting)return;
   const closingDb=window._accountingFs||window._fs;
   if(!closingDb){alert("Firestoreが初期化されていません");return;}
+  const submissionId=payload.source?.submissionId||payload.businessDate+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);
+  payload.source={...(payload.source||{}),submissionId};
   closingState.submitting=true;rModal();
-  try{await closingDb.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true});if(window._fs&&window._fs!==closingDb){window._fs.collection(CLOSING_ROOT).doc(payload.businessDate).set(payload,{merge:true}).catch(e=>console.warn("local closing backup failed",e));}closingState.submitted[payload.businessDate]={status:"submitted",savedAt:Date.now()};sbs(true,"締め保存済み ✓");closeM();render();}
+  try{await closingDb.collection(CLOSING_ROOT).doc(submissionId).set(payload);if(window._fs&&window._fs!==closingDb){window._fs.collection(CLOSING_ROOT).doc(submissionId).set(payload).catch(e=>console.warn("local closing backup failed",e));}closingState.submitted[payload.businessDate]={status:"submitted",savedAt:Date.now(),submissionId};sbs(true,"締め送信済み ✓");closeM();render();}
   catch(e){
     console.error("closing submit error",e);
     const denied=e&&(e.code==="permission-denied"||/insufficient permissions/i.test(e.message||""));
-    const path=(window._closingProjectId?window._closingProjectId+"/":"")+CLOSING_ROOT+"/"+payload.businessDate;
+    const path=(window._closingProjectId?window._closingProjectId+"/":"")+CLOSING_ROOT+"/"+submissionId;
     alert(denied?"締め保存先の権限がありません。\n経理FirebaseのFirestoreルールで「"+CLOSING_ROOT+"」への書き込み許可を確認してください。\n保存先: "+path:"締め保存に失敗しました: "+e.message);
     closingState.submitting=false;rModal();
   }
@@ -210,7 +212,7 @@ function rClosing(){
   const dates=clDates(),date=clDefaultDate();closingState.date=date;const form=clForm(date),sum=clSummary(date),p=clBuildPayload(date),locked=!!closingState.submitted[date];
   let html='<div style="max-width:980px;margin:0 auto;">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;"><h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;">締め作業</h2><button class="btn" onclick="exportClosingCSV()" style="padding:8px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:6px;font-size:12px;font-weight:700;">CSV</button></div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><div class="st">営業日</div><select class="ip" onchange="clSetDate(this.value)">'+dates.map(d=>'<option value="'+d+'" '+(d===date?"selected":"")+'>'+d+(d===S.activeBizDay?"（営業中）":"")+'</option>').join("")+'</select></div><div><div class="st">締め担当</div><input class="ip" value="'+(form.closedBy||"")+'" oninput="clSetClosedBy(this.value)" placeholder="担当者名"/></div></div>'+(locked?'<div style="margin-top:10px;color:#4ade80;font-size:12px;">この営業日は店舗締め済みです。再確定するとFirestoreを上書きします。</div>':"")+'</div>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><div class="st">営業日</div><select class="ip" onchange="clSetDate(this.value)">'+dates.map(d=>'<option value="'+d+'" '+(d===date?"selected":"")+'>'+d+(d===S.activeBizDay?"（営業中）":"")+'</option>').join("")+'</select></div><div><div class="st">締め担当</div><input class="ip" value="'+(form.closedBy||"")+'" oninput="clSetClosedBy(this.value)" placeholder="担当者名"/></div></div>'+(locked?'<div style="margin-top:10px;color:#4ade80;font-size:12px;">この営業日は送信済みです。再度確定すると、重複データとして新しくGMSへ送信します。</div>':"")+'</div>';
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;">'+[['総売上',sum.sales.totalSales],['現金',sum.sales.cashSales],['カード',sum.sales.cardSales],['割引',sum.sales.discountTotal],['税/SC',sum.sales.taxServiceTotal],['組数',sum.customers.groupCount],['総客数',sum.customers.totalCustomers],['客単価',sum.customers.customerUnitPrice]].map(([l,v])=>'<div class="glass" style="padding:12px;border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">'+l+'</div><div style="font-size:18px;font-weight:700;color:#d4a017;">'+(typeof v==="number"&&l!=="組数"&&l!=="総客数"?'¥'+fmt(v):fmt(v))+'</div></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">会計済みテーブル</div>'+(sum.hist.length?sum.hist.map(h=>'<div class="ir"><span>'+h.tableLabel+' / '+(h.guests||0)+'名</span><span>'+pAmt(h.total)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">会計済みデータなし</div>')+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">指名集計</div><div style="display:flex;gap:16px;color:#e8dcc8;"><span>本指名 '+sum.nominations.honShimeiCount+'件</span><span>場内指名 '+sum.nominations.jonaiCount+'件</span></div></div>';
