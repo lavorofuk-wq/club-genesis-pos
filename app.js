@@ -1,10 +1,10 @@
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
-const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
+const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:3000},{id:"bs",label:"場内指名料",price:1500},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],keepBottles:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.54";
+const APP_VERSION="6.55";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -179,6 +179,7 @@ if(d.menus){
   S.menus=d.menus;
   // 未定義カテゴリを空配列で初期化
   if(!S.menus.champagne)S.menus.champagne=[];
+  if(!S.menus.keepBottles)S.menus.keepBottles=[];
   if(!S.menus.normalSets)S.menus.normalSets=[];
   if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
 }
@@ -366,7 +367,7 @@ function updateBizDateWarn(val){
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
-  s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.label,price:qm.price,qty}];
+  s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.label,price:qm.price,qty,category:qm.category||""}];
   save("sessions/"+at,S.sessions[at]);qm=null;qv=1;closeM();renderOrderPartial();refreshFloorModal();
 }
 function addCD(cid,did){
@@ -1712,7 +1713,7 @@ function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save
 // アイテム分類ヘルパー
 function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.isExtension||i.isVipCharge||i.label==="同伴料"||(i.label||"").includes("シングルチャージ"));}
 function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return true;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
-function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return (S.menus.champagne||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
+function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return [...(S.menus.champagne||[]),...(S.menus.keepBottles||[])].some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
 function execDeleteSession(){
@@ -1771,10 +1772,14 @@ function execLOEnd(){
 
 function odq(id){
   qv=1;
-  // drinks + 酒類カテゴリ全て検索
-  const allMenuItems=[...(S.menus.drinks||[]),...(S.menus.champagne||[])];
-  const d=allMenuItems.find(d=>d.id===id);
-  if(d){qm={id:d.id,label:d.label,price:d.price};om("qty");}
+  const menuSources=[
+    {items:S.menus.drinks||[],category:""},
+    {items:S.menus.champagne||[],category:"champagneWine"},
+    {items:S.menus.keepBottles||[],category:"keepBottle"}
+  ];
+  const source=menuSources.find(entry=>entry.items.some(item=>item.id===id));
+  const d=source?.items.find(item=>item.id===id);
+  if(d){qm={id:d.id,label:d.label,price:d.price,category:source.category};om("qty");}
 }
 function ofdq(){qv=1;qm={id:"fd_add",label:"フリードリンク",price:2000};om("qty");}
 function oet(){
@@ -2197,9 +2202,9 @@ html+='<select class="ip" data-k="discounts" data-f="discType" onchange="snmi(th
 html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
 html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
 html+='</div></div>';
-// シャンパン（CASTオーダー）
+// シャンパン・ワイン（CASTオーダー）
 {const ni=nmi["champagne"]||{label:"",price:""};
-html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#ffd700;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,215,0,.15);padding-bottom:4px;">シャンパン（CAST）</div>';
+html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#ffd700;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,215,0,.15);padding-bottom:4px;">シャンパン・ワイン（CAST）</div>';
 (S.menus.champagne||[]).forEach(item=>{
   html+='<div class="ir" style="gap:8px;">';
   html+='<input class="ip" value="'+item.label+'" data-k="champagne" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
@@ -2211,6 +2216,21 @@ html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
 html+='<input class="ip" placeholder="銘柄名" data-k="champagne" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
 html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="champagne" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
 html+='<button class="btn gbg" data-k="champagne" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
+html+='</div></div>';}
+// キープボトル（CASTオーダー）
+{const ni=nmi["keepBottles"]||{label:"",price:""};
+html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#f59e0b;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(245,158,11,.15);padding-bottom:4px;">キープボトル（CAST）</div>';
+(S.menus.keepBottles||[]).forEach(item=>{
+  html+='<div class="ir" style="gap:8px;">';
+  html+='<input class="ip" value="'+item.label+'" data-k="keepBottles" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
+  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="keepBottles" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
+  html+='<button class="btn" data-k="keepBottles" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
+  html+='</div>';
+});
+html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
+html+='<input class="ip" placeholder="銘柄名" data-k="keepBottles" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
+html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="keepBottles" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
+html+='<button class="btn gbg" data-k="keepBottles" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
 html+='</div></div>';}
 // キャストプリセット品名（CASTオーダー追加ボタン）
 {const ni=nmi["castCustomItems"]||{label:"",price:""};
@@ -3765,8 +3785,8 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   else if(md&&md.startsWith("liquor_")&&s){
 // 酒類カテゴリモーダル
 const liquorKey=md.replace("liquor_","");
-const liquorLabels={champagne:"シャンパン"};
-const liquorCols={champagne:"#ffd700"};
+const liquorLabels={champagne:"シャンパン・ワイン",keepBottles:"キープボトル"};
+const liquorCols={champagne:"#ffd700",keepBottles:"#f59e0b"};
 const items=S.menus[liquorKey]||[];
 const lbl=liquorLabels[liquorKey]||liquorKey;
 const col=liquorCols[liquorKey]||"#aaa";
@@ -3922,8 +3942,10 @@ let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div
 if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
 const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
 const champItems2=S.menus.champagne||[];
+const keepBottleItems=S.menus.keepBottles||[];
 const castPresets=S.menus.castCustomItems||[];
-let addBtns='<button class="menu-btn" onclick="om(\'liquor_champagne\')" style="background:rgba(255,215,0,.12);border-color:rgba(255,215,0,.35);color:#ffd700;">シャンパン<br><small>'+(champItems2.length?champItems2.length+'種':'未設定')+'</small></button>';
+let addBtns='<button class="menu-btn" onclick="om(\'liquor_champagne\')" style="background:rgba(255,215,0,.12);border-color:rgba(255,215,0,.35);color:#ffd700;">シャンパン・ワイン<br><small>'+(champItems2.length?champItems2.length+'種':'未設定')+'</small></button>';
+addBtns+='<button class="menu-btn" onclick="om(\'liquor_keepBottles\')" style="background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35);color:#f59e0b;">キープボトル<br><small>'+(keepBottleItems.length?keepBottleItems.length+'種':'未設定')+'</small></button>';
 if(onIds.size>0)addBtns+='<button class="menu-btn" onclick="om(\'cd\')" style="background:rgba(124,77,255,.15);border-color:rgba(124,77,255,.35);color:#a78bfa;">キャストDrink<br><small>各種</small></button>';
 castPresets.forEach(cp=>{addBtns+='<button class="menu-btn" data-cpid="'+cp.id+'" onclick="addCastCustomItem(this.dataset.cpid)" style="background:rgba(167,139,250,.1);border-color:rgba(167,139,250,.25);color:#c4b5fd;">'+cp.label+'<br><small>¥'+fmt(cp.price)+'</small></button>';});
 addBtns+='<button class="menu-btn" onclick="om(\'cu\')" style="background:rgba(255,255,255,.05);border-color:rgba(255,255,255,.12);color:#aaa;">カスタム<br><small>金額追加</small></button>';

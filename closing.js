@@ -70,6 +70,7 @@ function clCastSales(hist){
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
 function clItemCategory(item){
+  if(item.category==="champagneWine"||item.category==="keepBottle"||item.category==="castDrink")return item.category;
   const id=String(item.id||"");
   const menus=S.menus||{};
   const inMenu=(key)=>(menus[key]||[]).some(menu=>id===String(menu.id)||id.startsWith(String(menu.id)+"_"));
@@ -78,7 +79,8 @@ function clItemCategory(item){
   if(item.isBanaiShimei)return"banaiShimei";
   if(id==="dh"||item.label==="同伴料")return"dohan";
   if(id.startsWith("cd_"))return"castDrink";
-  if(inMenu("champagne")||/シャンパン/.test(item.label||""))return"champagne";
+  if(inMenu("champagne")||/シャンパン|ワイン/.test(item.label||""))return"champagneWine";
+  if(inMenu("keepBottles"))return"keepBottle";
   if(inMenu("wine")||/ワイン/.test(item.label||""))return"wine";
   if(["whisky","shochu","brandy"].some(inMenu)||/キープ|ボトル/.test(item.label||""))return"keepBottle";
   return"";
@@ -191,8 +193,8 @@ function exportClosingCSV(){
   lines.push([],["transactions"],["transactionId","tableId","tableLabel","startTime","endTime","guests","payMethod","subtotal","discount","tax","total"]);
   p.transactions.forEach(r=>{
     lines.push([r.transactionId,r.tableId,r.tableLabel,r.startTime,r.endTime,r.guests,r.payMethod,r.subtotal,r.discount,r.tax,r.total]);
-    lines.push(["items"],["itemId","label","price","quantity","castId"]);
-    r.items.forEach(i=>lines.push([i.itemId,i.label,i.price,i.quantity,i.castId]));
+    lines.push(["items"],["itemId","label","category","price","quantity","castId"]);
+    r.items.forEach(i=>lines.push([i.itemId,i.label,i.category,i.price,i.quantity,i.castId]));
   });
   lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","totalAttributedSales"]);
   p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.totalAttributedSales]));
