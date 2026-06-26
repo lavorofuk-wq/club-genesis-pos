@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.56";
+const APP_VERSION="6.57";
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -78,6 +78,53 @@ function syncLegacyFloorCardSizes(){
 }
 window.addEventListener("resize",()=>{DEV=getDevice();syncLegacyFloorCardSizes();});
 window.addEventListener("orientationchange",syncLegacyFloorCardSizes);
+
+function clampNum(value,min,max){return Math.max(min,Math.min(max,value));}
+function floorGridLayout(){
+  const count=Math.max(1,(S.tables||[]).length);
+  const fallback="repeat(auto-fit,minmax(min(100%,clamp(118px,22vw,220px)),1fr))";
+  if(DEV==="mobile"||typeof window==="undefined")return{cols:fallback,gap:"clamp(8px,1.6vw,14px)",fit:false,side:160};
+  const main=document.querySelector("main");
+  const ms=main?getComputedStyle(main):null;
+  const padX=(parseFloat(ms?.paddingLeft)||16)+(parseFloat(ms?.paddingRight)||16);
+  const padY=(parseFloat(ms?.paddingTop)||24)+(parseFloat(ms?.paddingBottom)||24);
+  const contentW=Math.max(280,Math.min(main?.clientWidth||window.innerWidth,1280)-padX);
+  const headerH=document.querySelector("header")?.getBoundingClientRect().height||72;
+  const availableH=Math.max(260,window.innerHeight-headerH-padY-40);
+  const gap=clampNum(window.innerWidth*0.016,8,14);
+  const minSide=DEV==="tablet"?72:78;
+  const maxSide=220;
+  let best=null;
+  for(let cols=1;cols<=count;cols++){
+    const rawSide=(contentW-gap*(cols-1))/cols;
+    if(rawSide<minSide)continue;
+    const side=Math.min(rawSide,maxSide);
+    const rows=Math.ceil(count/cols);
+    const totalH=rows*side+gap*(rows-1);
+    if(totalH<=availableH){
+      best={cols,rows,side,totalH};
+      break;
+    }
+  }
+  if(!best){
+    const cols=count;
+    const side=clampNum((contentW-gap*(cols-1))/cols,52,maxSide);
+    best={cols,rows:1,side,totalH:side};
+  }
+  const gridW=Math.floor(best.cols*best.side+gap*(best.cols-1));
+  return{
+    cols:"repeat("+best.cols+",minmax(0,1fr))",
+    gap:Math.round(gap)+"px",
+    fit:true,
+    side:best.side,
+    maxWidth:gridW+"px",
+    labelFs:clampNum(Math.floor(best.side/12),10,14),
+    timeFs:clampNum(Math.floor(best.side/17),9,11),
+    timerFs:clampNum(Math.floor(best.side/8.5),13,20),
+    nomFs:clampNum(Math.floor(best.side/13),8,14),
+    nomBothFs:clampNum(Math.floor(best.side/17),7,11)
+  };
+}
 
 // ===== UTILS =====
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
@@ -1005,9 +1052,13 @@ sbs(true,"同期済み ✓");
 
 // ===== FLOOR =====
 function rFloor(){
-  const cols="repeat(auto-fit,minmax(min(100%,clamp(118px,22vw,220px)),1fr))";
+  const layout=floorGridLayout();
+  const gridFitStyle=layout.fit
+    ?';justify-content:center;max-width:'+layout.maxWidth+';margin:0 auto;--floor-label-size:'+layout.labelFs+'px;--floor-timer-size:'+layout.timerFs+'px;--floor-nom-size:'+layout.nomFs+'px;--floor-nom-both-size:'+layout.nomBothFs+'px;'
+    :"";
+  const cols=layout.cols;
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
-  html+='<div class="floor-grid" style="display:grid;grid-template-columns:'+cols+';gap:clamp(8px,1.6vw,14px);align-items:start;">';
+  html+='<div class="floor-grid '+(layout.fit?"floor-grid-fit":"")+'" style="display:grid;grid-template-columns:'+cols+';gap:'+layout.gap+';align-items:start'+gridFitStyle+'">';
   S.tables.forEach(t=>{
 try{
 const s=S.sessions[t.id];const rv=rem(s?.setEndTime);
@@ -1022,9 +1073,9 @@ const nomFs=DEV==="mobile"
   :DEV==="tablet"
   ?(maxSide>=8?'7px':maxSide>=7?'8px':maxSide>=6?'9px':maxSide>=5?'10px':'12px')
   :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
-const lblFs=DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
-const timeFs=DEV==="mobile"?"10px":"11px";
-const timerFs=DEV==="mobile"?"15px":DEV==="tablet"?"17px":"20px";
+const lblFs=layout.fit?layout.labelFs+"px":DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
+const timeFs=layout.fit?layout.timeFs+"px":DEV==="mobile"?"10px":"11px";
+const timerFs=layout.fit?layout.timerFs+"px":DEV==="mobile"?"15px":DEV==="tablet"?"17px":"20px";
 let inn=s?
   '<div style="font-size:'+timeFs+';color:#999;margin-bottom:4px;">'
   +new Date(s.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})

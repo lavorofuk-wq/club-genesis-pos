@@ -385,6 +385,14 @@ textarea.ip:focus{
   line-height:1.05!important;
 }
 
+.floor-grid-fit .floor-table-card > div:first-child span:first-child{
+  font-size:var(--floor-label-size,clamp(11px,1.45vw,14px))!important;
+}
+
+.floor-grid-fit .floor-table-card [data-countdown]{
+  font-size:var(--floor-timer-size,clamp(14px,2.2vw,20px))!important;
+}
+
 .floor-nomination-row,
 .list-nomination-row{
   display:grid!important;
@@ -425,11 +433,19 @@ textarea.ip:focus{
   font-size:clamp(9px,1.65vw,14px)!important;
 }
 
+.floor-grid-fit .floor-nomination{
+  font-size:var(--floor-nom-size,clamp(9px,1.65vw,14px))!important;
+}
+
 .floor-nomination-row.has-both .floor-nomination,
 .list-nomination-row.has-both .list-nomination{
   font-size:clamp(6px,1.08vw,11px)!important;
   padding-left:3px!important;
   padding-right:3px!important;
+}
+
+.floor-grid-fit .floor-nomination-row.has-both .floor-nomination{
+  font-size:var(--floor-nom-both-size,clamp(6px,1.08vw,11px))!important;
 }
 
 .floor-nomination-banai,
