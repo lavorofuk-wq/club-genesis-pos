@@ -4,7 +4,8 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.57";
+const APP_VERSION="6.58";
+const MAX_TABLE_COUNT=30;
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -2186,6 +2187,8 @@ if(scItem){
 html+='</div>';}
   }else if(stab==="tables"){
 html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">テーブル一覧</div>';
+const tableLimitReached=S.tables.length>=MAX_TABLE_COUNT;
+html+='<div style="font-size:12px;color:#666;margin-bottom:10px;">'+S.tables.length+' / '+MAX_TABLE_COUNT+' 卓</div>';
 S.tables.forEach(t=>{
   const iu=!!S.sessions[t.id];
   html+='<div class="ir" style="gap:8px;flex-wrap:wrap;">';
@@ -2199,7 +2202,7 @@ html+='<div style="font-size:10px;color:#888;letter-spacing:.1em;margin-bottom:8
 html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
 html+='<input class="ip" placeholder="テーブル名" value="'+ntl+'" oninput="ntl=this.value" style="flex:1;min-width:100px;"/>';
 html+='<button class="btn" onclick="ntv=!ntv;render()" style="padding:8px 14px;border-radius:4px;font-size:13px;font-weight:600;background:'+(ntv?"rgba(124,77,255,.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(ntv?"rgba(124,77,255,.5)":"rgba(255,255,255,.1)")+';color:'+(ntv?"#a78bfa":"#666")+'">'+(ntv?"★ VIP":"VIP")+'</button>';
-html+='<button class="btn gbg" onclick="ata()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">＋ 追加</button>';
+html+='<button class="btn gbg" '+(tableLimitReached?'disabled':'onclick="ata()"')+' style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">'+(tableLimitReached?'上限':'＋ 追加')+'</button>';
 html+='</div></div></div>';
   }else if(stab==="special"){
 // 特殊メニュー：注文画面の特殊ボタンに表示される「オプション」カテゴリの編集
@@ -2772,7 +2775,7 @@ function ami(k,hm){
 function utl(id,v){if(v.trim()){S.tables=S.tables.map(t=>t.id===id?{...t,label:v.trim()}:t);save("tables",S.tables);}}
 function ttv(id){S.tables=S.tables.map(t=>t.id===id?{...t,vip:!t.vip}:t);save("tables",S.tables);render();}
 function dta(id){if(S.sessions[id])return;S.tables=S.tables.filter(t=>t.id!==id);save("tables",S.tables);render();}
-function ata(){if(!ntl.trim())return;S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
+function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
 function om(name){md=name;rModal();}
