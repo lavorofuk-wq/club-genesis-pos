@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.58";
+const APP_VERSION="6.59";
 const MAX_TABLE_COUNT=30;
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
@@ -2132,6 +2132,7 @@ html+='<div class="ir" style="gap:8px;align-items:center;">'
   +'<span style="width:48px;font-size:12px;color:#d4a017;font-weight:700;">No.'+castNo(c)+'</span>'
   +(c.castType==="trial"?'<span style="font-size:10px;color:#38bdf8;border:1px solid rgba(56,189,248,.3);border-radius:4px;padding:2px 6px;">体入</span>':'')
   +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
+  +(c.castType==="trial"?'<span style="font-size:11px;color:#64748b;white-space:nowrap;">'+(c.trialBizDay||currentCastBizDate())+'</span>':'')
   +'<button class="btn" data-cid="'+c.id+'" onclick="dc2(parseInt(this.dataset.cid))" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">退店</button>'
   +'</div>';
 });
@@ -2652,20 +2653,35 @@ function ucn(id,name){
   S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,name:n}:c);
   save("casts",S.casts);render();
 }
+function hasVisibleCastName(name){
+  const n=String(name||"").trim();
+  return !!n&&allCasts().some(c=>isVisibleCast(c)&&String(c.name||"").trim()===n);
+}
 function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
+  if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
   S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"regular",internalNo:nextCastInternalNo(),active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz}];
   save("casts",S.casts);ncn="";render();
 }
 function actrial(){
   const name=String(ntn||"").trim();if(!name)return;
+  if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
   S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz}];
   save("casts",S.casts);ntn="";render();
 }
 function dc2(id){
   const cast=S.casts.find(c=>c.id===id);if(!cast)return;
+  const shift=getShiftByCastId(id);
+  const activeAssignments=Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(id)&&!a.endTime);
+  if(shift||activeAssignments.length){
+    const details=[];
+    if(shift)details.push("出勤中: "+new Date(shift.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}));
+    activeAssignments.forEach(a=>details.push("付け回し中: "+(S.tables.find(t=>t.id===a.tableId)?.label||a.tableId||"テーブル不明")));
+    alert(cast.name+" は退店できません。\n退店前に退勤と付け回し終了を完了してください。\n\n"+details.join("\n"));
+    return;
+  }
   if(!confirm(cast.name+" を退店扱いにしますか？\n過去データ参照のため名簿には残ります。"))return;
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
   S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,active:false,exitedAt:ts,exitedBizDay:biz}:c);
