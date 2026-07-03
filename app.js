@@ -4,8 +4,10 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.59";
+const APP_VERSION="6.60";
 const MAX_TABLE_COUNT=30;
+const TAX_RATE=.30;
+const TOTAL_ROUND_UNIT=100;
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function normalizeCasts(list){
   let nextNo=1;
@@ -129,20 +131,21 @@ function floorGridLayout(){
 
 // ===== UTILS =====
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
+function roundCharge(n){return Math.ceil(Math.max(0,Number(n)||0)/TOTAL_ROUND_UNIT)*TOTAL_ROUND_UNIT;}
 function ts(ms){const s=Math.max(0,Math.floor(ms/1000));return[Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(x=>String(x).padStart(2,"0")).join(":");}
 function ct(ses){
-  if(!ses||!Array.isArray(ses.items))return{subtotal:0,discount:0,subDiscAmt:0,totalDiscAmt:0,tax:0,total:0,rate:.25};
+  if(!ses||!Array.isArray(ses.items))return{subtotal:0,discount:0,subDiscAmt:0,totalDiscAmt:0,tax:0,total:0,rate:TAX_RATE};
   const items=ses.items.filter(Boolean);
-  const r=items.some(i=>i.isVipCharge)?.30:.25;
+  const r=TAX_RATE;
   const sub=items.filter(i=>!i.isDiscount).reduce((a,i)=>a+(i.price||0)*(i.qty||1),0);
   const subDiscAmt=items.filter(i=>i.isDiscount&&i.discountTarget!=='total').reduce((a,i)=>a+Math.abs((i.price||0)*(i.qty||1)),0);
   const totalDiscAmt=items.filter(i=>i.isDiscount&&i.discountTarget==='total').reduce((a,i)=>a+Math.abs((i.price||0)*(i.qty||1)),0);
   const afterSubDisc=Math.max(0,sub-subDiscAmt);
   const rawTax=Math.floor(afterSubDisc*r);
   const rawTotal=afterSubDisc+rawTax;
-  const totalBeforePostDisc=Math.ceil(rawTotal/1000)*1000;
-  const total=Math.max(0,totalBeforePostDisc-totalDiscAmt);
-  const tax=totalBeforePostDisc-afterSubDisc;
+  const totalBeforePostDisc=roundCharge(rawTotal);
+  const total=roundCharge(totalBeforePostDisc-totalDiscAmt);
+  const tax=Math.max(0,totalBeforePostDisc-afterSubDisc);
   const discount=subDiscAmt+totalDiscAmt;
   return{subtotal:sub,discount,subDiscAmt,totalDiscAmt,tax,total,rate:r};
 }
@@ -1923,7 +1926,7 @@ if(exp){
   html+='</div><div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">';
   html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(h.subtotal||h.total)+'</span></div>';
   if(h.discount>0)html+='<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(h.discount)+'</span></div>';
-  html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((h.rate||.25)*100)+'%)</span><span>'+pAmt(h.tax)+'</span></div>';
+  html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((h.rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(h.tax)+'</span></div>';
   html+='<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div></div>';
   html+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">';
   html+='<button class="btn" data-phidg="'+h.id+'" onclick="printHistReceiptGuest(Number(this.dataset.phidg))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:600;">🖨 ゲスト</button>';
@@ -2806,7 +2809,6 @@ function buildReceiptHTML(sessionOrEst, isEstimate){
   const et=sessionOrEst.endTime?new Date(sessionOrEst.endTime):now2;
   const dur=Math.round((et-st)/60000);
   const{subtotal,discount,tax,total,rate}=sessionOrEst;
-  const hv=(sessionOrEst.items||[]).some(i=>i.isVipCharge);
 
   const isGuest=!!sessionOrEst.isGuest;
   const noteText=sessionOrEst.note||"";
@@ -2855,7 +2857,7 @@ ${rows}
 <hr class="rcp-divider">
 <div class="rcp-subtotal-row"><span>小計</span><span>¥${fmt(subtotal)}</span></div>
 ${discount>0?`<div class="rcp-subtotal-row"><span>割引</span><span>-¥${fmt(discount)}</span></div>`:""}
-<div class="rcp-subtotal-row"><span>税・SC (${Math.round(rate*100)}%${hv?" ★VIP":""})</span><span>¥${fmt(tax)}</span></div>
+<div class="rcp-subtotal-row"><span>税・SC (${Math.round((rate||TAX_RATE)*100)}%)</span><span>¥${fmt(tax)}</span></div>
 <hr class="rcp-divider-solid">
 <div class="rcp-total-row">
   <span class="rcp-total-label">合 計</span>
@@ -2922,7 +2924,6 @@ printReceiptFallback(data,isEstimate);
 // ePOS-Print XML形式でレシートデータを構築（80mm = 約42半角文字幅）
 function buildEposXML(data,isEstimate){
   const{tableLabel,guests,items,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,payMethod,splits,startTime,note,isGuest}=data;
-  const hv=(items||[]).some(i=>i.isVipCharge);
   const now2=new Date();
   const W=42;
   const DIV="-".repeat(W);
@@ -2971,7 +2972,7 @@ if(dItems.length){x+='<feed line="1"/>'; ln("--- 割引 ---"); dItems.forEach(pr
   ln(DIV);
   x+=`<text>${row("小計","¥"+fmt(subtotal))}</text>`;
   if((subDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))}</text>`;
-  x+=`<text>${row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))}</text>`;
+  x+=`<text>${row("税・SC ("+Math.round((rate||TAX_RATE)*100)+"%)", "¥"+fmt(tax))}</text>`;
   if((totalDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))}</text>`;
   ln(DBL);
   x+='<feed line="1"/>';
@@ -2992,7 +2993,6 @@ if(dItems.length){x+='<feed line="1"/>'; ln("--- 割引 ---"); dItems.forEach(pr
 
 function buildEposCommands(prn,data,isEstimate){
   const{tableLabel,guests,items,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,payMethod,splits,startTime,note,isGuest}=data;
-  const hv=(items||[]).some(i=>i.isVipCharge);
   const W=42;
   const sw=(s)=>[...String(s)].reduce((n,c)=>n+(c.charCodeAt(0)>127?2:1),0);
   const row=(label,amt,w=W)=>{const sp=Math.max(1,w-sw(label)-sw(amt));return label+" ".repeat(sp)+amt;};
@@ -3036,7 +3036,7 @@ if(dItems.length){prn.addFeedLine(1); prn.addText("--- 割引 ---\n"); dItems.fo
   prn.addText("-".repeat(W)+"\n");
   prn.addText(row("小計","¥"+fmt(subtotal))+"\n");
   if((subDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))+"\n");
-  prn.addText(row("税・SC ("+Math.round(rate*100)+"%"+(hv?" VIP":"")+")", "¥"+fmt(tax))+"\n");
+  prn.addText(row("税・SC ("+Math.round((rate||TAX_RATE)*100)+"%)", "¥"+fmt(tax))+"\n");
   if((totalDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))+"\n");
   prn.addText("=".repeat(W)+"\n");
   prn.addFeedLine(1);
@@ -3460,7 +3460,7 @@ return h;
 const hv=[...s.items,...(result.extraItems||[])].some(i=>i.isVipCharge);
 return '<div style="margin-top:6px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1);">'
   +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;">'
-  +'<span>税・SC ('+Math.round(result.rate*100)+'%'+(hv?" VIP":"")+')</span><span>¥'+fmt(result.tax)+'</span></div>'
+  +'<span>税・SC ('+Math.round((result.rate||TAX_RATE)*100)+'%)</span><span>¥'+fmt(result.tax)+'</span></div>'
   +(result.discount>0?'<div style="display:flex;justify-content:space-between;font-size:11px;color:#ff6b6b;margin-bottom:2px;"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>':"")
   +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
   +'<span style="font-size:12px;color:'+col+';">'+label+'</span>'
@@ -3662,7 +3662,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">'
   +'<div class="ir"><span style="font-size:12px;color:#888;">小計</span><span>'+pAmt(subtotal)+'</span></div>'
   +(discount>0?'<div class="ir"><span style="font-size:12px;color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(discount)+'</span></div>':"")
-  +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round(rate*100)+'%)'+(hv?" ★VIP":"")+'</span><span>'+pAmt(tax)+'</span></div>'
+  +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round((rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(tax)+'</span></div>'
   +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
   +'</div>'
   +'<div style="display:flex;gap:6px;margin-top:16px;">'
@@ -4524,7 +4524,7 @@ else{
     +'<div style="margin-bottom:12px;">'+itRows+'</div>'
     +'<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">'
     +(_hr.discount>0?'<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(_hr.subtotal)+'</span></div>'+'<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(_hr.discount)+'</span></div>':"")
-    +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||.25)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
+    +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
     +'<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(_hr.total)+'</span></div>'
     +'</div>'
     +(window._histDetailBack?'<button class="btn" onclick="md=\''+window._histDetailBack+'\';rModal()" style="width:100%;margin-top:16px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上情報に戻る</button>':'')
