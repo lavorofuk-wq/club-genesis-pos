@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.61";
+const APP_VERSION="6.62";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -2720,11 +2720,34 @@ function testPrint(){
   if(!ip){alert("IPアドレスを入力してください");return;}
 
   // XML方式でテスト印刷（SDK不要）
-  testPrintXML(ip);
+  testPrintXML(ip,port);
 }
 
-async function testPrintXML(ip){
-  const port=S.config.printerPort||443;
+function eposServiceUrls(ip,port){
+  const p=parseInt(port,10)||8008;
+  const path="/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
+  const urls=[];
+  const add=(proto,pt)=>{
+    const u=proto+"://"+ip+(pt?":"+pt:"")+path;
+    if(!urls.includes(u))urls.push(u);
+  };
+  add("https",p);
+  add("https",443);
+  add("https",8043);
+  if(location.protocol!=="https:"){
+    add("http",p);
+    add("http",80);
+    add("http",8008);
+  }
+  return urls;
+}
+async function postEposSoap(url,soap){
+  const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  return res;
+}
+
+async function testPrintXML(ip,port){
   const now2=new Date();
   const xml='<text lang="ja" smooth="true"/>'
 +'<text dh="true" dw="true" align="center"/>'+`<text>CLUB GENESIS\n</text>`
@@ -2735,11 +2758,14 @@ async function testPrintXML(ip){
 +`<text>接続: 正常\n</text>`
 +`<feed line="3"/>`
 +`<cut type="feed"/>`;
-  const url="https://"+ip+":"+port+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
   const soap='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'+xml+'</epos-print></s:Body></s:Envelope>';
+  let lastError=null;
   try{
-const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
-if(!res.ok)throw new Error("HTTP "+res.status);
+for(const url of eposServiceUrls(ip,port)){
+  try{await postEposSoap(url,soap);lastError=null;break;}
+  catch(err){lastError=err;}
+}
+if(lastError)throw lastError;
 sbs(true,"テスト印刷成功 ✓");
 alert("テスト印刷成功！プリンターから出力されました。");
   }catch(e){
@@ -2914,13 +2940,16 @@ ePosDev.createDevice("local_printer",ePosDev.DEVICE_TYPE_PRINTER,{crypto:false,b
 
 // ePOS-Print XML API方式（SDK不要・直接HTTPS POST）
 async function eposPrintXML(ip,data,isEstimate){
-  const port=S.config.printerPort||443;
+  const port=S.config.printerPort||8008;
   const xml=buildEposXML(data,isEstimate);
-  const url="https://"+ip+":"+port+"/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000";
   const soap='<?xml version="1.0" encoding="utf-8"?><s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Body><epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">'+xml+'</epos-print></s:Body></s:Envelope>';
+  let lastError=null;
   try{
-const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
-if(!res.ok)throw new Error("HTTP "+res.status);
+for(const url of eposServiceUrls(ip,port)){
+  try{await postEposSoap(url,soap);lastError=null;break;}
+  catch(err){lastError=err;}
+}
+if(lastError)throw lastError;
 sbs(true,"印刷しました ✓");
   }catch(e){
 console.warn("ePOS-Print XML送信失敗:",e.message);

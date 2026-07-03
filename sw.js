@@ -1,4 +1,4 @@
-const CACHE = 'genesis-pos-v6.61-shimei-price-2000';
+const CACHE = 'genesis-pos-v6.62-epson-print-fix';
 const ASSETS = ['./', './index.html', './styles.css', './printer-loader.js', './firebase-init.js', './app.js', './closing.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
