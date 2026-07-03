@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.62";
+const APP_VERSION="6.63";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -188,6 +188,9 @@ if(!window._fbInitDone){window._fbInitDone=true;render();initFB();}
 }
 function initFB(){
   const db=window._db;
+  if(!db)return;
+  if(window._fbListening)return;
+  window._fbListening=true;
   sbs(false,"接続中…");
   // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
@@ -242,19 +245,8 @@ if(d.menus){
   if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
 }
 if(d.tables)S.tables=d.tables;
-// オーダー中テーブルのitemsは自分のローカル状態を優先（Firebase同期タイミング問題を防ぐ）
-const prevSession=at?S.sessions[at]:null;
+// Firebaseを正として反映し、古い端末のローカル状態を混ぜ戻さない
 S.sessions=d.sessions||{};
-if(prevSession&&at&&S.sessions[at]&&d.sessions&&d.sessions[at]){
-  // 同時編集対策: ローカルアイテムを基準にFirebase側のみのアイテムをマージ
-  const _fbItems=d.sessions[at].items||[];
-  const _localItems=prevSession.items||[];
-  const _localIds=new Set(_localItems.map(i=>i.id));
-  const _fbOnly=_fbItems.filter(i=>!_localIds.has(i.id));
-  if(_localItems.length>=_fbItems.length||_fbOnly.length>0){
-    S.sessions[at]={...d.sessions[at],...prevSession,items:[..._localItems,..._fbOnly]};
-  }
-}
 // historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
 S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
 S.shifts=d.shifts||{};
