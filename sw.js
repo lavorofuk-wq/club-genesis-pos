@@ -1,4 +1,4 @@
-const CACHE = 'genesis-pos-v6.63-sync-source-fix';
+const CACHE = 'genesis-pos-v6.64-closing-closed-only';
 const ASSETS = ['./', './index.html', './styles.css', './printer-loader.js', './firebase-init.js', './app.js', './closing.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -209,6 +209,9 @@ function exportClosingCSV(){
   _dlCSV("\uFEFF"+lines.map(r=>r.map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n"),"closing_"+date+".csv");
 }
 function rClosing(){
+  if(S.activeBizDay){
+    return '<div style="max-width:520px;margin:48px auto;padding:22px;border-radius:10px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.2);color:#e8dcc8;text-align:center;"><h2 style="font-size:20px;color:#ff6b6b;margin-bottom:10px;">締め作業は営業終了後のみ開けます</h2><div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:18px;">営業中のデータ引き戻しや途中送信を防ぐため、先に営業終了を実行してください。</div><button class="btn" onclick="sv(\'home\')" style="padding:11px 18px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#ddd;border-radius:6px;font-weight:700;">ホームへ戻る</button></div>';
+  }
   const dates=clDates(),date=clDefaultDate();closingState.date=date;const form=clForm(date),sum=clSummary(date),p=clBuildPayload(date),locked=!!closingState.submitted[date];
   let html='<div style="max-width:980px;margin:0 auto;">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;"><h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;">締め作業</h2><button class="btn" onclick="exportClosingCSV()" style="padding:8px 14px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:6px;font-size:12px;font-weight:700;">CSV</button></div>';
