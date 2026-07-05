@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.65";
+const APP_VERSION="6.66";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -248,6 +248,7 @@ if(d.menus){
 if(d.tables)S.tables=d.tables;
 // Firebaseを正として反映し、古い端末のローカル状態を混ぜ戻さない
 S.sessions=d.sessions||{};
+markSessionGuards(S.sessions);
 // historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
 S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
 S.shifts=d.shifts||{};
@@ -288,7 +289,14 @@ window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
 }
 async function save(path,val){
   if(!window._db)return;
-  try{await guardedSet(path,val);sbs(true,"同期済み ✓");}
+  try{
+    if(path.startsWith("sessions/")&&val){
+      await guardedSessionSet(path.split("/")[1],val);
+    }else{
+      await guardedSet(path,val);
+    }
+    sbs(true,"同期済み ✓");
+  }
   catch(e){sbs(false,"保存エラー");}
 }
 function writeGate(){
@@ -311,6 +319,96 @@ async function guardedSet(path,val){
   return guardedUpdate(updates);
 }
 async function guardedRemove(path){return guardedSet(path,null);}
+function sessionGuardStart(s){return Number(s?._sessionGuardStartTime||s?.startTime||0);}
+function markSessionGuard(s){
+  if(!s||typeof s!=="object")return s;
+  try{Object.defineProperty(s,"_sessionGuardStartTime",{value:Number(s.startTime||0),writable:true,configurable:true,enumerable:false});}catch(e){s._sessionGuardStartTime=Number(s.startTime||0);}
+  return s;
+}
+function markSessionGuards(sessions){Object.values(sessions||{}).forEach(markSessionGuard);}
+function ensureSessionId(s){
+  if(s&&!s.sessionId)s.sessionId="ses_"+(s.startTime||Date.now())+"_"+Math.random().toString(36).slice(2,8);
+  return s;
+}
+function sameSession(remote,expected){
+  if(!remote||!expected)return false;
+  if(remote.sessionId&&expected.sessionId)return String(remote.sessionId)===String(expected.sessionId);
+  return Number(remote.startTime||0)===sessionGuardStart(expected);
+}
+function syncRemoteSession(tableId,remote){
+  if(!tableId)return;
+  if(remote){S.sessions[tableId]=markSessionGuard(remote);}
+  else delete S.sessions[tableId];
+}
+function showSessionConflict(msg){
+  window._sessionConflictMessage=msg||"このテーブルは他端末で更新されています。最新状態を確認してください。";
+  sbs(false,"保存停止");
+  md="sessionConflict";
+  rModal();
+}
+function closeSessionConflict(){
+  window._sessionConflictMessage=null;
+  location.reload();
+}
+async function readRemoteSession(tableId){
+  const snap=await window._db.ref(FB_ROOT+"/sessions/"+tableId).once("value");
+  return snap.val();
+}
+async function ensureSessionCurrent(tableId,expected,options={}){
+  if(!window._db){
+    showSessionConflict("Firebaseに接続できないため保存を停止しました。会計データ保護のため、接続後に最新状態を確認してください。");
+    throw new Error("Firebase未接続のため保存できません");
+  }
+  if(!window._fbConnected){
+    showSessionConflict("Firebase接続確認中のため保存を停止しました。回線復帰後に最新状態を確認してください。");
+    throw new Error("Firebase接続確認中のため保存できません");
+  }
+  const remote=await readRemoteSession(tableId);
+  if(options.expectEmpty){
+    if(remote){
+      syncRemoteSession(tableId,remote);
+      showSessionConflict("移動先テーブルは他端末で使用中になりました。最新状態を確認してください。");
+      throw new Error("session target occupied");
+    }
+    return true;
+  }
+  if(options.expectCreate){
+    if(remote){
+      syncRemoteSession(tableId,remote);
+      showSessionConflict("このテーブルは他端末で先に入店済みです。最新状態を確認してください。");
+      throw new Error("session already exists");
+    }
+    return true;
+  }
+  if(!remote){
+    syncRemoteSession(tableId,null);
+    showSessionConflict("このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。");
+    throw new Error("session no longer exists");
+  }
+  if(!sameSession(remote,expected)){
+    syncRemoteSession(tableId,remote);
+    showSessionConflict("このテーブルは他端末で別の営業データに更新されています。保存せず最新状態へ戻します。");
+    throw new Error("session changed");
+  }
+  return true;
+}
+async function guardedSessionSet(tableId,session,options={}){
+  await ensureSessionCurrent(tableId,session,options);
+  ensureSessionId(session);
+  const res=await guardedSet("sessions/"+tableId,session);
+  markSessionGuard(session);
+  return res;
+}
+async function guardedSessionUpdate(tableId,session,updates,options={}){
+  await ensureSessionCurrent(tableId,session,options);
+  ensureSessionId(session);
+  Object.keys(updates||{}).forEach(k=>{
+    if(k===FB_ROOT+"/sessions/"+tableId&&updates[k])updates[k]=ensureSessionId(updates[k]);
+  });
+  const res=await guardedUpdate(updates);
+  markSessionGuard(session);
+  return res;
+}
 
 // ===== SESSIONS =====
 function startSession(){
@@ -326,8 +424,8 @@ function startSession(){
   let st=Date.now();
   if(etv){const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);st=d.getTime();if(st>Date.now()+3600000)st-=86400000;}
   const si=items.find(i=>i.isSet);
-  S.sessions[at]={tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""};
-  save("sessions/"+at,S.sessions[at]);
+  S.sessions[at]=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
+  guardedSessionSet(at,S.sessions[at],{expectCreate:true}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   vw="floor";ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
   render();openFloorDetail(at);
 }
@@ -363,7 +461,7 @@ function addBanai(cid){
 const _cu={};
 _cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];
 if(freeA)_cu[FB_ROOT+"/assignments/"+freeA.id]=freeA;
-guardedUpdate(_cu)
+guardedSessionUpdate(at,S.sessions[at],_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();
@@ -404,7 +502,7 @@ s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
 const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
 if(banaiA){
   banaiA.type="free";
-  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;guardedSessionUpdate(at,S.sessions[at],_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   _savedInline=true;
 }
   }else{
@@ -524,12 +622,15 @@ function addHonShimeiToSession(cid){
   s.honShimeis=[...(s.honShimeis||[]),cid];
   save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();
 }
-function checkout(){
+async function checkout(){
   if(!at||!S.sessions[at])return;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
 if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
-  const s=S.sessions[at];const totals=ct(s);
+  const s=S.sessions[at];
+  try{await ensureSessionCurrent(at,s);}
+  catch(e){return;}
+  const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
   const checkoutTableId=at; // atリセット前に保存
@@ -580,15 +681,20 @@ Object.values(S.assignments||{}).forEach(a=>{
     if(_sh&&!_chkShiftIds.has(_sh.id)){_chkShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
   }
 });
-guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+guardedSessionUpdate(checkoutTableId,s,_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
 }
-function tableChange(newId){
+async function tableChange(newId){
   if(!at||!newId||newId===at)return;
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
   const oldTid=at;
+  const oldSession=S.sessions[oldTid];
+  try{
+    await ensureSessionCurrent(oldTid,oldSession);
+    await ensureSessionCurrent(newId,null,{expectEmpty:true});
+  }catch(e){return;}
   const tcSessionId=S.sessions[oldTid]?.startTime||null;
   S.sessions[newId]={...S.sessions[oldTid],tableId:newId};
   delete S.sessions[oldTid];
@@ -606,7 +712,9 @@ const _cu={};
 _cu[FB_ROOT+"/sessions/"+newId]=S.sessions[newId];
 _cu[FB_ROOT+"/sessions/"+oldTid]=null;
 _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
-guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+	ensureSessionCurrent(newId,null,{expectEmpty:true})
+	  .then(()=>guardedSessionUpdate(oldTid,oldSession,_cu))
+	  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();refreshFloorModal();
 }
@@ -1794,9 +1902,12 @@ function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id
 function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return [...(S.menus.champagne||[]),...(S.menus.keepBottles||[])].some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
-function execDeleteSession(){
+async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
   const deletedTableId=at;
+  const deletedSession=S.sessions[deletedTableId];
+  try{await ensureSessionCurrent(deletedTableId,deletedSession);}
+  catch(e){return;}
   const _cu={};
   _cu[FB_ROOT+"/sessions/"+deletedTableId]=null;
   const _delShiftIds=new Set();
@@ -1813,7 +1924,7 @@ if(a.tableId===deletedTableId&&!a.endTime){
   });
   delete S.sessions[deletedTableId];
   if(window._db){
-guardedUpdate(_cu)
+guardedSessionUpdate(deletedTableId,deletedSession,_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
@@ -3555,7 +3666,15 @@ function rModal(){
   let h="";
   const isBig=DEV!=="mobile";
 
-  if(md==="restore-conflicts"){
+  if(md==="sessionConflict"){
+h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;text-align:center;">'
+  +'<div style="font-size:30px;margin-bottom:10px;">!</div>'
+  +'<h3 style="font-size:17px;color:#ff6b6b;margin-bottom:12px;">保存を停止しました</h3>'
+  +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:18px;text-align:left;">'+(window._sessionConflictMessage||"このテーブルは他端末で更新されています。最新状態を確認してください。")+'</div>'
+  +'<button class="btn gbg" onclick="closeSessionConflict()" style="width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">再読み込みして最新化</button>'
+  +'</div></div>';
+  }
+  else if(md==="restore-conflicts"){
 const byDate=window._pendingRestoreByDate||{};
 const conflicts=Object.entries(byDate).filter(([,e])=>e.length>1).sort((a,b)=>b[0].localeCompare(a[0]));
 let cHtml='';
