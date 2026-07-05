@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.64";
+const APP_VERSION="6.65";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -195,7 +195,7 @@ function initFB(){
   sbs(false,"接続中…");
   // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
-if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))db.ref(FB_ROOT+"/appVersion").set(APP_VERSION);
+if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION).catch(()=>{});
   });
   // Service Workerの更新を即座にチェック
   if('serviceWorker' in navigator){
@@ -288,9 +288,29 @@ window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
 }
 async function save(path,val){
   if(!window._db)return;
-  try{await window._db.ref(FB_ROOT+"/"+path).set(val);sbs(true,"同期済み ✓");}
+  try{await guardedSet(path,val);sbs(true,"同期済み ✓");}
   catch(e){sbs(false,"保存エラー");}
 }
+function writeGate(){
+  const ts=(window.firebase&&firebase.database&&firebase.database.ServerValue)?firebase.database.ServerValue.TIMESTAMP:Date.now();
+  return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:ts};
+}
+function withWriteGate(updates){return{...updates,[FB_ROOT+"/_writeGate"]:writeGate()};}
+async function guardedUpdate(updates){
+  if(!window._db)return;
+  return window._db.ref("/").update(withWriteGate(updates));
+}
+async function guardedRootUpdate(values){
+  const updates={};
+  Object.entries(values||{}).forEach(([k,v])=>{updates[FB_ROOT+"/"+k]=v;});
+  return guardedUpdate(updates);
+}
+async function guardedSet(path,val){
+  const updates={};
+  updates[FB_ROOT+"/"+path]=val;
+  return guardedUpdate(updates);
+}
+async function guardedRemove(path){return guardedSet(path,null);}
 
 // ===== SESSIONS =====
 function startSession(){
@@ -343,7 +363,7 @@ function addBanai(cid){
 const _cu={};
 _cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];
 if(freeA)_cu[FB_ROOT+"/assignments/"+freeA.id]=freeA;
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();
@@ -384,7 +404,7 @@ s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
 const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
 if(banaiA){
   banaiA.type="free";
-  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   _savedInline=true;
 }
   }else{
@@ -560,7 +580,7 @@ Object.values(S.assignments||{}).forEach(a=>{
     if(_sh&&!_chkShiftIds.has(_sh.id)){_chkShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
   }
 });
-window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
@@ -586,7 +606,7 @@ const _cu={};
 _cu[FB_ROOT+"/sessions/"+newId]=S.sessions[newId];
 _cu[FB_ROOT+"/sessions/"+oldTid]=null;
 _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
-window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();refreshFloorModal();
 }
@@ -966,7 +986,7 @@ return;
   S.sessions={};
   if(window._db){
 const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
-await window._db.ref(FB_ROOT).update({
+await guardedRootUpdate({
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:Object.keys(_lhObj).length>0?_lhObj:null,
@@ -991,7 +1011,7 @@ closeM();vw="floor";render();return;
   // history/shifts/assignmentsをクリア（新営業日）
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   if(window._db){
-await window._db.ref(FB_ROOT).update({
+await guardedRootUpdate({
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:[],shifts:null,assignments:null,sessions:null
@@ -1045,7 +1065,7 @@ if(wasReEdit){
 }else{
   await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
 }
-await window._db.ref(FB_ROOT).update({
+await guardedRootUpdate({
   bizDays:S.bizDays,
   activeBizDay:null,
   ...(castsChanged?{casts:S.casts}:{}),
@@ -1793,7 +1813,7 @@ if(a.tableId===deletedTableId&&!a.endTime){
   });
   delete S.sessions[deletedTableId];
   if(window._db){
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
@@ -1807,23 +1827,23 @@ function toggleLO(){
 }
 function execLOStart(){
   S.loMode=true;S.loStatus={};
-  if(window._db)window._db.ref(FB_ROOT).update({loMode:true,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  if(window._db)guardedRootUpdate({loMode:true,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
   closeM();render();
 }
 function execLOComplete(){
   const tid=window._loTableId;if(!tid)return;
   S.loStatus[tid]="done";
-  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).set("done").then(()=>sbs(true,"同期済み ✓"));
+  if(window._db)guardedSet("loStatus/"+tid,"done").then(()=>sbs(true,"同期済み ✓"));
   window._loTableId=null;md="loList";rModal();
 }
 function execLOUndone(tid){
   delete S.loStatus[tid];
-  if(window._db)window._db.ref(FB_ROOT+"/loStatus/"+tid).remove().then(()=>sbs(true,"同期済み ✓"));
+  if(window._db)guardedRemove("loStatus/"+tid).then(()=>sbs(true,"同期済み ✓"));
   md="loFix";rModal();
 }
 function execLOEnd(){
   S.loMode=false;S.loStatus={};
-  if(window._db)window._db.ref(FB_ROOT).update({loMode:false,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
+  if(window._db)guardedRootUpdate({loMode:false,loStatus:null}).then(()=>sbs(true,"同期済み ✓"));
   closeM();render();
 }
 
@@ -2522,7 +2542,7 @@ function restoreFromBackupDay(bkKey){
   S.bizDays[date].shifts=bk.shifts||{};
   S.bizDays[date].assignments=bk.assignments||{};
   if(window._db){
-window._db.ref(FB_ROOT+"/bizDays/"+date).set(S.bizDays[date])
+guardedSet("bizDays/"+date,S.bizDays[date])
   .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
   .catch(()=>sbs(false,"復旧エラー"));
   }
@@ -2585,7 +2605,7 @@ updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
   }
   if(window._db){
 try{
-  await window._db.ref().update(updates);
+  await guardedUpdate(updates);
   sbs(true,"全件復旧完了 ✓");
   alert("全"+dates.length+"営業日の復旧が完了しました。");
   closeM();render();
@@ -2621,7 +2641,7 @@ function clearAllSessions(){
   if(!confirm("進行中のセッションを全て削除します。よろしいですか？"))return;
   S.sessions={};
   if(window._db){
-window._db.ref(FB_ROOT+"/sessions").set(null)
+guardedSet("sessions",null)
   .then(()=>sbs(true,"セッションクリア済み ✓"))
   .catch(()=>sbs(false,"クリアエラー"));
   }
@@ -2644,7 +2664,7 @@ if(!sh.clockOut){ // 出勤中のみ
 }
   });
   if(window._db){
-window._db.ref(FB_ROOT).update({
+guardedRootUpdate({
   assignments:null,
   shifts:Object.keys(S.shifts||{}).length>0?S.shifts:null
 }).then(()=>sbs(true,"リセット済み ✓")).catch(()=>sbs(false,"リセットエラー"));
@@ -2703,7 +2723,7 @@ function savePrinterConfig(){
   localStorage.setItem("genesis_printer_ip",ip);
   const newConfig={...S.config,printerIP:ip,printerPort:port};
   if(window._db){
-window._db.ref(FB_ROOT+"/config").set(newConfig)
+guardedSet("config",newConfig)
   .then(()=>{sbs(true,"プリンター設定保存 ✓");alert("プリンター設定を保存しました\nIP: "+ip+"\nポート: "+port+"\n\nページを再読み込みするとSDKが再ロードされます。");})
   .catch(()=>sbs(false,"保存エラー"));
   }
@@ -2778,7 +2798,7 @@ function changePW(){
   S.config.password=v1;
   const newConfig={password:v1,pwEnabled:S.config.pwEnabled!==false};
   if(window._db){
-window._db.ref(FB_ROOT+"/config").set(newConfig)
+guardedSet("config",newConfig)
   .then(()=>{
     localStorage.setItem("genesis_pw_cache",v1);
     sbs(true,"パスワード変更済み ✓");
@@ -2793,7 +2813,7 @@ function togglePWEnabled(){
   S.config.pwEnabled=!cur;
   const newConfig={password:S.config.password||'genesis0127',pwEnabled:!cur};
   if(window._db){
-window._db.ref(FB_ROOT+"/config").set(newConfig)
+guardedSet("config",newConfig)
   .then(()=>{
     localStorage.setItem("genesis_pw_enabled_cache",(!cur)?"1":"0");
     sbs(true,"設定保存済み ✓");
@@ -5019,7 +5039,7 @@ const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5048,7 +5068,7 @@ const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5069,7 +5089,7 @@ function endAssign(aid){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=a;
 const _sh=getShiftByCastId(a.castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5083,7 +5103,7 @@ function moveToBreak(castId){
 const _cu={};
 if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
@@ -5092,7 +5112,7 @@ function moveToWaiting(castId){
   setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
   if(window._db){
 const _sh=getShiftByCastId(castId);
-if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;window._db.ref("/").update(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   }
   render();
 }
@@ -5105,7 +5125,7 @@ function deleteAssign(aid){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=null;
 if(_wasActive){const _sh=getShiftByCastId(_cid);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
-window._db.ref("/").update(_cu)
+guardedUpdate(_cu)
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();
