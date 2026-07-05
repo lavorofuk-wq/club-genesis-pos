@@ -171,6 +171,7 @@ function clValidate(date,payload){
 function clConfirmSubmit(){const date=clDefaultDate();closingState.date=date;const payload=clBuildPayload(date);const errs=clValidate(date,payload);if(errs.length){alert(errs.join("\n"));return;}window._closingPayload=payload;md="closingConfirm";rModal();}
 async function clSubmit(){
   const payload=window._closingPayload;if(!payload||closingState.submitting)return;
+  if(typeof requireFirebaseReady==="function"&&!requireFirebaseReady())return;
   const closingDb=window._accountingFs||window._fs;
   if(!closingDb){alert("Firestoreが初期化されていません");return;}
   const submissionId=payload.source?.submissionId||payload.businessDate+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);

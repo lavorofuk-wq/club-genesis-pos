@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.66";
+const APP_VERSION="6.67";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -195,7 +195,7 @@ function initFB(){
   sbs(false,"接続中…");
   // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
-if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION).catch(()=>{});
+if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION,{allowBeforeFirstSync:true,silent:true}).catch(()=>{});
   });
   // Service Workerの更新を即座にチェック
   if('serviceWorker' in navigator){
@@ -209,11 +209,22 @@ navigator.serviceWorker.addEventListener('message',e=>{
   // ===== 接続状態監視 =====
   db.ref(".info/connected").on("value",(snap)=>{
 const connected=snap.val()===true;
+const wasConnected=window._fbConnected===true;
 window._fbConnected=connected;
 // 初回sync前はオーバーレイを出さない（ページ読み込み中の瞬断を避ける）
 if(window._fbFirstSync){
   const ov=document.getElementById("offline-overlay");
   if(ov)ov.style.display=connected?"none":"flex";
+}
+if(window._fbFirstSync&&!connected){
+  window._posWriteLocked=true;
+  window._posNeedsReloadAfterDisconnect=true;
+  showFirebaseLock("Firebase接続が切れました。会計データ保護のため、保存系操作を停止しています。");
+}else if(window._fbFirstSync&&connected&&window._posNeedsReloadAfterDisconnect){
+  window._posWriteLocked=true;
+  showFirebaseLock("Firebase接続は復帰しました。操作を再開する前に、最新データへ更新してください。");
+}else if(connected&&!window._posNeedsReloadAfterDisconnect&&wasConnected===false){
+  window._posWriteLocked=false;
 }
 if(connected){sbs(true,"同期済み ✓");}
 else{sbs(false,"⚠ オフライン");}
@@ -288,7 +299,7 @@ window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
-  if(!window._db)return;
+  if(!requireFirebaseReady())return;
   try{
     if(path.startsWith("sessions/")&&val){
       await guardedSessionSet(path.split("/")[1],val);
@@ -304,19 +315,52 @@ function writeGate(){
   return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:ts};
 }
 function withWriteGate(updates){return{...updates,[FB_ROOT+"/_writeGate"]:writeGate()};}
-async function guardedUpdate(updates){
-  if(!window._db)return;
+function showFirebaseLock(msg){
+  window._firebaseLockMessage=msg||"Firebase接続が正しく確認できないため、会計データ保護のため保存系操作を停止しています。";
+  sbs(false,"操作停止");
+  md="firebaseLock";
+  rModal();
+}
+function reloadForFirebaseResume(){location.reload();}
+function requireFirebaseReady(options={}){
+  if(options.allowBeforeFirstSync&&window._db&&window._fbConnected!==false&&!window._posNeedsReloadAfterDisconnect)return true;
+  if(!window._db){
+    if(!options.silent)showFirebaseLock("Firebaseが初期化されていません。保存系操作はできません。");
+    return false;
+  }
+  if(!window._fbFirstSync){
+    if(!options.silent)showFirebaseLock("Firebase初回同期が完了していません。同期完了まで保存系操作はできません。");
+    return false;
+  }
+  if(window._fbConnected!==true){
+    window._posWriteLocked=true;
+    if(!options.silent)showFirebaseLock("Firebase接続が確認できません。会計データ保護のため保存系操作を停止しています。");
+    return false;
+  }
+  if(window._posNeedsReloadAfterDisconnect){
+    window._posWriteLocked=true;
+    if(!options.silent)showFirebaseLock("Firebase接続が一度切断されました。操作再開前に最新データへ更新してください。");
+    return false;
+  }
+  if(window._posWriteLocked){
+    if(!options.silent)showFirebaseLock("保存系操作は現在ロックされています。最新データへ更新してから再開してください。");
+    return false;
+  }
+  return true;
+}
+async function guardedUpdate(updates,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
   return window._db.ref("/").update(withWriteGate(updates));
 }
-async function guardedRootUpdate(values){
+async function guardedRootUpdate(values,options={}){
   const updates={};
   Object.entries(values||{}).forEach(([k,v])=>{updates[FB_ROOT+"/"+k]=v;});
-  return guardedUpdate(updates);
+  return guardedUpdate(updates,options);
 }
-async function guardedSet(path,val){
+async function guardedSet(path,val,options={}){
   const updates={};
   updates[FB_ROOT+"/"+path]=val;
-  return guardedUpdate(updates);
+  return guardedUpdate(updates,options);
 }
 async function guardedRemove(path){return guardedSet(path,null);}
 function sessionGuardStart(s){return Number(s?._sessionGuardStartTime||s?.startTime||0);}
@@ -351,18 +395,12 @@ function closeSessionConflict(){
   location.reload();
 }
 async function readRemoteSession(tableId){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for read");
   const snap=await window._db.ref(FB_ROOT+"/sessions/"+tableId).once("value");
   return snap.val();
 }
 async function ensureSessionCurrent(tableId,expected,options={}){
-  if(!window._db){
-    showSessionConflict("Firebaseに接続できないため保存を停止しました。会計データ保護のため、接続後に最新状態を確認してください。");
-    throw new Error("Firebase未接続のため保存できません");
-  }
-  if(!window._fbConnected){
-    showSessionConflict("Firebase接続確認中のため保存を停止しました。回線復帰後に最新状態を確認してください。");
-    throw new Error("Firebase接続確認中のため保存できません");
-  }
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for session write");
   const remote=await readRemoteSession(tableId);
   if(options.expectEmpty){
     if(remote){
@@ -1107,6 +1145,7 @@ sbs(true,"同期済み ✓");
   closeM();vw="floor";render();
 }
 async function startBizDay(dateStr){
+  if(!requireFirebaseReady())return;
   // 他端末が既に営業を開始していた場合はブロック
   if(S.activeBizDay){
 alert("既に「"+S.activeBizDay+"」の営業が進行中です。\n営業終了後に新しい営業を開始してください。");
@@ -1131,6 +1170,7 @@ sbs(true,"同期済み ✓");
 
 async function endBizDay(){
   const id=S.activeBizDay;if(!id)return;
+  if(!requireFirebaseReady())return;
   const day=S.bizDays[id];if(!day)return;
   const onduty=getOnduty();
   if(onduty.length){
@@ -2627,6 +2667,7 @@ if(hasConflict){
 
 // バックアップ内の特定営業日を削除
 async function deleteBackupBizDay(date){
+  if(!requireFirebaseReady())return;
   if(!(S.backups?.bizDays?.[date])){alert("データが見つかりません");return;}
   if(!confirm("バックアップから「"+date+"」を削除します。\nこの操作は取り消せません。よろしいですか？"))return;
   if(window._db){
@@ -2726,7 +2767,7 @@ try{
 
 // 手動バックアップ（現在の営業日データを即時保存）
 async function manualFirebaseBackup(){
-  if(!window._db){alert("Firebaseに接続されていません");return;}
+  if(!requireFirebaseReady())return;
   if(!S.activeBizDay){alert("営業中のみ手動バックアップできます");return;}
   const date=S.activeBizDay;
   const snap={
@@ -3666,7 +3707,15 @@ function rModal(){
   let h="";
   const isBig=DEV!=="mobile";
 
-  if(md==="sessionConflict"){
+  if(md==="firebaseLock"){
+h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:430px;text-align:center;">'
+  +'<div style="font-size:30px;margin-bottom:10px;">!</div>'
+  +'<h3 style="font-size:17px;color:#ff6b6b;margin-bottom:12px;">Firebase接続確認中</h3>'
+  +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:18px;text-align:left;">'+(window._firebaseLockMessage||"会計データ保護のため、保存系操作を停止しています。")+'</div>'
+  +(window._fbConnected===true?'<button class="btn gbg" onclick="reloadForFirebaseResume()" style="width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:6px;touch-action:manipulation;">最新化して再開</button>':'<button class="btn" onclick="location.reload()" style="width:100%;padding:13px;font-size:15px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);color:#ddd;touch-action:manipulation;">接続を再確認</button>')
+  +'</div></div>';
+  }
+  else if(md==="sessionConflict"){
 h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;text-align:center;">'
   +'<div style="font-size:30px;margin-bottom:10px;">!</div>'
   +'<h3 style="font-size:17px;color:#ff6b6b;margin-bottom:12px;">保存を停止しました</h3>'
