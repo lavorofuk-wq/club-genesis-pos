@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.68";
+const APP_VERSION="6.69";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3772,7 +3772,7 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<h3 style="font-size:17px;color:#4ade80;margin-bottom:12px;">締め確定</h3>'
   +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
   +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
-  +'同じ営業日の再送信も、重複データとして新しくGMSへ送信されます。<br>'
+  +'同じ営業日の再送信は、GMS側の同じ日付データを上書き更新します。<br>'
   +'総売上 '+pAmt(p?.sales?.totalSales||0)
   +'</div>'
   +'<div style="display:flex;gap:8px;">'

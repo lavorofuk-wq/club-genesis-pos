@@ -59,7 +59,7 @@
       window._fbRoot=window.FB_ROOT;
       window.BACKUP_ROOT=isProd?"backup":"backup-dev";
       window._backupRoot=window.BACKUP_ROOT;
-      window.CLOSING_ROOT=isProd?"shopClosings":"shopClosings-dev";
+      window.CLOSING_ROOT=isProd?"dailyClosings":"dailyClosings-dev";
       window._closingRoot=window.CLOSING_ROOT;
       window._serverTimestamp=function(){return firebase.firestore.FieldValue.serverTimestamp();};
       window._ref=function(db,path){return db.ref(path);};
