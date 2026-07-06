@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.67";
+const APP_VERSION="6.68";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -5476,8 +5476,7 @@ if(val===PW){
   pwScreen.style.display="none";
   loading.style.display="flex";
   // Firebase接続開始
-  if(window._fbReady)boot();
-  else window.addEventListener("fbReady",boot);
+	  waitFirebaseReadyForBoot();
 }else{
   document.getElementById("pw-error").textContent="パスワードが違います";
   document.getElementById("pw-input").value="";
@@ -5515,6 +5514,20 @@ document.getElementById("app").style.display="block";
 render();initFB();
   }
 }
-if(sessionStorage.getItem("genesis_auth")==="1"){
-  if(window._fbReady)boot();else{window.addEventListener("fbReady",boot);setTimeout(()=>{if(document.getElementById("loading").style.display!=="none"){document.getElementById("lmsg").textContent="接続タイムアウト";const _ls=document.getElementById("lsub");if(_ls)_ls.textContent="再読み込みしてください";}},10000);}
-}
+	function waitFirebaseReadyForBoot(){
+	  const lmsg=document.getElementById("lmsg");
+	  const lsub=document.getElementById("lsub");
+	  const setMsg=(msg,sub)=>{if(lmsg)lmsg.textContent=msg;if(lsub)lsub.textContent=sub||"";};
+	  if(window._fbReady){boot();return;}
+	  setMsg("Firebaseに接続中...","回線状況により時間がかかる場合があります");
+	  window.addEventListener("fbReady",()=>boot(),{once:true});
+	  window.addEventListener("fbError",e=>{
+	    setMsg("Firebase初期化エラー",(e.detail&&e.detail.message)?e.detail.message:"再読み込みしてください");
+	  },{once:true});
+	  setTimeout(()=>{if(!window._fbReady)setMsg("Firebase接続に時間がかかっています","このまま待機しています。Wi-Fiが安定しているか確認してください");},10000);
+	  setTimeout(()=>{if(!window._fbReady)setMsg("Firebase接続を継続確認中...","まだ接続できていません。必要なら再読み込みしてください");},30000);
+	  setTimeout(()=>{if(!window._fbReady)setMsg("Firebase接続未完了","回線確認後、再読み込みしてください");},60000);
+	}
+	if(sessionStorage.getItem("genesis_auth")==="1"){
+	  waitFirebaseReadyForBoot();
+	}

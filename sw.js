@@ -1,4 +1,4 @@
-const CACHE = 'genesis-pos-v6.67-firebase-write-lock';
+const CACHE = 'genesis-pos-v6.68-firebase-wait';
 const ASSETS = ['./', './index.html', './styles.css', './printer-loader.js', './firebase-init.js', './app.js', './closing.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
