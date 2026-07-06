@@ -26,21 +26,11 @@
       setLoading("POS読み込みエラー","端末のキャッシュ削除またはOS/ブラウザ更新を行ってください。");
     }
   });
-  function loadModernScripts(){
-    var nodes=document.querySelectorAll("script[data-modern-src]");
-    var i=0;
-    function next(){
-      if(window._posUnsupported||i>=nodes.length)return;
-      var src=nodes[i++].getAttribute("data-modern-src");
-      var s=document.createElement("script");
-      s.src=src;
-      s.async=false;
-      s.onerror=function(){setLoading("POS読み込みエラー",src+" を読み込めません。通信状態を確認してください。");};
-      s.onload=next;
-      document.head.appendChild(s);
-    }
-    next();
-  }
-  if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",loadModernScripts);
-  else loadModernScripts();
+  window.addEventListener("load",function(){
+    setTimeout(function(){
+      if(!window._posUnsupported&&!window._fbReady&&!window._fbInitError){
+        setLoading("Firebase接続を継続確認中...","Wi-FiまたはFirebase接続を確認してください。");
+      }
+    },30000);
+  });
 })();
