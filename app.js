@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.72";
+const APP_VERSION="6.73";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -29,9 +29,57 @@ function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>castSortValue
 function castNo(c){return String(c?.internalNo||"").padStart(3,"0");}
 function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||getBizDate();}
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
-function nextCastInternalNo(){return allCasts().filter(c=>c.castType!=="trial").reduce((m,c)=>Math.max(m,Number(c.internalNo)||0),0)+1;}
+function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
+function nextCastInternalNo(){
+  const nums=allCasts().filter(c=>c.castType!=="trial").map(c=>Number(c.internalNo)||0);
+  Object.values((typeof S!=="undefined"&&S.castLifecycleLogs)||{}).forEach(log=>{
+    [...(log.enteredCasts||[]),...(log.exitedCasts||[])].forEach(c=>nums.push(Number(c.internalNo)||0));
+  });
+  return Math.max(0,...nums)+1;
+}
 function nextTrialCastInternalNo(date){return Math.max(99,...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||99))+1;}
-let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+function emptyLifecycle(){return{enteredCasts:[],exitedCasts:[],trialCasts:[]};}
+function lifecycleFor(date){
+  if(!S.castLifecycleLogs)S.castLifecycleLogs={};
+  if(!S.castLifecycleLogs[date])S.castLifecycleLogs[date]=emptyLifecycle();
+  const l=S.castLifecycleLogs[date];
+  l.enteredCasts=l.enteredCasts||[];
+  l.exitedCasts=l.exitedCasts||[];
+  l.trialCasts=l.trialCasts||[];
+  return l;
+}
+function upsertLifecycle(date,key,row,idField){
+  const l=lifecycleFor(date);
+  const id=String(row[idField||"castId"]||"");
+  const idx=l[key].findIndex(x=>String(x[idField||"castId"]||"")===id);
+  if(idx>=0)l[key][idx]={...l[key][idx],...row};
+  else l[key].push(row);
+}
+function castSnapshot(c,extra={}){
+  return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",...extra};
+}
+async function saveCastsAndLifecycle(){
+  if(window._db)return guardedRootUpdate({casts:S.casts,castLifecycleLogs:S.castLifecycleLogs||{}});
+  return save("casts",S.casts);
+}
+function applyPosCastPolicy(casts){
+  const kept=[];
+  normalizeCasts(casts).forEach(c=>{
+    if(c.active===false&&c.castType!=="trial"){
+      const biz=c.exitedBizDay||currentCastBizDate();
+      upsertLifecycle(biz,"exitedCasts",castSnapshot(c,{exitedAt:c.exitedAt||null}),"castId");
+      return;
+    }
+    if(c.active===false&&c.castType==="trial"){
+      const biz=c.trialBizDay||currentCastBizDate();
+      upsertLifecycle(biz,"trialCasts",castSnapshot(c,{trialBizDay:biz,trialRegisteredAt:c.trialRegisteredAt||c.registeredAt||null,trialEndedAt:c.trialEndedAt||null}),"castId");
+      return;
+    }
+    kept.push(c);
+  });
+  return kept;
+}
+let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -162,6 +210,11 @@ function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
 function showClosingClosedOnlyAlert(){alert("締め作業は営業終了後のみ開けます。\n先に営業終了を実行してください。");}
 function iso(i){if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(i.label==="同伴料")return 3;if(i.id==="freedrink"||i.label==="フリードリンク")return 4;if(i.label==="シングルチャージ")return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(i.id&&i.id.startsWith("cd_"))return 9;return 8;}
+function itemCastName(i){
+  if(!i)return"";
+  const c=S.casts.find(c=>String(c.id)===String(i.castId));
+  return c?.name||i.castName||String(i.label||"").replace(/^.*\(/,"").replace(/\).*$/,"").replace("本指名料","").replace("場内指名料","").trim();
+}
 function pAmt(n){return priceHidden?"¥****":"¥"+fmt(n);}
 function togglePriceHide(){
   priceHidden=!priceHidden;
@@ -247,7 +300,8 @@ if(!d){
 if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
   const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
 }
-if(d.casts)S.casts=normalizeCasts(d.casts);
+S.castLifecycleLogs=d.castLifecycleLogs||{};
+if(d.casts)S.casts=applyPosCastPolicy(d.casts);
 if(d.menus){
   S.menus=applyFixedShimeiPrices(d.menus);
   // 未定義カテゴリを空配列で初期化
@@ -455,7 +509,7 @@ function startSession(){
   const items=[];
   const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===setMenu);
   if(sm)items.push({id:sm.id,label:sm.label,price:sm.price,qty:guests,minutes:sm.minutes,isSet:true});
-  honShimeis.forEach(cid=>{const c=S.casts.find(c=>c.id===cid);items.push({id:"hs_"+cid,label:"本指名料 ("+c?.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,isHonShimei:true});});
+  honShimeis.forEach(cid=>{const c=S.casts.find(c=>c.id===cid);items.push({id:"hs_"+cid,label:"本指名料 ("+c?.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c?.name||"",isHonShimei:true});});
   if(douhan)items.push({id:"dh",label:"同伴料",price:3000,qty:1});
   if(freedrink)items.push({id:"fd",label:"フリードリンク",price:2000,qty:guests});
   if(single)items.push({id:"sc",label:"シングルチャージ",price:2000,qty:guests});
@@ -490,7 +544,7 @@ function addBanai(cid){
   const s=S.sessions[at];
   if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   if((s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===cid))return;
-  s.items=[...s.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,isBanaiShimei:true}];
+  s.items=[...s.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isBanaiShimei:true}];
   s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
   const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
   if(freeA){freeA.type="banai";}
@@ -581,7 +635,7 @@ function addCD(cid,did){
   const c=S.casts.find(c=>c.id===cid);const d=S.menus.castDrinks.find(d=>d.id===did);
   if(!c||!d)return;
   const s=S.sessions[at];
-  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,castId:cid}];
+  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,castId:cid,castName:c.name}];
   save("sessions/"+at,S.sessions[at]);closeM();cds=0;cdc=null;renderOrderPartial();refreshFloorModal();
 }
 function addCustom(){
@@ -656,7 +710,7 @@ function addHonShimeiToSession(cid){
   const s=S.sessions[at];if(!s)return;
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
   if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
-  s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,isHonShimei:true}];
+  s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isHonShimei:true}];
   s.honShimeis=[...(s.honShimeis||[]),cid];
   save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();
 }
@@ -856,8 +910,8 @@ function refreshFloorModal(){
 function buildFloorOrderContent(){
   const s=S.sessions[at];if(!s)return'';
   const tl=S.tables.find(t=>t.id===at)?.label||'';
-  const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||'').filter(Boolean);
-  const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||'').filter(Boolean);
+  const hn=(s.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
+  const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean);
   const hasDh=(s.items||[]).some(i=>i.id==='dh'||i.label==='同伴料');
   const rv=rem(s.setEndTime);
   const urg=rv!==null&&rv>0&&rv<600000;const ovr=rv!==null&&rv<=0;
@@ -1039,8 +1093,8 @@ function rDayDetail(day){
   const sales=hist.reduce((a,h)=>a+h.total,0);
   html+='<div class="st" style="margin-bottom:10px;">売上 ('+hist.length+'件 合計 '+pAmt(sales)+')</div>';
   hist.forEach(h=>{
-const honN=(h.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
-const banN=(h.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+const honN=(h.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
+const banN=(h.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean);
 html+='<div data-hid="'+h.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.hid));window._histDetailBack=null;if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
 html+='<span style="font-size:13px;font-weight:700;color:#d4a017;">'+h.tableLabel+'</span>';
 html+='<span style="font-size:12px;color:#aaa;">'+h.guests+'名</span>';
@@ -1186,12 +1240,13 @@ async function endBizDay(){
   day.assignments={...S.assignments};
   delete day.isReEdit;
   let castsChanged=false;
-  S.casts=normalizeCasts(S.casts).map(c=>{
+  S.casts=normalizeCasts(S.casts).filter(c=>{
     if(c.castType==="trial"&&c.trialBizDay===id&&c.active!==false){
       castsChanged=true;
-      return {...c,active:false,trialEndedAt:day.endedAt};
+      upsertLifecycle(id,"trialCasts",{...castSnapshot(c,{trialBizDay:id,trialRegisteredAt:c.trialRegisteredAt||c.registeredAt||null,trialEndedAt:day.endedAt})},"castId");
+      return false;
     }
-    return c;
+    return true;
   });
   S.bizDays[id]=day;
   S.activeBizDay=null;
@@ -1202,6 +1257,7 @@ const daySnap={
   history:JSON.parse(JSON.stringify(S.history||[])),
   shifts:JSON.parse(JSON.stringify(S.shifts||{})),
   assignments:JSON.parse(JSON.stringify(S.assignments||{})),
+  castLifecycleLogs:JSON.parse(JSON.stringify((S.castLifecycleLogs||{})[day.date]||emptyLifecycle())),
   startedAt:day.startedAt||Date.now(),
   endedAt:day.endedAt
 };
@@ -1217,6 +1273,7 @@ await guardedRootUpdate({
   bizDays:S.bizDays,
   activeBizDay:null,
   ...(castsChanged?{casts:S.casts}:{}),
+  ...(castsChanged?{castLifecycleLogs:S.castLifecycleLogs}:{}),
   history:null,shifts:null,assignments:null,sessions:null
 });
 sbs(true,"同期済み ✓");
@@ -1238,8 +1295,8 @@ function rFloor(){
 try{
 const s=S.sessions[t.id];const rv=rem(s?.setEndTime);
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
-const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||i.label.replace("本指名料 (","").replace(")","")).filter(Boolean);
-const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name).filter(Boolean);
+const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(itemCastName).filter(Boolean);
+const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(itemCastName).filter(Boolean);
 const hv=(s?.items||[]).some(i=>i&&i.isVipCharge);
 const hasDh=(s?.items||[]).some(i=>i&&(i.id==="dh"||i.label==="同伴料"));
 const maxSide=Math.max(hn.length,bn.length);
@@ -1373,8 +1430,8 @@ const rv=s?rem(s.setEndTime):null;
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
 const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
 const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
-const hn=s?(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
-const bn=s?(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
+const hn=s?(s.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean):[];
+const bn=s?(s.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean):[];
 const isActive=!!s;
 // マンツーマン過不足
 let manBadge="";
@@ -1689,8 +1746,8 @@ const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minu
 // 会計履歴からセッション情報を取得
 const histRec=(S.history||[]).find(h=>h.tableId===t.id&&h.startTime===group[0].sessionId);
 const guests=histRec?.guests||"?";
-const honNames=histRec?(histRec.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
-const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean):[];
+const honNames=histRec?(histRec.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean):[];
+const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean):[];
 const note=histRec?.note||"";
 
 // セッションヘッダー
@@ -1774,8 +1831,8 @@ function rTableDetail(){
   if(s){
 const rv=rem(s.setEndTime);const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
 const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";const tr=rv===null?"—":exp?"- "+ts(-rv):"残 "+ts(rv);
-const hn=(s.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
-const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>c.id===i.castId)?.name||"").filter(Boolean);
+const hn=(s.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
+const bn=(s.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean);
 const honCount=hn.length;const freeCount=Math.max(0,s.guests-honCount);
 let guestStr=s.guests+'名'+(honCount>0&&freeCount>0?' (本'+honCount+' F'+freeCount+')':honCount>0?' (本'+honCount+')':' (F'+s.guests+')');
 html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">';
@@ -2074,8 +2131,8 @@ html+='</div>';
   if(todayHist.length===0){html+='<div style="color:#555;font-size:14px;">会計履歴がありません</div>';}
   else todayHist.forEach(h=>{
 const exp=expandedHist[h.id];
-const hHon=(h.items||[]).filter(i=>i.isHonShimei).map(i=>S.casts.find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
-const hBan=(h.items||[]).filter(i=>i.isBanaiShimei).map(i=>S.casts.find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+const hHon=(h.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
+const hBan=(h.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean);
 html+='<div class="hist-card">';
 html+='<div class="hist-header" data-hid="'+h.id+'" onclick="toggleHist(parseInt(this.dataset.hid))">';
 html+='<div style="flex:1;"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;">';
@@ -2301,9 +2358,9 @@ html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(
   });
   html+='</div>';
 if(stab==="cast"){
-const activeCasts=sc(),retiredCasts=allCasts().filter(c=>c.active===false&&c.castType!=="trial");
+const activeCasts=sc();
 html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">キャスト名簿（入店順）</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">内部番号は登録順に自動付与されます。名前は編集できます。退店したキャストは過去データ参照用に保持されます。</div>';
+html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">内部番号は登録順に自動付与されます。退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
 activeCasts.forEach(c=>{
 html+='<div class="ir" style="gap:8px;align-items:center;">'
   +'<span style="width:48px;font-size:12px;color:#d4a017;font-weight:700;">No.'+castNo(c)+'</span>'
@@ -2313,17 +2370,6 @@ html+='<div class="ir" style="gap:8px;align-items:center;">'
   +'<button class="btn" data-cid="'+c.id+'" onclick="dc2(parseInt(this.dataset.cid))" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">退店</button>'
   +'</div>';
 });
-if(retiredCasts.length){
-html+='<div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);"><div class="st" style="color:#888;">退店済みキャスト</div>';
-retiredCasts.forEach(c=>{
-html+='<div class="ir" style="gap:8px;align-items:center;opacity:.72;">'
-  +'<span style="width:48px;font-size:12px;color:#888;font-weight:700;">No.'+castNo(c)+'</span>'
-  +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
-  +'<span style="font-size:11px;color:#888;white-space:nowrap;">退店済み</span>'
-  +'</div>';
-});
-html+='</div>';
-}
 html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="入店キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">入店登録</button></div>';
 html+='<div style="display:flex;gap:8px;margin-top:10px;"><input class="ip" id="nti" placeholder="体入キャスト名（当日のみ）" value="'+ntn+'" oninput="ntn=this.value" style="flex:1;"/><button class="btn" onclick="actrial()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;">体入登録</button></div>';
 html+='</div>';
@@ -2571,6 +2617,7 @@ exportedAtStr:new Date().toLocaleString("ja-JP"),
 backupBizDays:(S.backups||{}).bizDays||{},
 posBizDays:S.bizDays||{},
 casts:S.casts||[],
+castLifecycleLogs:S.castLifecycleLogs||{},
   };
   const json=JSON.stringify(data,null,2);
   const blob=new Blob([json],{type:"application/json;charset=utf-8;"});
@@ -2693,8 +2740,11 @@ function restoreFromBackupDay(bkKey){
   S.bizDays[date].history=bk.history||[];
   S.bizDays[date].shifts=bk.shifts||{};
   S.bizDays[date].assignments=bk.assignments||{};
+  if(bk.castLifecycleLogs)S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};
   if(window._db){
-guardedSet("bizDays/"+date,S.bizDays[date])
+const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date]};
+if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;
+guardedUpdate(updates)
   .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
   .catch(()=>sbs(false,"復旧エラー"));
   }
@@ -2753,6 +2803,7 @@ if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt
 S.bizDays[date].history=bk.history||[];
 S.bizDays[date].shifts=bk.shifts||{};
 S.bizDays[date].assignments=bk.assignments||{};
+if(bk.castLifecycleLogs){S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;}
 updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
   }
   if(window._db){
@@ -2776,6 +2827,7 @@ date,
 history:JSON.parse(JSON.stringify(S.history||[])),
 shifts:JSON.parse(JSON.stringify(S.shifts||{})),
 assignments:JSON.parse(JSON.stringify(S.assignments||{})),
+castLifecycleLogs:JSON.parse(JSON.stringify((S.castLifecycleLogs||{})[date]||emptyLifecycle())),
 startedAt:S.bizDays[date]?.startedAt||Date.now(),
 endedAt:null
   };
@@ -2839,15 +2891,21 @@ function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"regular",internalNo:nextCastInternalNo(),active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz}];
-  save("casts",S.casts);ncn="";render();
+  const cast={id:ts,name,castType:"regular",internalNo:nextCastInternalNo(),active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
+  S.casts=[...normalizeCasts(S.casts),cast];
+  upsertLifecycle(biz,"enteredCasts",castSnapshot(cast,{enteredAt:ts}),"castId");
+  saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  ncn="";render();
 }
 function actrial(){
   const name=String(ntn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  S.casts=[...normalizeCasts(S.casts),{id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz}];
-  save("casts",S.casts);ntn="";render();
+  const cast={id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
+  S.casts=[...normalizeCasts(S.casts),cast];
+  upsertLifecycle(biz,"trialCasts",castSnapshot(cast,{trialBizDay:biz,trialRegisteredAt:ts,trialEndedAt:null}),"castId");
+  saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  ntn="";render();
 }
 function dc2(id){
   const cast=S.casts.find(c=>c.id===id);if(!cast)return;
@@ -2860,10 +2918,12 @@ function dc2(id){
     alert(cast.name+" は退店できません。\n退店前に退勤と付け回し終了を完了してください。\n\n"+details.join("\n"));
     return;
   }
-  if(!confirm(cast.name+" を退店扱いにしますか？\n過去データ参照のため名簿には残ります。"))return;
+  if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は締めデータ/GMS側で管理します。"))return;
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,active:false,exitedAt:ts,exitedBizDay:biz}:c);
-  save("casts",S.casts);render();
+  upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
+  S.casts=normalizeCasts(S.casts).filter(c=>String(c.id)!==String(id));
+  saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  render();
 }
 function savePrinterConfig(){
   const ip=(document.getElementById("printer-ip")?.value||"").trim();
@@ -3439,7 +3499,7 @@ if(castId==="all"){
   html+='</div>';
   html+='<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px;font-size:11px;color:#555;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);">';
   html+='<span>キャスト</span><span style="text-align:right;">本指名</span><span style="text-align:right;">場内指名</span></div>';
-  S.casts.forEach(c=>{
+  activeRegularCasts().forEach(c=>{
     const hon=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(c.id))).length;
     const ban=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===String(c.id))).length;
     if(!hon&&!ban)return;
@@ -3496,7 +3556,7 @@ html+='</div>';
 function exportAllShimeiCSV(filtered){
   const bom="\uFEFF";
   const rows=[["キャスト","本指名件数","場内指名件数"]];
-  S.casts.forEach(c=>{
+  activeRegularCasts().forEach(c=>{
 const hon=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(c.id))).length;
 const ban=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===String(c.id))).length;
 rows.push([c.name,hon,ban]);
@@ -4638,7 +4698,7 @@ const modeLabel=isShimei?"指名情報":"売上情報";
 const modeColor=isShimei?"#ff6b6b":"#d4a017";
 const modeBg=isShimei?"rgba(255,68,68,.08)":"rgba(212,160,23,.08)";
 const modeBdr=isShimei?"rgba(255,68,68,.25)":"rgba(212,160,23,.25)";
-const castBtns=(S.casts||[]).map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\'anaDetail\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
+const castBtns=activeRegularCasts().map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\'anaDetail\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:'+modeColor+';">'+modeLabel+' — キャスト選択</h3>'
   +'<div style="font-size:12px;color:#888;margin-bottom:16px;">分析対象のキャストを選んでください</div>'
@@ -4663,7 +4723,7 @@ let relevantRecs=[];
 if(isShimei){
   if(castId==="all"){
     statsHtml+='<div style="display:grid;grid-template-columns:1fr auto auto;gap:4px;font-size:11px;color:#555;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:2px;"><span>キャスト</span><span style="text-align:right;">本指名</span><span style="text-align:right;">場内指名</span></div>';
-    (S.casts||[]).forEach(c=>{
+    activeRegularCasts().forEach(c=>{
       const hon=filtered.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(c.id))).length;
       const ban=filtered.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===String(c.id))).length;
       if(!hon&&!ban)return;
@@ -4729,8 +4789,8 @@ if(relevantRecs.length){
   histListHtml+='<div style="font-size:11px;color:#666;margin-bottom:8px;">使用履歴 ('+relevantRecs.length+'件)</div>';
   [...relevantRecs].sort((a,b)=>b.startTime-a.startTime).forEach(rec=>{
     const dT=new Date(rec.startTime).toLocaleString("ja-JP",{month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"});
-    const honN=(rec.items||[]).filter(i=>i.isHonShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
-    const banN=(rec.items||[]).filter(i=>i.isBanaiShimei).map(i=>(S.casts||[]).find(c=>String(c.id)===String(i.castId))?.name||"").filter(Boolean);
+    const honN=(rec.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
+    const banN=(rec.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean);
     histListHtml+='<div data-arid="'+rec.id+'" onclick="window._viewHistRec=_findHistRec(Number(this.dataset.arid));window._histDetailBack=\'anaDetail\';if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04);display:flex;flex-wrap:wrap;align-items:center;gap:5px;cursor:pointer;">';
     histListHtml+='<span style="font-size:12px;font-weight:700;color:#d4a017;">'+rec.tableLabel+'</span>';
     if(rec.note)histListHtml+='<span style="font-size:11px;color:#ffa500;background:rgba(255,165,0,.1);padding:1px 6px;border-radius:8px;">'+rec.note+'</span>';
@@ -5030,7 +5090,7 @@ return;
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc,castName:c?.name||""}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function tryExt(){

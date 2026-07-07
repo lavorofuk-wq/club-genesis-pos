@@ -59,11 +59,11 @@ function clCastSales(hist){
     const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
     if(hon.length){
       const share=Math.floor(clInt(h.subtotal||h.total)/hon.length);
-      hon.forEach(i=>{const c=S.casts.find(c=>String(c.id)===String(i.castId));ensure(i.castId,c?.name||String(i.label||"").replace(/^.*\(/,"").replace(/\).*$/,"")).honShimeiSales+=share;});
+      hon.forEach(i=>{const c=S.casts.find(c=>String(c.id)===String(i.castId));ensure(i.castId,c?.name||i.castName||String(i.label||"").replace(/^.*\(/,"").replace(/\).*$/,"")).honShimeiSales+=share;});
     }else{
       clBanaiExtensionSalesPhases(items).forEach(phase=>{
         const share=Math.floor(phase.total/phase.ids.length);
-        phase.ids.forEach(id=>{const c=S.casts.find(c=>String(c.id)===String(id));ensure(id,c?.name||"").jonaiExtensionSales+=share;});
+        phase.ids.forEach(id=>{const c=S.casts.find(c=>String(c.id)===String(id));const itemName=(items||[]).find(i=>String(i.castId)===String(id)||String(i.banaiExtCastId)===String(id)||(i.banaiExtCastIds||[]).map(String).includes(String(id)))?.castName||"";ensure(id,c?.name||itemName||"").jonaiExtensionSales+=share;});
       });
     }
   });
@@ -93,6 +93,7 @@ function clTransactionItem(item){
     price:Number(item.price)||0,
     quantity:Math.max(0,Number(item.qty)||1),
     castId:item.castId==null?"":String(item.castId),
+    castName:String(item.castName||""),
     banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
     banaiExtCastId:item.banaiExtCastId==null?"":String(item.banaiExtCastId),
     isSet:!!item.isSet,
@@ -123,6 +124,12 @@ function clTransactions(hist){
   })).sort((a,b)=>a.startTime-b.startTime);
 }
 function clCastLifecycle(date,type){
+  const log=(S.castLifecycleLogs||{})[date]||{};
+  const list=type==="entered"?log.enteredCasts:log.exitedCasts;
+  if(Array.isArray(list)&&list.length){
+    const atKey=type==="entered"?"enteredAt":"exitedAt";
+    return list.map(c=>({castId:String(c.castId||""),internalNo:Number(c.internalNo)||0,castName:c.castName||"",[atKey]:c[atKey]||null})).sort((a,b)=>(a.internalNo||0)-(b.internalNo||0));
+  }
   const key=type==="entered"?"enteredBizDay":"exitedBizDay";
   const atKey=type==="entered"?"enteredAt":"exitedAt";
   const casts=(typeof allCasts==="function"?allCasts():(S.casts||[]));
@@ -134,6 +141,10 @@ function clCastLifecycle(date,type){
   })).sort((a,b)=>(a.internalNo||0)-(b.internalNo||0));
 }
 function clTrialCasts(date){
+  const list=((S.castLifecycleLogs||{})[date]||{}).trialCasts;
+  if(Array.isArray(list)&&list.length){
+    return list.map(c=>({castId:String(c.castId||""),internalNo:Number(c.internalNo)||0,castName:c.castName||"",trialBizDay:c.trialBizDay||date,trialRegisteredAt:c.trialRegisteredAt||null,trialEndedAt:c.trialEndedAt||null})).sort((a,b)=>(a.internalNo||0)-(b.internalNo||0));
+  }
   const casts=(typeof allCasts==="function"?allCasts():(S.casts||[]));
   return casts.filter(c=>c&&c.castType==="trial"&&c.trialBizDay===date).map(c=>({
     castId:String(c.id||""),
