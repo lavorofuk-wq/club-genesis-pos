@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.75-banai-extension-backs';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.75', './printer-loader.js?v=6.75', './firebase-init.js?v=6.75', './app.js?v=6.75', './closing.js?v=6.75', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.78-cast-detail-work-time';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.78', './printer-loader.js?v=6.78', './firebase-init.js?v=6.78', './app.js?v=6.78', './closing.js?v=6.78', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
