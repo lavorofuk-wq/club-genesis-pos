@@ -57,6 +57,33 @@ function clIsBanaiExtensionBackItem(item){
   const category=clItemCategory(item);
   return category==="champagneWine"||category==="keepBottle";
 }
+function clUniqueStrings(list){
+  return[...new Set((list||[]).filter(x=>x!=null&&x!=="").map(String))];
+}
+function clBackTargetNames(ids,item){
+  const itemNames=Array.isArray(item.backTargetCastNames)?item.backTargetCastNames:[];
+  return ids.map((id,idx)=>{
+    const c=(S.casts||[]).find(c=>String(c.id)===String(id));
+    return c?.name||itemNames[idx]||((String(item.castId)===String(id))?String(item.castName||""):"");
+  });
+}
+function clBackMeta(item,currentBanaiIds,noHon){
+  const category=clItemCategory(item);
+  let ids=clUniqueStrings(item.backTargetCastIds);
+  let type=item.backType||"";
+  let allocation=item.backAllocation||"";
+  if(category==="castDrink"){
+    ids=ids.length?ids:clUniqueStrings([item.castId]);
+    type=type||"castDrink";
+    allocation=allocation||"orderedCast";
+  }else if(noHon&&currentBanaiIds.length&&clIsBanaiExtensionBackItem(item)){
+    ids=clUniqueStrings(currentBanaiIds);
+    type=type||"jonaiExtension";
+    allocation=allocation||(ids.length>1?"splitEvenly":"singleCast");
+  }
+  if(!ids.length)return{};
+  return{backTargetCastIds:ids,backTargetCastNames:clBackTargetNames(ids,item),backType:type,backAllocation:allocation};
+}
 function clCastSales(hist){
   const map={};
   const ensure=(id,name)=>{const k=String(id||name||"unknown");if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,totalAttributedSales:0};return map[k];};
@@ -92,7 +119,7 @@ function clItemCategory(item){
   if(["whisky","shochu","brandy"].some(inMenu)||/キープ|ボトル/.test(item.label||""))return"keepBottle";
   return"";
 }
-function clTransactionItem(item){
+function clTransactionItem(item,extra){
   return{
     itemId:String(item.id||""),
     label:String(item.label||""),
@@ -109,8 +136,20 @@ function clTransactionItem(item){
     isExtension:!!item.isExtension,
     isBanaiExtension:!!item.isBanaiExtension,
     isVipCharge:!!item.isVipCharge,
-    isDiscount:!!item.isDiscount
+    isDiscount:!!item.isDiscount,
+    ...(extra||{})
   };
+}
+function clTransactionItems(items){
+  const src=(items||[]).filter(Boolean);
+  const noHon=!src.some(i=>i.isHonShimei);
+  let currentIds=[];
+  return src.map(item=>{
+    if(item.isBanaiExtension){
+      currentIds=clUniqueStrings([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId]);
+    }
+    return clTransactionItem(item,clBackMeta(item,currentIds,noHon));
+  });
 }
 function clTransactions(hist){
   return(hist||[]).map(h=>({
@@ -127,7 +166,7 @@ function clTransactions(hist){
     discount:clInt(h.discount),
     tax:clInt(h.tax),
     total:clInt(h.total),
-    items:(h.items||[]).filter(Boolean).map(clTransactionItem)
+    items:clTransactionItems(h.items||[])
   })).sort((a,b)=>a.startTime-b.startTime);
 }
 function clCastLifecycle(date,type){
@@ -214,8 +253,8 @@ function exportClosingCSV(){
   lines.push([],["transactions"],["transactionId","tableId","tableLabel","startTime","endTime","guests","payMethod","subtotal","discount","tax","total"]);
   p.transactions.forEach(r=>{
     lines.push([r.transactionId,r.tableId,r.tableLabel,r.startTime,r.endTime,r.guests,r.payMethod,r.subtotal,r.discount,r.tax,r.total]);
-    lines.push(["items"],["itemId","label","category","price","quantity","castId"]);
-    r.items.forEach(i=>lines.push([i.itemId,i.label,i.category,i.price,i.quantity,i.castId]));
+    lines.push(["items"],["itemId","label","category","price","quantity","castId","castName","backTargetCastIds","backType","backAllocation"]);
+    r.items.forEach(i=>lines.push([i.itemId,i.label,i.category,i.price,i.quantity,i.castId,i.castName,(i.backTargetCastIds||[]).join("|"),i.backType||"",i.backAllocation||""]));
   });
   lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","jonaiExtensionBackSales","totalAttributedSales"]);
   p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.jonaiExtensionBackSales||0,r.totalAttributedSales]));
