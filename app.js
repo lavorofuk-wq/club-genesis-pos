@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.78";
+const APP_VERSION="6.79";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -2345,9 +2345,9 @@ histFilter.toTime="18:59";
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};render();}
 function getFilteredHist(){
-  // 現在の営業日 + 全過去営業日のhistoryをマージ
-  let allHist=Array.isArray(S.history)?[...S.history]:[];
-  Object.values(S.bizDays||{}).forEach(day=>{
+  // 分析は営業終了済みの営業日だけを対象にする
+  let allHist=[];
+  Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).forEach(day=>{
 if(Array.isArray(day.history))allHist=allHist.concat(day.history);
   });
   // 重複除去（id基準）
@@ -3599,7 +3599,7 @@ function safeShiftDurationMsInRange(sh,range){
 function _getShiftMsForCast(castId,filtered){
   let ms=0;
   const range=_analysisRangeFromFilter(filtered);
-  const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
+  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
   const seen=new Set();
   allShifts.forEach(sh=>{
     if(String(sh.castId)!==String(castId))return;
@@ -3806,7 +3806,7 @@ function anaDetailRange(){
 }
 function anaShiftRowsForCast(castId,filtered){
   const range=anaDetailRange();
-  const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
+  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
   const seen=new Set();
   return allShifts.filter(sh=>{
     if(String(sh.castId)!==String(castId))return false;
