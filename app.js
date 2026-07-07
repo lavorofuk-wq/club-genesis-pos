@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.76";
+const APP_VERSION="6.77";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3731,6 +3731,141 @@ function banaiExtensionBackSalesForCast(items,castId){
     return total+Math.floor((phase.backTotal||0)/phase.ids.length);
   },0);
 }
+function anaBizDateFromMs(ms){
+  const d=new Date(Number(ms)||Date.now());
+  if(d.getHours()<19)d.setDate(d.getDate()-1);
+  return d.toLocaleDateString("sv-SE");
+}
+function anaTime(ms){
+  return ms?new Date(ms).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";
+}
+function anaLiquorLabel(item){
+  const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+  return String(item.label||"")+(qty>1?" x"+qty:"");
+}
+function anaHasHonCast(rec,cid){
+  return(rec.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(cid));
+}
+function anaHonShare(rec,cid){
+  if(!anaHasHonCast(rec,cid))return 0;
+  const honCount=Math.max(1,(rec.items||[]).filter(i=>i.isHonShimei).length);
+  return Math.floor((Number(rec.subtotal||rec.total)||0)/honCount);
+}
+function anaBanaiExtMatch(item,cid){
+  return item&&item.isBanaiExtension&&((item.banaiExtCastIds||[]).map(String).includes(String(cid))||(item.banaiExtCastId&&String(item.banaiExtCastId)===String(cid)));
+}
+function anaBanaiExtensionDetails(items,cid){
+  let currentIds=[];
+  let sales=0;
+  const liquors=[];
+  (items||[]).forEach(item=>{
+    if(item.isBanaiExtension){
+      currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
+    }
+    if(!currentIds.length||!currentIds.includes(String(cid))||item.isDiscount)return;
+    const shareCount=Math.max(1,currentIds.length);
+    const amount=Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1);
+    if(isBanaiExtensionBackItem(item))liquors.push(anaLiquorLabel(item));
+    else sales+=Math.floor(amount/shareCount);
+  });
+  return{sales,liquors};
+}
+function anaCastDrinkCounts(items,cid){
+  const counts={p2000:0,p3000:0,other:{}};
+  (items||[]).forEach(item=>{
+    const cat=item.category==="castDrink"||(item.id&&String(item.id).startsWith("cd_"));
+    if(!cat||String(item.castId)!==String(cid))return;
+    const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+    const price=Math.max(0,Number(item.price)||0);
+    if(price===2000)counts.p2000+=qty;
+    else if(price===3000)counts.p3000+=qty;
+    else counts.other[price]=(counts.other[price]||0)+qty;
+  });
+  return counts;
+}
+function anaMergeDrinkCounts(target,src){
+  target.p2000+=src.p2000;
+  target.p3000+=src.p3000;
+  Object.entries(src.other).forEach(([price,count])=>{target.other[price]=(target.other[price]||0)+count;});
+}
+function anaDrinkCountText(counts){
+  const parts=["2000円 "+counts.p2000+"杯","3000円 "+counts.p3000+"杯"];
+  Object.keys(counts.other).sort((a,b)=>Number(a)-Number(b)).forEach(price=>parts.push((Number(price)?price+"円":"その他")+" "+counts.other[price]+"杯"));
+  return parts.join(" / ");
+}
+function anaShiftRowsForCast(castId,filtered){
+  const range=_analysisRangeFromFilter(filtered);
+  const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
+  const seen=new Set();
+  return allShifts.filter(sh=>{
+    if(String(sh.castId)!==String(castId))return false;
+    const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
+    if(seen.has(key))return false;
+    seen.add(key);
+    return safeShiftDurationMsInRange(sh,range)>0;
+  }).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
+}
+function anaCastDetailRows(filtered,castId){
+  const cid=String(castId);
+  const days={};
+  const ensure=(date)=>days[date]||(days[date]={date,shiftIn:[],shiftOut:[],workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
+  anaShiftRowsForCast(cid,filtered).forEach(sh=>{
+    const date=anaBizDateFromMs(sh.clockIn);
+    const row=ensure(date);
+    row.shiftIn.push(anaTime(sh.clockIn));
+    row.shiftOut.push(anaTime(sh.clockOut));
+    row.workMs+=safeShiftDurationMsInRange(sh,_analysisRangeFromFilter(filtered));
+  });
+  filtered.forEach(rec=>{
+    const items=rec.items||[];
+    const date=anaBizDateFromMs(rec.startTime);
+    const row=ensure(date);
+    const isHon=anaHasHonCast(rec,cid);
+    if(isHon){
+      row.honCount+=1;
+      row.honSales+=anaHonShare(rec,cid);
+      if(items.some(i=>i.id==="dh"||i.label==="同伴料"))row.dohanCount+=1;
+      items.filter(isBanaiExtensionBackItem).forEach(i=>row.honLiquors.push(anaLiquorLabel(i)));
+    }
+    row.banaiCount+=items.filter(i=>i.isBanaiShimei&&String(i.castId)===cid).length;
+    if(!items.some(i=>i.isHonShimei)&&items.some(i=>anaBanaiExtMatch(i,cid))){
+      const det=anaBanaiExtensionDetails(items,cid);
+      row.banaiExtSales+=det.sales;
+      row.banaiLiquors.push(...det.liquors);
+    }
+    anaMergeDrinkCounts(row.drinkCounts,anaCastDrinkCounts(items,cid));
+  });
+  return Object.values(days).sort((a,b)=>b.date.localeCompare(a.date));
+}
+function anaCastDetailHtml(filtered,castId,castName){
+  const rows=anaCastDetailRows(filtered,castId);
+  if(!rows.length)return'<div style="padding:18px;text-align:center;color:#666;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;">対象データなし</div>';
+  return rows.map(row=>{
+    const total=row.honSales+row.banaiExtSales;
+    const honLiquors=[...new Set(row.honLiquors)].join(" / ")||"なし";
+    const banaiLiquors=[...new Set(row.banaiLiquors)].join(" / ")||"なし";
+    const workH=_fmtWorkH(row.workMs);
+    const inText=row.shiftIn.filter(Boolean).join(" / ")||"-";
+    const outText=row.shiftOut.filter(Boolean).join(" / ")||"-";
+    return '<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:10px;">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;"><div style="font-size:15px;font-weight:800;color:#d4a017;">'+row.date+'</div><div style="font-size:14px;font-weight:800;color:#e8dcc8;">合計 '+pAmt(total)+'</div></div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px;">'
+      +anaMiniMetric("出勤",inText,"#e8dcc8")+anaMiniMetric("退勤",outText,"#e8dcc8")+anaMiniMetric("勤務",workH+"h","#38bdf8")
+      +anaMiniMetric("本指名",row.honCount+"件","#ff4444")+anaMiniMetric("本指名売上",pAmt(row.honSales),"#d4a017")
+      +anaMiniMetric("場内指名",row.banaiCount+"件","#4ade80")+anaMiniMetric("場内延長売上",pAmt(row.banaiExtSales),"#ffa500")
+      +anaMiniMetric("同伴",row.dohanCount+"件","#e8dcc8")
+      +'</div>'
+      +'<div style="font-size:12px;line-height:1.7;color:#bbb;border-top:1px solid rgba(255,255,255,.06);padding-top:8px;">'
+      +'<div><span style="color:#888;">ボトル・シャンパン（本指名）</span> '+honLiquors+'</div>'
+      +'<div><span style="color:#888;">ボトル・シャンパン（場内延長）</span> '+banaiLiquors+'</div>'
+      +'<div><span style="color:#888;">キャストDrink</span> '+anaDrinkCountText(row.drinkCounts)+'</div>'
+      +'</div>'
+      +'</div>';
+  }).join("");
+}
+function anaMiniMetric(label,value,color){
+  return'<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;"><div style="font-size:10px;color:#888;margin-bottom:3px;">'+label+'</div><div style="font-size:13px;font-weight:800;color:'+color+';word-break:break-word;">'+value+'</div></div>';
+}
 function exportUriageCSV(filtered,castId,castName){
   const cid=String(castId);
   const records=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
@@ -4839,7 +4974,7 @@ const modeLabel=isShimei?"指名情報":"売上情報";
 const modeColor=isShimei?"#ff6b6b":"#d4a017";
 const modeBg=isShimei?"rgba(255,68,68,.08)":"rgba(212,160,23,.08)";
 const modeBdr=isShimei?"rgba(255,68,68,.25)":"rgba(212,160,23,.25)";
-const castBtns=activeRegularCasts().map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\'anaDetail\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
+const castBtns=activeRegularCasts().map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\''+(isShimei?"anaDetail":"anaActionSel")+'\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:'+modeColor+';">'+modeLabel+' — キャスト選択</h3>'
   +'<div style="font-size:12px;color:#888;margin-bottom:16px;">分析対象のキャストを選んでください</div>'
@@ -4849,6 +4984,32 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div>'
   +(!isShimei?'<button class="btn" onclick="md=\'anaDateSel\';rModal()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 期間選択に戻る</button>':"")
   +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
+  +'</div></div>';
+  }
+  else if(md==="anaActionSel"){
+const {castName}=analysisSt;
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;padding:20px;">'
+  +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">'+castName+'</h3>'
+  +'<div style="font-size:12px;color:#888;margin-bottom:16px;">表示する内容を選択してください</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">'
+  +'<button class="btn" onclick="md=\'anaDetail\';rModal()" style="padding:16px 10px;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;border-radius:8px;font-size:14px;font-weight:800;touch-action:manipulation;">売上</button>'
+  +'<button class="btn" onclick="md=\'anaCastInfo\';rModal()" style="padding:16px 10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:8px;font-size:14px;font-weight:800;touch-action:manipulation;">詳細情報</button>'
+  +'</div>'
+  +'<button class="btn" onclick="md=\'anaCastSel\';rModal()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← キャスト選択に戻る</button>'
+  +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
+  +'</div></div>';
+  }
+  else if(md==="anaCastInfo"){
+const {castId,castName}=analysisSt;
+const filtered=getFilteredHist();
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:760px;padding:20px;max-height:84vh;overflow-y:auto;">'
+  +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;">'
+  +'<h3 style="font-size:16px;color:#38bdf8;">詳細情報 — '+castName+'</h3>'
+  +'<button class="btn" onclick="md=\'anaActionSel\';rModal()" style="padding:5px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">戻る</button>'
+  +'</div>'
+  +anaCastDetailHtml(filtered,castId,castName)
+  +'<button class="btn" onclick="md=\'anaActionSel\';rModal()" style="width:100%;margin-top:10px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上 / 詳細情報に戻る</button>'
+  +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
   +'</div></div>';
   }
   else if(md==="anaDetail"){
@@ -4954,7 +5115,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div>'
   +statsHtml
   +histListHtml
-  +'<button class="btn" onclick="md=\'anaCastSel\';rModal()" style="width:100%;margin-top:14px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← キャスト選択に戻る</button>'
+  +'<button class="btn" onclick="md=\''+(isShimei?'anaCastSel':'anaActionSel')+'\';rModal()" style="width:100%;margin-top:14px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 戻る</button>'
   +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
   +'</div></div>';
   }
