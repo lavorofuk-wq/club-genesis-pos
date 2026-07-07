@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.80";
+const APP_VERSION="6.81";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3804,23 +3804,29 @@ function anaDetailRange(){
   const to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime():null;
   return{from,to};
 }
-function anaShiftRowsForCast(castId,filtered){
+function anaCastNameKey(name){
+  return String(name||"").replace(/\s+/g,"").trim();
+}
+function anaShiftRowsForCast(castId,castName,filtered){
   const range=anaDetailRange();
+  const nameKey=anaCastNameKey(castName);
   const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
   const seen=new Set();
   return allShifts.filter(sh=>{
-    if(String(sh.castId)!==String(castId))return false;
+    const idMatched=String(sh.castId)===String(castId);
+    const nameMatched=nameKey&&anaCastNameKey(sh.castName)===nameKey;
+    if(!idMatched&&!nameMatched)return false;
     const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
     if(seen.has(key))return false;
     seen.add(key);
     return safeShiftDurationMsInRange(sh,range)>0;
   }).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
 }
-function anaCastDetailRows(filtered,castId){
+function anaCastDetailRows(filtered,castId,castName){
   const cid=String(castId);
   const days={};
   const ensure=(date)=>days[date]||(days[date]={date,firstIn:null,lastOut:null,hasOpenShift:false,workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
-  anaShiftRowsForCast(cid,filtered).forEach(sh=>{
+  anaShiftRowsForCast(cid,castName,filtered).forEach(sh=>{
     const range=anaDetailRange();
     const date=anaBizDateFromMs(sh.clockIn);
     const row=ensure(date);
@@ -3853,7 +3859,7 @@ function anaCastDetailRows(filtered,castId){
   return Object.values(days).sort((a,b)=>b.date.localeCompare(a.date));
 }
 function anaCastDetailHtml(filtered,castId,castName){
-  const rows=anaCastDetailRows(filtered,castId);
+  const rows=anaCastDetailRows(filtered,castId,castName);
   if(!rows.length)return'<div style="padding:18px;text-align:center;color:#666;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;">対象データなし</div>';
   return rows.map(row=>{
     const total=row.honSales+row.banaiExtSales;
