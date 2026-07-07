@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.70";
+const APP_VERSION="6.71";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -2035,7 +2035,7 @@ function rHist(){
   // 客単価（100円単位切り上げ）
   const unitPrice=totalGuests>0?Math.ceil(grandTotal/totalGuests/100)*100:0;
   // キャスト合計稼働時間（30分単位切り上げ）
-  const workMs=Object.values(S.shifts||{}).reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
+  const workMs=Object.values(S.shifts||{}).reduce((a,sh)=>a+safeShiftDurationMs(sh),0);
   const workMin=workMs/60000;
   const workRounded=Math.ceil(workMin/30)*30;
   const workH=workRounded/60;
@@ -3387,7 +3387,14 @@ function printHistReceiptGuest(hid){
 function _getShiftMsForCast(castId){
   let ms=0;
   const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
-  allShifts.forEach(sh=>{if(String(sh.castId)===String(castId)){ms+=(sh.clockOut||Date.now())-sh.clockIn;}});
+  const seen=new Set();
+  allShifts.forEach(sh=>{
+    if(String(sh.castId)!==String(castId))return;
+    const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
+    if(seen.has(key))return;
+    seen.add(key);
+    ms+=safeShiftDurationMs(sh);
+  });
   return Math.max(0,ms);
 }
 function _fmtWorkH(ms){
@@ -5080,8 +5087,22 @@ function getBreakCasts(){return getOnduty().filter(sh=>sh.status==="break");}
 function getActiveCasts(){return getOnduty().filter(sh=>sh.status==="active");}
 function getShiftByCastId(castId){return getOnduty().find(sh=>String(sh.castId)===String(castId));}
 function fmtDur(ms){
+  ms=safeDurationMs(ms);
   const h=Math.floor(ms/3600000);const m=Math.floor((ms%3600000)/60000);
   return h>0?h+"h"+m+"m":m+"m";
+}
+const MAX_SHIFT_MS=24*60*60*1000;
+function safeDurationMs(ms){
+  ms=Number(ms)||0;
+  if(!isFinite(ms)||ms<=0)return 0;
+  return Math.min(ms,MAX_SHIFT_MS);
+}
+function safeShiftDurationMs(sh,nowMs){
+  if(!sh)return 0;
+  const start=Number(sh.clockIn)||0;
+  const end=Number(sh.clockOut)||Number(nowMs||Date.now());
+  if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return 0;
+  return safeDurationMs(end-start);
 }
 
 function clockIn(castId,time){
@@ -5306,7 +5327,7 @@ function rShifts(){
   const onIds=getOndutyIds();
   const allToday=Object.values(S.shifts||{});
   const done=allToday.filter(sh=>sh.clockOut).sort((a,b)=>b.clockIn-a.clockIn);
-  const totalMs=allToday.reduce((a,sh)=>a+((sh.clockOut||Date.now())-sh.clockIn),0);
+  const totalMs=allToday.reduce((a,sh)=>a+safeShiftDurationMs(sh),0);
 
   let html='<div style="max-width:720px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
@@ -5326,7 +5347,7 @@ function rShifts(){
   html+='</div>';
   if(!onduty.length){html+='<div style="font-size:13px;color:#444;padding:8px 0;">出勤中のキャストはいません</div>';}
   else onduty.forEach(sh=>{
-const elapsed=Date.now()-sh.clockIn;
+const elapsed=safeShiftDurationMs(sh);
 const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
 html+='<div class="ir" style="min-height:40px;">';
 html+='<div style="flex:1;">';
@@ -5345,7 +5366,7 @@ html+='</div>';
 html+='<div class="glass" style="border-radius:8px;padding:16px;">';
 html+='<div class="st" style="margin-bottom:12px;">退勤済み</div>';
 done.forEach(sh=>{
-  const worked=sh.clockOut-sh.clockIn;
+  const worked=safeShiftDurationMs(sh);
   const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
   const outT=new Date(sh.clockOut).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
   html+='<div class="ir" style="font-size:13px;min-height:38px;">';
