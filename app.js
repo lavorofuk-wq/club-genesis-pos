@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.71";
+const APP_VERSION="6.72";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3384,8 +3384,31 @@ function printHistReceiptGuest(hid){
 }
 
 // ===== データ分析 =====
-function _getShiftMsForCast(castId){
+function _analysisRangeFromFilter(filtered){
+  let from=histFilter.from?new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime():null;
+  let to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime():null;
+  if((!from||!to)&&(filtered||[]).length){
+    const starts=filtered.map(h=>Number(h.startTime)||0).filter(Boolean);
+    if(!from&&starts.length)from=Math.min(...starts);
+    if(!to&&starts.length)to=Math.max(...starts)+24*60*60*1000;
+  }
+  return{from,to};
+}
+function safeShiftDurationMsInRange(sh,range){
+  if(!sh)return 0;
+  const start=Number(sh.clockIn)||0;
+  let end=Number(sh.clockOut)||Date.now();
+  if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return 0;
+  end=Math.min(end,start+MAX_SHIFT_MS);
+  const from=range&&range.from?range.from:null;
+  const to=range&&range.to?range.to:null;
+  const overlapStart=from?Math.max(start,from):start;
+  const overlapEnd=to?Math.min(end,to):end;
+  return safeDurationMs(overlapEnd-overlapStart);
+}
+function _getShiftMsForCast(castId,filtered){
   let ms=0;
+  const range=_analysisRangeFromFilter(filtered);
   const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
   const seen=new Set();
   allShifts.forEach(sh=>{
@@ -3393,7 +3416,7 @@ function _getShiftMsForCast(castId){
     const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
     if(seen.has(key))return;
     seen.add(key);
-    ms+=safeShiftDurationMs(sh);
+    ms+=safeShiftDurationMsInRange(sh,range);
   });
   return Math.max(0,ms);
 }
@@ -3449,7 +3472,7 @@ const sub=records.reduce((a,h)=>a+(h.subtotal||h.total),0);
 const hon=records.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid)).length;
 const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
 const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
-const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
+const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
 html+='<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px;">';
 html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
 html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;">'+castName+'</span>';
@@ -3528,7 +3551,7 @@ return a+(h.subtotal||h.total)/honCount;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
   const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
-  const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
+  const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
   const bom="\uFEFF";
   const rows=[
 ["キャスト","本指名小計","場内延長小計","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"],
@@ -4680,7 +4703,7 @@ if(isShimei){
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
   const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
-  const workHStr=_fmtWorkH(_getShiftMsForCast(castId));
+  const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
   statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(Math.round(banaiExtSub))+'</div></div>';

@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.71-safe-shift-hours';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.71', './printer-loader.js?v=6.71', './firebase-init.js?v=6.71', './app.js?v=6.71', './closing.js?v=6.71', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.72-analysis-shift-range';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.72', './printer-loader.js?v=6.72', './firebase-init.js?v=6.72', './app.js?v=6.72', './closing.js?v=6.72', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
