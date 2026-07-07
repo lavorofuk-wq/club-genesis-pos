@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.82";
+const APP_VERSION="6.84";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -634,7 +634,7 @@ function startSession(){
   if(freedrink)items.push({id:"fd",label:"フリードリンク",price:2000,qty:guests});
   if(single)items.push({id:"sc",label:"シングルチャージ",price:2000,qty:guests});
   let st=Date.now();
-  if(etv){const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);st=d.getTime();if(st>Date.now()+3600000)st-=86400000;}
+  if(etv)st=hhmm2ts(etv);
   const si=items.find(i=>i.isSet);
   S.sessions[at]=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
   guardedSessionSet(at,S.sessions[at],{expectCreate:true}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -682,7 +682,7 @@ guardedSessionUpdate(at,S.sessions[at],_cu)
 function applyET(){
   const v=document.getElementById("eti")?.value||etv;
   if(!v){closeM();return;}
-  const[h,m]=v.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);let ns=d.getTime();if(ns>Date.now()+3600000)ns-=86400000;
+  const ns=hhmm2ts(v);
   const s=S.sessions[at];const df=ns-s.startTime;
   s.startTime=ns;if(s.setEndTime)s.setEndTime+=df;if(s.vipEndTime)s.vipEndTime+=df;
   etv=v;
@@ -2042,7 +2042,7 @@ function saveAssignTimeEdit(){
 a.startTime=hhmm2ts(sEl.value);
 a.attachedAt=a.startTime; // カウントアップ基準も同期
   }
-  if(eEl&&eEl.value)a.endTime=hhmm2ts(eEl.value);
+  if(eEl&&eEl.value){a.endTime=hhmm2ts(eEl.value);if(a.startTime&&a.endTime<=a.startTime)a.endTime+=86400000;}
   else if(eEl&&eEl.value==="")a.endTime=null;
   save("assignments/"+window._editAid,a);closeM();render();
 }
@@ -5498,21 +5498,13 @@ function adjustHHMM(hhmm,deltaMins){
   total=((total%1440)+1440)%1440; // 24時間循環
   return String(Math.floor(total/60)).padStart(2,"0")+":"+String(total%60).padStart(2,"0");
 }
-function hhmm2ts(hhmm){
-  // HH:MM を現在の営業日内のtimestampに変換
-  // 営業時間: 当日19:00〜翌18:59
+function hhmm2ts(hhmm,bizDate){
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の19:00
-  const d=new Date(bizStart);
-  if(h>=19){
-// 19:00〜23:59 → 営業日開始日（bizStartと同日）
-d.setHours(h,m,0,0);
-  } else {
-// 0:00〜18:59 → 翌日（bizStart+1日）
-d.setDate(d.getDate()+1);
-d.setHours(h,m,0,0);
-  }
+  const baseBizDate=bizDate||S.activeBizDay||getBizDate();
+  const d=new Date(baseBizDate+"T19:00:00");
+  if(h>=19)d.setHours(h,m,0,0);
+  else{d.setDate(d.getDate()+1);d.setHours(h,m,0,0);}
   return d.getTime();
 }
 function getOnduty(){
