@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.73";
+const APP_VERSION="6.74";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -59,7 +59,17 @@ function castSnapshot(c,extra={}){
   return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",...extra};
 }
 async function saveCastsAndLifecycle(){
-  if(window._db)return guardedRootUpdate({casts:S.casts,castLifecycleLogs:S.castLifecycleLogs||{}});
+  if(window._db){
+    const base=window._remoteValueHashes?.casts;
+    return guardedRootTransaction(root=>{
+      if(base!==undefined&&stableJson(root.casts||null)!==base){
+        throw Object.assign(new Error("casts changed"),{userMessage:"他端末でキャスト名簿が変更されています。最新データに更新してから再実行してください。"});
+      }
+      root.casts=cloneData(S.casts);
+      root.castLifecycleLogs=cloneData(S.castLifecycleLogs||{});
+      return root;
+    }).then(res=>{updateRemoteHash("casts",S.casts);return res;});
+  }
   return save("casts",S.casts);
 }
 function applyPosCastPolicy(casts){
@@ -296,6 +306,7 @@ if(!d){
   if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
   render();return;
 }
+rememberRemoteHashes(d);
 // バージョン不一致チェック（初回sync後のみ。自分より新しいバージョンが来たら再読み込みを要求）
 if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
   const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
@@ -357,6 +368,8 @@ async function save(path,val){
   try{
     if(path.startsWith("sessions/")&&val){
       await guardedSessionSet(path.split("/")[1],val);
+    }else if(shouldGuardWholeValue(path)){
+      await guardedSetIfUnchanged(path,val);
     }else{
       await guardedSet(path,val);
     }
@@ -369,6 +382,7 @@ function writeGate(){
   return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:ts};
 }
 function withWriteGate(updates){return{...updates,[FB_ROOT+"/_writeGate"]:writeGate()};}
+function txWriteGate(){return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:Date.now()};}
 function showFirebaseLock(msg){
   window._firebaseLockMessage=msg||"Firebase接続が正しく確認できないため、会計データ保護のため保存系操作を停止しています。";
   sbs(false,"操作停止");
@@ -417,10 +431,97 @@ async function guardedSet(path,val,options={}){
   return guardedUpdate(updates,options);
 }
 async function guardedRemove(path){return guardedSet(path,null);}
+function stableJson(v){try{return JSON.stringify(v===undefined?null:v);}catch(e){return "";}}
+function shouldGuardWholeValue(path){return["menus","tables","casts","bizDays","config"].includes(String(path||"").split("/")[0]);}
+function updateRemoteHash(path,val){
+  if(!window._remoteValueHashes)window._remoteValueHashes={};
+  window._remoteValueHashes[path]=stableJson(val);
+}
+function rememberRemoteHashes(d){
+  if(!d)return;
+  ["menus","tables","casts","bizDays","config"].forEach(k=>updateRemoteHash(k,d[k]===undefined?null:d[k]));
+}
+function cloneData(v){return v==null?null:JSON.parse(JSON.stringify(v));}
+function stripRootPath(path){path=String(path||"");return path.indexOf(FB_ROOT+"/")===0?path.slice(FB_ROOT.length+1):path;}
+function getPathValue(obj,path){
+  const parts=stripRootPath(path).split("/").filter(Boolean);
+  let cur=obj;
+  for(const p of parts){if(cur==null||typeof cur!=="object")return undefined;cur=cur[p];}
+  return cur;
+}
+function setPathValue(obj,path,val){
+  const parts=stripRootPath(path).split("/").filter(Boolean);
+  if(!parts.length)return;
+  let cur=obj;
+  for(let i=0;i<parts.length-1;i++){
+    const p=parts[i];
+    if(!cur[p]||typeof cur[p]!=="object")cur[p]={};
+    cur=cur[p];
+  }
+  const last=parts[parts.length-1];
+  if(val===null||val===undefined)delete cur[last];
+  else cur[last]=val;
+}
+function applyRootUpdates(root,updates){
+  Object.entries(updates||{}).forEach(([path,val])=>setPathValue(root,path,cloneData(val)));
+  return root;
+}
+async function guardedRootTransaction(mutator,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
+  let blocked=null;
+  const ref=window._db.ref(FB_ROOT);
+  const res=await ref.transaction(current=>{
+    const root=(current&&typeof current==="object")?cloneData(current):{};
+    blocked=null;
+    let next;
+    try{next=mutator(root);}
+    catch(e){blocked={message:e.userMessage||e.message||"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
+    if(!next){blocked=blocked||{message:"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
+    next._writeGate=txWriteGate();
+    return next;
+  },null,false);
+  if(!res.committed){
+    const err=new Error((blocked&&blocked.message)||"transaction aborted");
+    err.userMessage=(blocked&&blocked.message)||"他端末で更新されています。最新データに更新してから再実行してください。";
+    throw err;
+  }
+  return res.snapshot.val();
+}
+async function guardedCheckedUpdate(updates,checker,options={}){
+  return guardedRootTransaction(root=>{
+    const ok=checker?checker(root):{ok:true};
+    if(ok===false||ok?.ok===false){throw Object.assign(new Error(ok?.message||"conflict"),{_txConflict:true,userMessage:ok?.message});}
+    return applyRootUpdates(root,updates);
+  },options);
+}
+async function guardedSetIfUnchanged(path,val,options={}){
+  const base=window._remoteValueHashes?.[path];
+  return guardedRootTransaction(root=>{
+    const current=getPathValue(root,path);
+    if(base!==undefined&&stableJson(current)!==base){
+      throw Object.assign(new Error("remote changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。最新データに更新してから再実行してください。"});
+    }
+    setPathValue(root,path,val);
+    return root;
+  },options).then(res=>{updateRemoteHash(path,val);return res;});
+}
+async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
+  const expected=expectedActiveBizDay||null;
+  return guardedRootTransaction(root=>{
+    const current=root.activeBizDay||null;
+    if(current!==expected){
+      throw Object.assign(new Error("business day changed"),{userMessage:message||"営業状態が他端末で変更されています。最新データに更新してから再実行してください。"});
+    }
+    Object.entries(values||{}).forEach(([k,v])=>setPathValue(root,k,v));
+    return root;
+  });
+}
 function sessionGuardStart(s){return Number(s?._sessionGuardStartTime||s?.startTime||0);}
+function sessionGuardRev(s){return Number(s?._sessionGuardRev??s?._rev??0)||0;}
 function markSessionGuard(s){
   if(!s||typeof s!=="object")return s;
   try{Object.defineProperty(s,"_sessionGuardStartTime",{value:Number(s.startTime||0),writable:true,configurable:true,enumerable:false});}catch(e){s._sessionGuardStartTime=Number(s.startTime||0);}
+  try{Object.defineProperty(s,"_sessionGuardRev",{value:Number(s._rev||0),writable:true,configurable:true,enumerable:false});}catch(e){s._sessionGuardRev=Number(s._rev||0);}
   return s;
 }
 function markSessionGuards(sessions){Object.values(sessions||{}).forEach(markSessionGuard);}
@@ -430,8 +531,8 @@ function ensureSessionId(s){
 }
 function sameSession(remote,expected){
   if(!remote||!expected)return false;
-  if(remote.sessionId&&expected.sessionId)return String(remote.sessionId)===String(expected.sessionId);
-  return Number(remote.startTime||0)===sessionGuardStart(expected);
+  const sameId=remote.sessionId&&expected.sessionId?String(remote.sessionId)===String(expected.sessionId):Number(remote.startTime||0)===sessionGuardStart(expected);
+  return sameId&&Number(remote._rev||0)===sessionGuardRev(expected);
 }
 function syncRemoteSession(tableId,remote){
   if(!tableId)return;
@@ -485,19 +586,38 @@ async function ensureSessionCurrent(tableId,expected,options={}){
   return true;
 }
 async function guardedSessionSet(tableId,session,options={}){
-  await ensureSessionCurrent(tableId,session,options);
   ensureSessionId(session);
-  const res=await guardedSet("sessions/"+tableId,session);
+  const res=await guardedSessionUpdate(tableId,session,{[FB_ROOT+"/sessions/"+tableId]:session},options);
   markSessionGuard(session);
   return res;
 }
 async function guardedSessionUpdate(tableId,session,updates,options={}){
-  await ensureSessionCurrent(tableId,session,options);
   ensureSessionId(session);
-  Object.keys(updates||{}).forEach(k=>{
-    if(k===FB_ROOT+"/sessions/"+tableId&&updates[k])updates[k]=ensureSessionId(updates[k]);
+  let conflict=null;
+  const res=await guardedRootTransaction(root=>{
+    const remote=getPathValue(root,"sessions/"+tableId)||null;
+    if(options.expectEmpty){
+      if(remote){conflict={remote,message:"移動先テーブルは他端末で使用中になりました。最新状態を確認してください。"};return null;}
+    }else if(options.expectCreate){
+      if(remote){conflict={remote,message:"このテーブルは他端末で先に入店済みです。最新状態を確認してください。"};return null;}
+    }else{
+      if(!remote){conflict={remote:null,message:"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。"};return null;}
+      if(!sameSession(remote,session)){conflict={remote,message:"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"};return null;}
+    }
+    const nextUpdates={...updates};
+    const sessionPath=FB_ROOT+"/sessions/"+tableId;
+    if(nextUpdates[sessionPath]){
+      nextUpdates[sessionPath]=ensureSessionId({...nextUpdates[sessionPath],_rev:remote?Number(remote._rev||0)+1:1});
+    }
+    return applyRootUpdates(root,nextUpdates);
   });
-  const res=await guardedUpdate(updates);
+  if(conflict){
+    syncRemoteSession(tableId,conflict.remote);
+    showSessionConflict(conflict.message);
+    throw new Error("session conflict");
+  }
+  const saved=getPathValue(res,"sessions/"+tableId);
+  if(saved)syncRemoteSession(tableId,saved);
   markSessionGuard(session);
   return res;
 }
@@ -1186,15 +1306,16 @@ return;
   S.sessions={};
   if(window._db){
 const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
-await guardedRootUpdate({
+	try{await guardedRootUpdateIfActive(null,{
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:Object.keys(_lhObj).length>0?_lhObj:null,
   shifts:S.shifts,
   assignments:S.assignments,
   sessions:null
-});
+},"他端末で営業状態が変更されています。最新データに更新してから再実行してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業状態の保存に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   closeM();vw="floor";render();
 }
@@ -1212,12 +1333,13 @@ closeM();vw="floor";render();return;
   // history/shifts/assignmentsをクリア（新営業日）
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   if(window._db){
-await guardedRootUpdate({
+try{await guardedRootUpdateIfActive(null,{
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:[],shifts:null,assignments:null,sessions:null
-});
+},"他端末で営業が開始されています。最新状態を確認してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業開始に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   closeM();vw="floor";render();
 }
@@ -1269,14 +1391,15 @@ if(wasReEdit){
 }else{
   await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
 }
-await guardedRootUpdate({
+try{await guardedRootUpdateIfActive(id,{
   bizDays:S.bizDays,
   activeBizDay:null,
   ...(castsChanged?{casts:S.casts}:{}),
   ...(castsChanged?{castLifecycleLogs:S.castLifecycleLogs}:{}),
   history:null,shifts:null,assignments:null,sessions:null
-});
+},"他端末で営業状態が変更されています。最新データに更新してから営業終了してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業終了に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   closeM();vw="home";render();
@@ -2744,7 +2867,7 @@ function restoreFromBackupDay(bkKey){
   if(window._db){
 const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date]};
 if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;
-guardedUpdate(updates)
+guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。")
   .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
   .catch(()=>sbs(false,"復旧エラー"));
   }
@@ -2808,7 +2931,7 @@ updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
   }
   if(window._db){
 try{
-  await guardedUpdate(updates);
+  await guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。");
   sbs(true,"全件復旧完了 ✓");
   alert("全"+dates.length+"営業日の復旧が完了しました。");
   closeM();render();
@@ -5187,15 +5310,32 @@ function safeShiftDurationMs(sh,nowMs){
   if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return 0;
   return safeDurationMs(end-start);
 }
+function remoteActiveShift(root,castId){
+  return Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(castId)&&!sh.clockOut);
+}
+function remoteActiveAssign(root,castId,ignoreIds=[]){
+  const ignored=ignoreIds.map(String);
+  return Object.values(root.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!ignored.includes(String(a.id)));
+}
 
-function clockIn(castId,time){
+async function clockIn(castId,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+Date.now();
   // statusLogは待機・休憩の開始/終了を記録する配列
   S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
-  save("shifts/"+sid,S.shifts[sid]);closeM();render();
+  try{
+    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+sid]:S.shifts[sid]},root=>{
+      if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
+      return{ok:true};
+    });
+    sbs(true,"同期済み ✓");closeM();render();
+  }catch(e){
+    delete S.shifts[sid];
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"出勤保存に失敗しました。最新状態を確認してください。");
+  }
 }
 function setCastStatus(castId,newStatus){
   const sh=getShiftByCastId(castId);if(!sh)return;
@@ -5210,12 +5350,25 @@ sh.statusLog.push({status:newStatus,startTime:now2,endTime:null});
   }
   sh.status=newStatus;
 }
-function clockOut(shiftId,time){
+async function clockOut(shiftId,time){
   const sh=S.shifts[shiftId];if(!sh)return;
+  const prev=cloneData(sh);
   sh.clockOut=hhmm2ts(time||nowHHMM());
   // 退勤が出勤より前なら翌日扱い
   if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
-  save("shifts/"+shiftId,sh);closeM();render();
+  try{
+    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+shiftId]:sh},root=>{
+      const remote=(root.shifts||{})[shiftId];
+      if(!remote)return{ok:false,message:"この出勤データは他端末で削除されています。最新状態を確認してください。"};
+      if(remote.clockOut)return{ok:false,message:"このキャストは他端末で既に退勤済みです。最新状態を確認してください。"};
+      return{ok:true};
+    });
+    sbs(true,"同期済み ✓");closeM();render();
+  }catch(e){
+    S.shifts[shiftId]=prev;
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"退勤保存に失敗しました。最新状態を確認してください。");
+  }
 }
 function saveLocalBackup(){/* localStorageバックアップは廃止、Firebase backup/bizDaysを使用 */}
 
@@ -5292,7 +5445,7 @@ startAssign(tsukeMd.castId,tableId,tsukeMd.type,t,prevAssignId);
   }
   tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true,prevAssignId:null};
 }
-function startAssignNow(castId,tableId,type,prevAssignId=null){
+async function startAssignNow(castId,tableId,type,prevAssignId=null){
   // Nowモード：確定した瞬間のtimestampをstartTime・attachedAt両方に使う
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
@@ -5311,12 +5464,21 @@ const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
   closeM();render();
 }
-function startAssign(castId,tableId,type,time,prevAssignId=null){
+async function startAssign(castId,tableId,type,time,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
   // 既にテーブルについている（active）は付けられない
@@ -5340,8 +5502,17 @@ const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
   closeM();render();
 }
@@ -5352,7 +5523,7 @@ function changeAssignType(aid,newType){
 }
 function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
-function endAssign(aid){
+async function endAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   const now2=Date.now();
   a.endTime=now2;
@@ -5361,12 +5532,23 @@ function endAssign(aid){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=a;
 const _sh=getShiftByCastId(a.castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    const remote=(root.assignments||{})[aid];
+    if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
+    if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し終了に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
   closeM();render();
 }
-function moveToBreak(castId){
+async function moveToBreak(castId){
   const now2=Date.now();
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
   if(a)a.endTime=now2;
@@ -5375,8 +5557,20 @@ function moveToBreak(castId){
 const _cu={};
 if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(a){
+      const remote=(root.assignments||{})[a.id];
+      if(!remote||remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了しています。最新状態を確認してください。"};
+    }
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"休憩への変更に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
   closeM();render();
 }
@@ -5388,7 +5582,7 @@ if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;guardedUpdate(_cu).then(
   }
   render();
 }
-function deleteAssign(aid){
+async function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   const _wasActive=!a.endTime;const _cid=a.castId;
   if(_wasActive){setCastStatus(_cid,"waiting");}
@@ -5397,8 +5591,18 @@ function deleteAssign(aid){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=null;
 if(_wasActive){const _sh=getShiftByCastId(_cid);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    const remote=(root.assignments||{})[aid];
+    if(!remote)return{ok:false,message:"この付け回しは他端末で既に削除されています。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し削除に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
   closeM();render();
 }
