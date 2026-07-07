@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.81-shift-name-fallback';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.81', './printer-loader.js?v=6.81', './firebase-init.js?v=6.81', './app.js?v=6.81', './closing.js?v=6.81', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.82-merged-shift-time';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.82', './printer-loader.js?v=6.82', './firebase-init.js?v=6.82', './app.js?v=6.82', './closing.js?v=6.82', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));

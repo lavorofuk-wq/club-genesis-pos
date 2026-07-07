@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.81";
+const APP_VERSION="6.82";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3804,13 +3804,39 @@ function anaDetailRange(){
   const to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime():null;
   return{from,to};
 }
+function anaShiftEndMs(sh){
+  return Number(sh.clockOut)||Number(sh._dayEndedAt)||0;
+}
+function anaShiftIntervalInRange(sh,range){
+  const start=Number(sh.clockIn)||0;
+  let end=anaShiftEndMs(sh);
+  if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return null;
+  end=Math.min(end,start+MAX_SHIFT_MS);
+  const from=range&&range.from?range.from:null;
+  const to=range&&range.to?range.to:null;
+  const overlapStart=from?Math.max(start,from):start;
+  const overlapEnd=to?Math.min(end,to):end;
+  if(!isFinite(overlapStart)||!isFinite(overlapEnd)||overlapEnd<=overlapStart)return null;
+  return{start:overlapStart,end:overlapEnd};
+}
+function anaMergedIntervalMs(intervals){
+  const sorted=(intervals||[]).filter(i=>i&&i.end>i.start).sort((a,b)=>a.start-b.start);
+  let total=0,current=null;
+  sorted.forEach(i=>{
+    if(!current){current={start:i.start,end:i.end};return;}
+    if(i.start<=current.end)current.end=Math.max(current.end,i.end);
+    else{total+=current.end-current.start;current={start:i.start,end:i.end};}
+  });
+  if(current)total+=current.end-current.start;
+  return safeDurationMs(total);
+}
 function anaCastNameKey(name){
   return String(name||"").replace(/\s+/g,"").trim();
 }
 function anaShiftRowsForCast(castId,castName,filtered){
   const range=anaDetailRange();
   const nameKey=anaCastNameKey(castName);
-  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
+  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}).map(sh=>({...sh,_dayEndedAt:d.endedAt,_dayDate:d.date})));
   const seen=new Set();
   return allShifts.filter(sh=>{
     const idMatched=String(sh.castId)===String(castId);
@@ -3819,23 +3845,25 @@ function anaShiftRowsForCast(castId,castName,filtered){
     const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
     if(seen.has(key))return false;
     seen.add(key);
-    return safeShiftDurationMsInRange(sh,range)>0;
+    return !!anaShiftIntervalInRange(sh,range);
   }).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
 }
 function anaCastDetailRows(filtered,castId,castName){
   const cid=String(castId);
   const days={};
-  const ensure=(date)=>days[date]||(days[date]={date,firstIn:null,lastOut:null,hasOpenShift:false,workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
+  const ensure=(date)=>days[date]||(days[date]={date,firstIn:null,lastOut:null,hasOpenShift:false,shiftIntervals:[],workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
   anaShiftRowsForCast(cid,castName,filtered).forEach(sh=>{
     const range=anaDetailRange();
-    const date=anaBizDateFromMs(sh.clockIn);
+    const interval=anaShiftIntervalInRange(sh,range);
+    if(!interval)return;
+    const date=sh._dayDate||anaBizDateFromMs(sh.clockIn);
     const row=ensure(date);
-    const clockIn=Number(sh.clockIn)||0;
-    const clockOut=Number(sh.clockOut)||0;
-    if(clockIn)row.firstIn=row.firstIn?Math.min(row.firstIn,clockIn):clockIn;
+    row.shiftIntervals.push(interval);
+    row.firstIn=row.firstIn?Math.min(row.firstIn,interval.start):interval.start;
+    row.lastOut=row.lastOut?Math.max(row.lastOut,interval.end):interval.end;
+    const clockOut=anaShiftEndMs(sh);
     if(clockOut)row.lastOut=row.lastOut?Math.max(row.lastOut,clockOut):clockOut;
     else row.hasOpenShift=true;
-    row.workMs+=safeShiftDurationMsInRange(sh,range);
   });
   filtered.forEach(rec=>{
     const items=rec.items||[];
@@ -3856,6 +3884,7 @@ function anaCastDetailRows(filtered,castId,castName){
     }
     anaMergeDrinkCounts(row.drinkCounts,anaCastDrinkCounts(items,cid));
   });
+  Object.values(days).forEach(row=>{row.workMs=anaMergedIntervalMs(row.shiftIntervals);});
   return Object.values(days).sort((a,b)=>b.date.localeCompare(a.date));
 }
 function anaCastDetailHtml(filtered,castId,castName){
