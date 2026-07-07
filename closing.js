@@ -46,14 +46,20 @@ function clBanaiExtensionSalesPhases(items){
     if(!currentIds.length||i.isDiscount)return;
     const ids=[...currentIds].sort();
     const key=ids.join("|");
-    if(!phases.has(key))phases.set(key,{ids,total:0});
-    phases.get(key).total+=clInt((i.price||0)*(i.qty||1));
+    if(!phases.has(key))phases.set(key,{ids,total:0,backTotal:0});
+    const amount=clInt((i.price||0)*(i.qty||1));
+    if(clIsBanaiExtensionBackItem(i))phases.get(key).backTotal+=amount;
+    else phases.get(key).total+=amount;
   });
   return[...phases.values()];
 }
+function clIsBanaiExtensionBackItem(item){
+  const category=clItemCategory(item);
+  return category==="champagneWine"||category==="keepBottle";
+}
 function clCastSales(hist){
   const map={};
-  const ensure=(id,name)=>{const k=String(id||name||"unknown");if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,totalAttributedSales:0};return map[k];};
+  const ensure=(id,name)=>{const k=String(id||name||"unknown");if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,totalAttributedSales:0};return map[k];};
   (hist||[]).forEach(h=>{
     const items=h.items||[];
     const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
@@ -63,11 +69,12 @@ function clCastSales(hist){
     }else{
       clBanaiExtensionSalesPhases(items).forEach(phase=>{
         const share=Math.floor(phase.total/phase.ids.length);
-        phase.ids.forEach(id=>{const c=S.casts.find(c=>String(c.id)===String(id));const itemName=(items||[]).find(i=>String(i.castId)===String(id)||String(i.banaiExtCastId)===String(id)||(i.banaiExtCastIds||[]).map(String).includes(String(id)))?.castName||"";ensure(id,c?.name||itemName||"").jonaiExtensionSales+=share;});
+        const backShare=Math.floor((phase.backTotal||0)/phase.ids.length);
+        phase.ids.forEach(id=>{const c=S.casts.find(c=>String(c.id)===String(id));const itemName=(items||[]).find(i=>String(i.castId)===String(id)||String(i.banaiExtCastId)===String(id)||(i.banaiExtCastIds||[]).map(String).includes(String(id)))?.castName||"";const row=ensure(id,c?.name||itemName||"");row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
       });
     }
   });
-  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
+  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
 function clItemCategory(item){
   if(item.category==="champagneWine"||item.category==="keepBottle"||item.category==="castDrink")return item.category;
@@ -210,8 +217,8 @@ function exportClosingCSV(){
     lines.push(["items"],["itemId","label","category","price","quantity","castId"]);
     r.items.forEach(i=>lines.push([i.itemId,i.label,i.category,i.price,i.quantity,i.castId]));
   });
-  lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","totalAttributedSales"]);
-  p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.totalAttributedSales]));
+  lines.push([],["castId","castName","honShimeiSales","jonaiExtensionSales","jonaiExtensionBackSales","totalAttributedSales"]);
+  p.castSales.forEach(r=>lines.push([r.castId,r.castName,r.honShimeiSales,r.jonaiExtensionSales,r.jonaiExtensionBackSales||0,r.totalAttributedSales]));
   lines.push([],["enteredCasts"],["internalNo","castId","castName","enteredAt"]);
   p.enteredCasts.forEach(r=>lines.push([r.internalNo,r.castId,r.castName,r.enteredAt]));
   lines.push([],["exitedCasts"],["internalNo","castId","castName","exitedAt"]);
@@ -231,7 +238,7 @@ function rClosing(){
   html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:14px;">'+[['総売上',sum.sales.totalSales],['現金',sum.sales.cashSales],['カード',sum.sales.cardSales],['割引',sum.sales.discountTotal],['税/SC',sum.sales.taxServiceTotal],['組数',sum.customers.groupCount],['総客数',sum.customers.totalCustomers],['客単価',sum.customers.customerUnitPrice]].map(([l,v])=>'<div class="glass" style="padding:12px;border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">'+l+'</div><div style="font-size:18px;font-weight:700;color:#d4a017;">'+(typeof v==="number"&&l!=="組数"&&l!=="総客数"?'¥'+fmt(v):fmt(v))+'</div></div>').join("")+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">会計済みテーブル</div>'+(sum.hist.length?sum.hist.map(h=>'<div class="ir"><span>'+h.tableLabel+' / '+(h.guests||0)+'名</span><span>'+pAmt(h.total)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">会計済みデータなし</div>')+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">指名集計</div><div style="display:flex;gap:16px;color:#e8dcc8;"><span>本指名 '+sum.nominations.honShimeiCount+'件</span><span>場内指名 '+sum.nominations.jonaiCount+'件</span></div></div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト別売上</div>'+(sum.castSales.length?sum.castSales.map(r=>'<div class="ir"><span>'+r.castName+'</span><span>本 '+pAmt(r.honShimeiSales)+' / 場延 '+pAmt(r.jonaiExtensionSales)+' / 計 '+pAmt(r.totalAttributedSales)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">対象データなし</div>')+'</div>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">キャスト別売上</div>'+(sum.castSales.length?sum.castSales.map(r=>'<div class="ir"><span>'+r.castName+'</span><span>本 '+pAmt(r.honShimeiSales)+' / 場延 '+pAmt(r.jonaiExtensionSales)+' / 場延バック '+pAmt(r.jonaiExtensionBackSales||0)+' / 計 '+pAmt(r.totalAttributedSales)+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">対象データなし</div>')+'</div>';
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:14px;"><div class="st">入退店キャスト</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">'
     +'<div><div style="font-size:11px;color:#4ade80;margin-bottom:6px;">入店</div>'+(p.enteredCasts.length?p.enteredCasts.map(c=>'<div class="ir"><span>No.'+String(c.internalNo).padStart(3,"0")+'</span><span>'+c.castName+'</span></div>').join(""):'<div style="color:#555;font-size:13px;">なし</div>')+'</div>'

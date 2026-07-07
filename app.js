@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.74";
+const APP_VERSION="6.75";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -2121,6 +2121,13 @@ function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.is
 function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return true;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return [...(S.menus.champagne||[]),...(S.menus.keepBottles||[])].some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
+function isBanaiExtensionBackItem(i){
+  if(!i||isSetCatItem(i)||i.isDiscount)return false;
+  const id=String(i.id||"");
+  if(i.category==="champagneWine"||i.category==="keepBottle")return true;
+  const inMenu=(key)=>(S.menus?.[key]||[]).some(d=>id===String(d.id)||id.startsWith(String(d.id)+"_"));
+  return inMenu("champagne")||inMenu("keepBottles");
+}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
 async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
@@ -3703,8 +3710,10 @@ function banaiExtensionSalesPhases(items){
     if(!currentIds.length||i.isDiscount)return;
     const ids=[...currentIds].sort();
     const key=ids.join("|");
-    if(!phases.has(key))phases.set(key,{ids,total:0});
-    phases.get(key).total+=Math.max(0,Number(i.price)||0)*Math.max(1,Number(i.qty)||1);
+    if(!phases.has(key))phases.set(key,{ids,total:0,backTotal:0});
+    const amount=Math.max(0,Number(i.price)||0)*Math.max(1,Number(i.qty)||1);
+    if(isBanaiExtensionBackItem(i))phases.get(key).backTotal+=amount;
+    else phases.get(key).total+=amount;
   });
   return[...phases.values()];
 }
@@ -3713,6 +3722,13 @@ function banaiExtensionSalesForCast(items,castId){
   return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
     if(!phase.ids.includes(cid))return total;
     return total+Math.floor(phase.total/phase.ids.length);
+  },0);
+}
+function banaiExtensionBackSalesForCast(items,castId){
+  const cid=String(castId);
+  return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
+    if(!phase.ids.includes(cid))return total;
+    return total+Math.floor((phase.backTotal||0)/phase.ids.length);
   },0);
 }
 function exportUriageCSV(filtered,castId,castName){
@@ -3730,6 +3746,7 @@ return a+(h.subtotal||h.total)/honCount;
   const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
   const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
@@ -3738,8 +3755,9 @@ return a+(h.subtotal||h.total)/honCount;
   const bom="\uFEFF";
   const rows=[
 ["キャスト","本指名小計","場内延長小計","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"],
-[castName,Math.round(sub),Math.round(banaiExtSub),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
+[castName,Math.round(sub),Math.round(banaiExtSub),Math.round(banaiExtBack),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
   ];
+  rows[0]=["キャスト","本指名小計","場内延長小計","場内延長バック","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"uriage_"+castName+".csv");
 }
 function exportAssignHistCSV(){
@@ -4882,14 +4900,16 @@ if(isShimei){
   },0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
   const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
-  statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
+  statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
   statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(Math.round(banaiExtSub))+'</div></div>';
+  statsHtml+='<div style="padding:8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場延バック</div><div style="font-size:14px;font-weight:700;color:#f59e0b;">'+pAmt(Math.round(banaiExtBack))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
   statsHtml+='</div>';
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
