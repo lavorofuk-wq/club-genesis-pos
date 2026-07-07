@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.79";
+const APP_VERSION="6.80";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3819,13 +3819,16 @@ function anaShiftRowsForCast(castId,filtered){
 function anaCastDetailRows(filtered,castId){
   const cid=String(castId);
   const days={};
-  const ensure=(date)=>days[date]||(days[date]={date,shiftIn:[],shiftOut:[],workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
+  const ensure=(date)=>days[date]||(days[date]={date,firstIn:null,lastOut:null,hasOpenShift:false,workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
   anaShiftRowsForCast(cid,filtered).forEach(sh=>{
     const range=anaDetailRange();
     const date=anaBizDateFromMs(sh.clockIn);
     const row=ensure(date);
-    row.shiftIn.push(anaTime(sh.clockIn));
-    row.shiftOut.push(anaTime(sh.clockOut));
+    const clockIn=Number(sh.clockIn)||0;
+    const clockOut=Number(sh.clockOut)||0;
+    if(clockIn)row.firstIn=row.firstIn?Math.min(row.firstIn,clockIn):clockIn;
+    if(clockOut)row.lastOut=row.lastOut?Math.max(row.lastOut,clockOut):clockOut;
+    else row.hasOpenShift=true;
     row.workMs+=safeShiftDurationMsInRange(sh,range);
   });
   filtered.forEach(rec=>{
@@ -3857,8 +3860,8 @@ function anaCastDetailHtml(filtered,castId,castName){
     const honLiquors=[...new Set(row.honLiquors)].join(" / ")||"なし";
     const banaiLiquors=[...new Set(row.banaiLiquors)].join(" / ")||"なし";
     const workH=anaFmtWorkMs(row.workMs);
-    const inText=row.shiftIn.filter(Boolean).join(" / ")||"-";
-    const outText=row.shiftOut.filter(Boolean).join(" / ")||"-";
+    const inText=anaTime(row.firstIn)||"-";
+    const outText=row.hasOpenShift?"出勤中":(anaTime(row.lastOut)||"-");
     return '<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:10px;">'
       +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;"><div style="font-size:15px;font-weight:800;color:#d4a017;">'+row.date+'</div><div style="font-size:14px;font-weight:800;color:#e8dcc8;">合計 '+pAmt(total)+'</div></div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px;">'

@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.79-closed-days-analysis';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.79', './printer-loader.js?v=6.79', './firebase-init.js?v=6.79', './app.js?v=6.79', './closing.js?v=6.79', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.80-single-shift-time';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.80', './printer-loader.js?v=6.80', './firebase-init.js?v=6.80', './app.js?v=6.80', './closing.js?v=6.80', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
