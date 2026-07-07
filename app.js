@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.77";
+const APP_VERSION="6.78";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3793,8 +3793,19 @@ function anaDrinkCountText(counts){
   Object.keys(counts.other).sort((a,b)=>Number(a)-Number(b)).forEach(price=>parts.push((Number(price)?price+"円":"その他")+" "+counts.other[price]+"杯"));
   return parts.join(" / ");
 }
+function anaFmtWorkMs(ms){
+  const totalMin=Math.max(0,Math.round((Number(ms)||0)/60000));
+  const h=Math.floor(totalMin/60);
+  const m=totalMin%60;
+  return h>0?h+"h"+m+"m":m+"m";
+}
+function anaDetailRange(){
+  const from=histFilter.from?new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime():null;
+  const to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime():null;
+  return{from,to};
+}
 function anaShiftRowsForCast(castId,filtered){
-  const range=_analysisRangeFromFilter(filtered);
+  const range=anaDetailRange();
   const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
   const seen=new Set();
   return allShifts.filter(sh=>{
@@ -3810,11 +3821,12 @@ function anaCastDetailRows(filtered,castId){
   const days={};
   const ensure=(date)=>days[date]||(days[date]={date,shiftIn:[],shiftOut:[],workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
   anaShiftRowsForCast(cid,filtered).forEach(sh=>{
+    const range=anaDetailRange();
     const date=anaBizDateFromMs(sh.clockIn);
     const row=ensure(date);
     row.shiftIn.push(anaTime(sh.clockIn));
     row.shiftOut.push(anaTime(sh.clockOut));
-    row.workMs+=safeShiftDurationMsInRange(sh,_analysisRangeFromFilter(filtered));
+    row.workMs+=safeShiftDurationMsInRange(sh,range);
   });
   filtered.forEach(rec=>{
     const items=rec.items||[];
@@ -3844,13 +3856,13 @@ function anaCastDetailHtml(filtered,castId,castName){
     const total=row.honSales+row.banaiExtSales;
     const honLiquors=[...new Set(row.honLiquors)].join(" / ")||"なし";
     const banaiLiquors=[...new Set(row.banaiLiquors)].join(" / ")||"なし";
-    const workH=_fmtWorkH(row.workMs);
+    const workH=anaFmtWorkMs(row.workMs);
     const inText=row.shiftIn.filter(Boolean).join(" / ")||"-";
     const outText=row.shiftOut.filter(Boolean).join(" / ")||"-";
     return '<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:10px;">'
       +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;"><div style="font-size:15px;font-weight:800;color:#d4a017;">'+row.date+'</div><div style="font-size:14px;font-weight:800;color:#e8dcc8;">合計 '+pAmt(total)+'</div></div>'
       +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px;">'
-      +anaMiniMetric("出勤",inText,"#e8dcc8")+anaMiniMetric("退勤",outText,"#e8dcc8")+anaMiniMetric("勤務",workH+"h","#38bdf8")
+      +anaMiniMetric("出勤",inText,"#e8dcc8")+anaMiniMetric("退勤",outText,"#e8dcc8")+anaMiniMetric("勤務",workH,"#38bdf8")
       +anaMiniMetric("本指名",row.honCount+"件","#ff4444")+anaMiniMetric("本指名売上",pAmt(row.honSales),"#d4a017")
       +anaMiniMetric("場内指名",row.banaiCount+"件","#4ade80")+anaMiniMetric("場内延長売上",pAmt(row.banaiExtSales),"#ffa500")
       +anaMiniMetric("同伴",row.dohanCount+"件","#e8dcc8")
