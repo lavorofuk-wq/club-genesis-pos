@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.84";
+const APP_VERSION="6.85";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -3291,7 +3291,7 @@ ePosDev.createDevice("local_printer",ePosDev.DEVICE_TYPE_PRINTER,{crypto:false,b
   buildEposCommands(prn,data,isEstimate);
   prn.send();
   prn.onreceive=function(res){ePosDev.deleteDevice(prn,()=>ePosDev.disconnect());if(res.success)sbs(true,"印刷完了 ✓");};
-  prn.onerror=function(err){console.error("ePOS error:",err);ePosDev.disconnect();};
+  prn.onerror=function(err){console.error("ePOS error:",err);ePosDev.disconnect();showEposPrintError(ip,port,err);};
 });
   });
 }
@@ -3311,7 +3311,7 @@ if(lastError)throw lastError;
 sbs(true,"印刷しました ✓");
   }catch(e){
 console.warn("ePOS-Print XML送信失敗:",e.message);
-printReceiptFallback(data,isEstimate);
+showEposPrintError(ip,port,e);
   }
 }
 
@@ -3455,6 +3455,11 @@ function printReceiptFallback(data,isEstimate){
   el.innerHTML=buildReceiptHTML(data,isEstimate);
   el.style.display="block";
   setTimeout(()=>{window.print();setTimeout(()=>{el.style.display="none";},500);},150);
+}
+
+function showEposPrintError(ip,port,e){
+  sbs(false,"Epson接続エラー");
+  alert("Epsonプリンターに接続できないため、レシート印刷を中止しました。\n\n通常印刷には切り替えません。\n\n設定IP: "+ip+"\n設定ポート: "+port+"\nエラー: "+(e?.message||e||"接続失敗")+"\n\n確認してください:\n・POS端末とプリンターが同じWi-Fiか\n・プリンターIPが現在のネットワークと一致しているか\n・プリンターの電源とLAN/Wi-Fi接続\n・管理 > プリンター設定のIP/ポート");
 }
 
 function printReceipt(data, isEstimate){
