@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.85";
+const APP_VERSION="6.86";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -100,7 +100,6 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
-let closingState={date:null,forms:{},submitting:false,submitted:{}};
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -218,7 +217,6 @@ function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return allCasts().filter(isVisibleCast);}
 function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
-function showClosingClosedOnlyAlert(){alert("締め作業は営業終了後のみ開けます。\n先に営業終了を実行してください。");}
 function iso(i){if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(i.label==="同伴料")return 3;if(i.id==="freedrink"||i.label==="フリードリンク")return 4;if(i.label==="シングルチャージ")return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(i.id&&i.id.startsWith("cd_"))return 9;return 8;}
 function itemCastName(i){
   if(!i)return"";
@@ -943,12 +941,11 @@ function updateNav(){
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
   if(opsBtn)opsBtn.style.display=inBiz?"":"none";
-  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ncl","closing"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
 const el=document.getElementById(id);if(!el)return;
 // フロア・リスト・出勤・売上は営業中のみ表示
 const bizOnly=["floor","list","shifts","history"].includes(v);
 if(bizOnly){el.style.display=inBiz?"":"none";}
-else if(v==="closing"){el.style.display=inBiz?"none":"";}
 // 管理は管理モード時のみ
 else if(v==="admin"){el.style.display=isAdmin?"":"none";}
 // 設定は常時表示
@@ -970,9 +967,8 @@ el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
-  if(vw==="closing"&&S.activeBizDay){vw="home";}
   try{
-if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis","closing"].includes(vw)))m.innerHTML=rHome();
+if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -980,7 +976,6 @@ else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
 else if(vw==="checkin")m.innerHTML=rCI();
 else if(vw==="history")m.innerHTML=rHist();
 else if(vw==="analysis")m.innerHTML=rAnalysis();
-else if(vw==="closing")m.innerHTML=rClosing();
 else if(vw==="shifts")m.innerHTML=rShifts();
 else if(vw==="settings")m.innerHTML=rSettings();
 else if(vw==="admin")m.innerHTML=rAdmin();
@@ -995,11 +990,10 @@ m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エ�
 }
 function sv(v,extra){
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
-  if(v==="closing"&&S.activeBizDay){showClosingClosedOnlyAlert();return;}
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","analysis","closing","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -1157,7 +1151,6 @@ html+='<div style="text-align:center;padding:12px;background:rgba(212,160,23,.06
 html+='</div>';
 // フロアへ
 html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
-html+='<button class="btn" onclick="showClosingClosedOnlyAlert()" style="width:100%;padding:13px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;margin-bottom:12px;touch-action:manipulation;">締め作業（営業終了後）</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">過去の営業履歴</button>';
 html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
   } else {
@@ -1166,7 +1159,6 @@ html+='<div style="text-align:center;margin-bottom:32px;">';
 html+='<div style="font-size:13px;color:#555;margin-bottom:4px;">現在営業中の日はありません</div>';
 html+='</div>';
 html+='<button class="btn gbg" onclick="om(\'startBizDay\')" style="width:100%;padding:18px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:16px;touch-action:manipulation;">営業を開始する</button>';
-html+='<button class="btn" onclick="sv(\'closing\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;margin-bottom:12px;touch-action:manipulation;">締め作業</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">過去の営業履歴</button>';
   }
   html+='</div>';
@@ -3048,7 +3040,7 @@ function dc2(id){
     alert(cast.name+" は退店できません。\n退店前に退勤と付け回し終了を完了してください。\n\n"+details.join("\n"));
     return;
   }
-  if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は締めデータ/GMS側で管理します。"))return;
+  if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は営業履歴/GMS側で管理します。"))return;
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
   upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
   S.casts=normalizeCasts(S.casts).filter(c=>String(c.id)!==String(id));
@@ -4185,20 +4177,6 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div style="display:flex;gap:8px;">'
   +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
   +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
-  +'</div></div></div>';
-  }
-  else if(md==="closingConfirm"){
-const p=window._closingPayload;
-h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
-  +'<h3 style="font-size:17px;color:#4ade80;margin-bottom:12px;">締め確定</h3>'
-  +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
-  +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
-  +'同じ営業日の再送信は、GMS側の同じ日付データを上書き更新します。<br>'
-  +'総売上 '+pAmt(p?.sales?.totalSales||0)
-  +'</div>'
-  +'<div style="display:flex;gap:8px;">'
-  +'<button class="btn" onclick="closeM()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;">戻る</button>'
-  +'<button class="btn gbg" onclick="clSubmit()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;border-radius:6px;font-size:14px;font-weight:700;'+(closingState.submitting?"opacity:.5;":"")+'">'+(closingState.submitting?"保存中...":"確定する")+'</button>'
   +'</div></div></div>';
   }
   else if(md==="opsMenu"){
