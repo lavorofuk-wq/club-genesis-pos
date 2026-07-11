@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.73";
+const APP_VERSION="6.91";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -59,7 +59,17 @@ function castSnapshot(c,extra={}){
   return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",...extra};
 }
 async function saveCastsAndLifecycle(){
-  if(window._db)return guardedRootUpdate({casts:S.casts,castLifecycleLogs:S.castLifecycleLogs||{}});
+  if(window._db){
+    const base=window._remoteValueHashes?.casts;
+    return guardedRootTransaction(root=>{
+      if(base!==undefined&&stableJson(root.casts||null)!==base){
+        throw Object.assign(new Error("casts changed"),{userMessage:"他端末でキャスト名簿が変更されています。最新データに更新してから再実行してください。"});
+      }
+      root.casts=cloneData(S.casts);
+      root.castLifecycleLogs=cloneData(S.castLifecycleLogs||{});
+      return root;
+    }).then(res=>{updateRemoteHash("casts",S.casts);return res;});
+  }
   return save("casts",S.casts);
 }
 function applyPosCastPolicy(casts){
@@ -90,7 +100,6 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
-let closingState={date:null,forms:{},submitting:false,submitted:{}};
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -208,7 +217,6 @@ function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return allCasts().filter(isVisibleCast);}
 function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
-function showClosingClosedOnlyAlert(){alert("締め作業は営業終了後のみ開けます。\n先に営業終了を実行してください。");}
 function iso(i){if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(i.label==="同伴料")return 3;if(i.id==="freedrink"||i.label==="フリードリンク")return 4;if(i.label==="シングルチャージ")return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(i.id&&i.id.startsWith("cd_"))return 9;return 8;}
 function itemCastName(i){
   if(!i)return"";
@@ -296,6 +304,7 @@ if(!d){
   if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
   render();return;
 }
+rememberRemoteHashes(d);
 // バージョン不一致チェック（初回sync後のみ。自分より新しいバージョンが来たら再読み込みを要求）
 if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
   const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
@@ -349,7 +358,7 @@ if(S.activeBizDay===null&&["floor","checkin","list","tableDetail","assignHistory
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
+window._fbRenderTimer=setTimeout(()=>{scheduleRender();refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
@@ -357,6 +366,8 @@ async function save(path,val){
   try{
     if(path.startsWith("sessions/")&&val){
       await guardedSessionSet(path.split("/")[1],val);
+    }else if(shouldGuardWholeValue(path)){
+      await guardedSetIfUnchanged(path,val);
     }else{
       await guardedSet(path,val);
     }
@@ -369,6 +380,7 @@ function writeGate(){
   return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:ts};
 }
 function withWriteGate(updates){return{...updates,[FB_ROOT+"/_writeGate"]:writeGate()};}
+function txWriteGate(){return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:Date.now()};}
 function showFirebaseLock(msg){
   window._firebaseLockMessage=msg||"Firebase接続が正しく確認できないため、会計データ保護のため保存系操作を停止しています。";
   sbs(false,"操作停止");
@@ -417,10 +429,97 @@ async function guardedSet(path,val,options={}){
   return guardedUpdate(updates,options);
 }
 async function guardedRemove(path){return guardedSet(path,null);}
+function stableJson(v){try{return JSON.stringify(v===undefined?null:v);}catch(e){return "";}}
+function shouldGuardWholeValue(path){return["menus","tables","casts","bizDays","config"].includes(String(path||"").split("/")[0]);}
+function updateRemoteHash(path,val){
+  if(!window._remoteValueHashes)window._remoteValueHashes={};
+  window._remoteValueHashes[path]=stableJson(val);
+}
+function rememberRemoteHashes(d){
+  if(!d)return;
+  ["menus","tables","casts","bizDays","config"].forEach(k=>updateRemoteHash(k,d[k]===undefined?null:d[k]));
+}
+function cloneData(v){return v==null?null:JSON.parse(JSON.stringify(v));}
+function stripRootPath(path){path=String(path||"");return path.indexOf(FB_ROOT+"/")===0?path.slice(FB_ROOT.length+1):path;}
+function getPathValue(obj,path){
+  const parts=stripRootPath(path).split("/").filter(Boolean);
+  let cur=obj;
+  for(const p of parts){if(cur==null||typeof cur!=="object")return undefined;cur=cur[p];}
+  return cur;
+}
+function setPathValue(obj,path,val){
+  const parts=stripRootPath(path).split("/").filter(Boolean);
+  if(!parts.length)return;
+  let cur=obj;
+  for(let i=0;i<parts.length-1;i++){
+    const p=parts[i];
+    if(!cur[p]||typeof cur[p]!=="object")cur[p]={};
+    cur=cur[p];
+  }
+  const last=parts[parts.length-1];
+  if(val===null||val===undefined)delete cur[last];
+  else cur[last]=val;
+}
+function applyRootUpdates(root,updates){
+  Object.entries(updates||{}).forEach(([path,val])=>setPathValue(root,path,cloneData(val)));
+  return root;
+}
+async function guardedRootTransaction(mutator,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
+  let blocked=null;
+  const ref=window._db.ref(FB_ROOT);
+  const res=await ref.transaction(current=>{
+    const root=(current&&typeof current==="object")?cloneData(current):{};
+    blocked=null;
+    let next;
+    try{next=mutator(root);}
+    catch(e){blocked={message:e.userMessage||e.message||"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
+    if(!next){blocked=blocked||{message:"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
+    next._writeGate=txWriteGate();
+    return next;
+  },null,false);
+  if(!res.committed){
+    const err=new Error((blocked&&blocked.message)||"transaction aborted");
+    err.userMessage=(blocked&&blocked.message)||"他端末で更新されています。最新データに更新してから再実行してください。";
+    throw err;
+  }
+  return res.snapshot.val();
+}
+async function guardedCheckedUpdate(updates,checker,options={}){
+  return guardedRootTransaction(root=>{
+    const ok=checker?checker(root):{ok:true};
+    if(ok===false||ok?.ok===false){throw Object.assign(new Error(ok?.message||"conflict"),{_txConflict:true,userMessage:ok?.message});}
+    return applyRootUpdates(root,updates);
+  },options);
+}
+async function guardedSetIfUnchanged(path,val,options={}){
+  const base=window._remoteValueHashes?.[path];
+  return guardedRootTransaction(root=>{
+    const current=getPathValue(root,path);
+    if(base!==undefined&&stableJson(current)!==base){
+      throw Object.assign(new Error("remote changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。最新データに更新してから再実行してください。"});
+    }
+    setPathValue(root,path,val);
+    return root;
+  },options).then(res=>{updateRemoteHash(path,val);return res;});
+}
+async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
+  const expected=expectedActiveBizDay||null;
+  return guardedRootTransaction(root=>{
+    const current=root.activeBizDay||null;
+    if(current!==expected){
+      throw Object.assign(new Error("business day changed"),{userMessage:message||"営業状態が他端末で変更されています。最新データに更新してから再実行してください。"});
+    }
+    Object.entries(values||{}).forEach(([k,v])=>setPathValue(root,k,v));
+    return root;
+  });
+}
 function sessionGuardStart(s){return Number(s?._sessionGuardStartTime||s?.startTime||0);}
+function sessionGuardRev(s){return Number(s?._sessionGuardRev??s?._rev??0)||0;}
 function markSessionGuard(s){
   if(!s||typeof s!=="object")return s;
   try{Object.defineProperty(s,"_sessionGuardStartTime",{value:Number(s.startTime||0),writable:true,configurable:true,enumerable:false});}catch(e){s._sessionGuardStartTime=Number(s.startTime||0);}
+  try{Object.defineProperty(s,"_sessionGuardRev",{value:Number(s._rev||0),writable:true,configurable:true,enumerable:false});}catch(e){s._sessionGuardRev=Number(s._rev||0);}
   return s;
 }
 function markSessionGuards(sessions){Object.values(sessions||{}).forEach(markSessionGuard);}
@@ -430,8 +529,8 @@ function ensureSessionId(s){
 }
 function sameSession(remote,expected){
   if(!remote||!expected)return false;
-  if(remote.sessionId&&expected.sessionId)return String(remote.sessionId)===String(expected.sessionId);
-  return Number(remote.startTime||0)===sessionGuardStart(expected);
+  const sameId=remote.sessionId&&expected.sessionId?String(remote.sessionId)===String(expected.sessionId):Number(remote.startTime||0)===sessionGuardStart(expected);
+  return sameId&&Number(remote._rev||0)===sessionGuardRev(expected);
 }
 function syncRemoteSession(tableId,remote){
   if(!tableId)return;
@@ -485,19 +584,38 @@ async function ensureSessionCurrent(tableId,expected,options={}){
   return true;
 }
 async function guardedSessionSet(tableId,session,options={}){
-  await ensureSessionCurrent(tableId,session,options);
   ensureSessionId(session);
-  const res=await guardedSet("sessions/"+tableId,session);
+  const res=await guardedSessionUpdate(tableId,session,{[FB_ROOT+"/sessions/"+tableId]:session},options);
   markSessionGuard(session);
   return res;
 }
 async function guardedSessionUpdate(tableId,session,updates,options={}){
-  await ensureSessionCurrent(tableId,session,options);
   ensureSessionId(session);
-  Object.keys(updates||{}).forEach(k=>{
-    if(k===FB_ROOT+"/sessions/"+tableId&&updates[k])updates[k]=ensureSessionId(updates[k]);
+  let conflict=null;
+  const res=await guardedRootTransaction(root=>{
+    const remote=getPathValue(root,"sessions/"+tableId)||null;
+    if(options.expectEmpty){
+      if(remote){conflict={remote,message:"移動先テーブルは他端末で使用中になりました。最新状態を確認してください。"};return null;}
+    }else if(options.expectCreate){
+      if(remote){conflict={remote,message:"このテーブルは他端末で先に入店済みです。最新状態を確認してください。"};return null;}
+    }else{
+      if(!remote){conflict={remote:null,message:"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。"};return null;}
+      if(!sameSession(remote,session)){conflict={remote,message:"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"};return null;}
+    }
+    const nextUpdates={...updates};
+    const sessionPath=FB_ROOT+"/sessions/"+tableId;
+    if(nextUpdates[sessionPath]){
+      nextUpdates[sessionPath]=ensureSessionId({...nextUpdates[sessionPath],_rev:remote?Number(remote._rev||0)+1:1});
+    }
+    return applyRootUpdates(root,nextUpdates);
   });
-  const res=await guardedUpdate(updates);
+  if(conflict){
+    syncRemoteSession(tableId,conflict.remote);
+    showSessionConflict(conflict.message);
+    throw new Error("session conflict");
+  }
+  const saved=getPathValue(res,"sessions/"+tableId);
+  if(saved)syncRemoteSession(tableId,saved);
   markSessionGuard(session);
   return res;
 }
@@ -514,7 +632,7 @@ function startSession(){
   if(freedrink)items.push({id:"fd",label:"フリードリンク",price:2000,qty:guests});
   if(single)items.push({id:"sc",label:"シングルチャージ",price:2000,qty:guests});
   let st=Date.now();
-  if(etv){const[h,m]=etv.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);st=d.getTime();if(st>Date.now()+3600000)st-=86400000;}
+  if(etv)st=hhmm2ts(etv);
   const si=items.find(i=>i.isSet);
   S.sessions[at]=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
   guardedSessionSet(at,S.sessions[at],{expectCreate:true}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -530,14 +648,14 @@ function addExt(ext,wsc){
   if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid,...becExtra});
   s.items=[...s.items,...ni];s.setEndTime=(s.setEndTime||Date.now())+ext.minutes*60000;
   banaiExtCastIds=[];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addVip(vip){
   const s=S.sessions[at];
   s.items=[...s.items,{id:vip.id+"_"+Date.now(),label:vip.label,price:vip.price,qty:1,isVipCharge:true}];
   if(vip.id==="v60")s.vipEndTime=Date.now()+vip.minutes*60000;
   else if(vip.id==="v30")s.vipEndTime=(s.vipEndTime||Date.now())+vip.minutes*60000;
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
@@ -562,13 +680,12 @@ guardedSessionUpdate(at,S.sessions[at],_cu)
 function applyET(){
   const v=document.getElementById("eti")?.value||etv;
   if(!v){closeM();return;}
-  const[h,m]=v.split(":").map(Number);const d=new Date();d.setHours(h,m,0,0);let ns=d.getTime();if(ns>Date.now()+3600000)ns-=86400000;
+  const ns=hhmm2ts(v);
   const s=S.sessions[at];const df=ns-s.startTime;
   s.startTime=ns;if(s.setEndTime)s.setEndTime+=df;if(s.vipEndTime)s.vipEndTime+=df;
   etv=v;
   save("sessions/"+at,S.sessions[at]);closeM();
   if(vw==="floor")render();else renderOrderPartial();
-  refreshFloorModal();
 }
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
@@ -602,7 +719,6 @@ s.items=(s?.items||[]).filter(i=>i.id!==id);
   }
   if(!_savedInline)save("sessions/"+at,S.sessions[at]);
   if(t.isSet)render();else renderOrderPartial();
-  refreshFloorModal();
 }
 // qty モーダル: DOM再構築なしで表示を更新（iPad キーボード維持用）
 function updateQtyDisplay(v){
@@ -629,14 +745,14 @@ function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
   s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.label,price:qm.price,qty,category:qm.category||""}];
-  save("sessions/"+at,S.sessions[at]);qm=null;qv=1;closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);qm=null;qv=1;closeM();renderOrderPartial();
 }
 function addCD(cid,did){
   const c=S.casts.find(c=>c.id===cid);const d=S.menus.castDrinks.find(d=>d.id===did);
   if(!c||!d)return;
   const s=S.sessions[at];
-  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,castId:cid,castName:c.name}];
-  save("sessions/"+at,S.sessions[at]);closeM();cds=0;cdc=null;renderOrderPartial();refreshFloorModal();
+  s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,category:"castDrink",castId:cid,castName:c.name,backTargetCastIds:[String(cid)],backTargetCastNames:[c.name],backType:"castDrink",backAllocation:"orderedCast"}];
+  save("sessions/"+at,S.sessions[at]);closeM();cds=0;cdc=null;renderOrderPartial();
 }
 function addCustom(){
   const lEl=document.getElementById("cu-label");
@@ -646,7 +762,7 @@ function addCustom(){
   const l=lEl?.value||"その他";
   const s=S.sessions[at];
   s.items=[...s.items,{id:"cu_"+Date.now(),label:l,price:p,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addGuestCustom(){
   const lEl=document.getElementById("gcu-label");
@@ -656,13 +772,13 @@ function addGuestCustom(){
   const l=lEl?.value||"その他";
   const s=S.sessions[at];
   s.items=[...s.items,{id:"gcu_"+Date.now(),label:l,price:p,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addCastCustomItem(itemId){
   const item=(S.menus.castCustomItems||[]).find(x=>x.id===itemId);if(!item)return;
   const s=S.sessions[at];
   s.items=[...s.items,{id:"cci_"+itemId+"_"+Date.now(),label:item.label,price:item.price,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addDiscount(id){
   const d=(S.menus.discounts||[]).find(x=>x.id===id);if(!d)return;
@@ -688,7 +804,7 @@ function addCustomDiscount(){
   s.items=[...s.items,{id:"disc_"+Date.now(),label:lbl,price:-amt,qty:1,isDiscount:true,discountTarget:tgt}];
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[]).filter(i=>i.id!==id);save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();rModal();}
+function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[]).filter(i=>i.id!==id);save("sessions/"+at,S.sessions[at]);renderOrderPartial();rModal();}
 // 後からセット/指名を追加
 function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
@@ -712,7 +828,7 @@ function addHonShimeiToSession(cid){
   if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isHonShimei:true}];
   s.honShimeis=[...(s.honShimeis||[]),cid];
-  save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);renderOrderPartial();
 }
 async function checkout(){
   if(!at||!S.sessions[at])return;
@@ -813,6 +929,7 @@ _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
 
 // ===== RENDER ENGINE =====
 // order画面の差分更新（スクロール位置を保持する）
+let _floorModalRefreshPending=false;
 function renderOrderPartial(){refreshFloorModal();}
 
 
@@ -823,12 +940,11 @@ function updateNav(){
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
   if(opsBtn)opsBtn.style.display=inBiz?"":"none";
-  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ncl","closing"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
 const el=document.getElementById(id);if(!el)return;
 // フロア・リスト・出勤・売上は営業中のみ表示
 const bizOnly=["floor","list","shifts","history"].includes(v);
 if(bizOnly){el.style.display=inBiz?"":"none";}
-else if(v==="closing"){el.style.display=inBiz?"none":"";}
 // 管理は管理モード時のみ
 else if(v==="admin"){el.style.display=isAdmin?"":"none";}
 // 設定は常時表示
@@ -850,9 +966,8 @@ el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&
 function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
-  if(vw==="closing"&&S.activeBizDay){vw="home";}
   try{
-if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis","closing"].includes(vw)))m.innerHTML=rHome();
+if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -860,7 +975,6 @@ else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
 else if(vw==="checkin")m.innerHTML=rCI();
 else if(vw==="history")m.innerHTML=rHist();
 else if(vw==="analysis")m.innerHTML=rAnalysis();
-else if(vw==="closing")m.innerHTML=rClosing();
 else if(vw==="shifts")m.innerHTML=rShifts();
 else if(vw==="settings")m.innerHTML=rSettings();
 else if(vw==="admin")m.innerHTML=rAdmin();
@@ -873,13 +987,19 @@ m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エ�
   syncLegacyFloorCardSizes();
   if(!md)document.getElementById("md").innerHTML="";
 }
+let _renderPending=false;
+function scheduleRender(){
+  if(_renderPending)return;
+  _renderPending=true;
+  const schedule=window.requestAnimationFrame||function(fn){return setTimeout(fn,16);};
+  schedule(()=>{_renderPending=false;render();});
+}
 function sv(v,extra){
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
-  if(v==="closing"&&S.activeBizDay){showClosingClosedOnlyAlert();return;}
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","analysis","closing","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
@@ -904,8 +1024,14 @@ function closeFloorDetail(){
 function refreshFloorModal(){
   const fom=document.getElementById("floor-order-modal");
   if(!fom||fom.style.display==="none")return;
+  if(_floorModalRefreshPending)return;
+  _floorModalRefreshPending=true;
+  const schedule=window.requestAnimationFrame||function(fn){return setTimeout(fn,16);};
+  schedule(()=>{
+  _floorModalRefreshPending=false;
   const inner=document.getElementById("fom-inner");
   if(inner)inner.innerHTML=buildFloorOrderContent();
+  });
 }
 function buildFloorOrderContent(){
   const s=S.sessions[at];if(!s)return'';
@@ -1037,7 +1163,6 @@ html+='<div style="text-align:center;padding:12px;background:rgba(212,160,23,.06
 html+='</div>';
 // フロアへ
 html+='<button class="btn gbg" onclick="sv(\'floor\')" style="width:100%;padding:16px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:12px;touch-action:manipulation;">フロアへ</button>';
-html+='<button class="btn" onclick="showClosingClosedOnlyAlert()" style="width:100%;padding:13px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;margin-bottom:12px;touch-action:manipulation;">締め作業（営業終了後）</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:12px;font-size:14px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;margin-bottom:12px;touch-action:manipulation;">過去の営業履歴</button>';
 html+='<button class="btn" onclick="om(\'endBizDay\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">営業終了</button>';
   } else {
@@ -1046,7 +1171,6 @@ html+='<div style="text-align:center;margin-bottom:32px;">';
 html+='<div style="font-size:13px;color:#555;margin-bottom:4px;">現在営業中の日はありません</div>';
 html+='</div>';
 html+='<button class="btn gbg" onclick="om(\'startBizDay\')" style="width:100%;padding:18px;font-size:18px;font-weight:700;border-radius:10px;margin-bottom:16px;touch-action:manipulation;">営業を開始する</button>';
-html+='<button class="btn" onclick="sv(\'closing\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;margin-bottom:12px;touch-action:manipulation;">締め作業</button>';
 html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:14px;font-size:15px;font-weight:700;border-radius:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">過去の営業履歴</button>';
   }
   html+='</div>';
@@ -1118,7 +1242,10 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
 });
   }
   // CSV出力ボタン
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">GMS取込JSON</button>';
+  html+='</div>';
   html+='</div>';
   return html;
 }
@@ -1170,6 +1297,173 @@ h.payMethod==="card"?"カード":"現金"
   const a=document.createElement("a");a.href=url;a.download="genesis_"+day.date+".csv";a.click();URL.revokeObjectURL(url);
 }
 
+function gmsInt(v){return Math.max(0,Math.floor(Number(v)||0));}
+function gmsHHMM(ms){return ms?new Date(Math.round(Number(ms)/60000)*60000).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";}
+function gmsMinutes(t){if(!/^\d{2}:\d{2}$/.test(t||""))return null;const[h,m]=t.split(":").map(Number);return h>=0&&h<=23&&m>=0&&m<=59?h*60+m:null;}
+function gmsHours(start,end,breakMinutes){
+  const s=gmsMinutes(start),e0=gmsMinutes(end);if(s==null||e0==null)return 0;
+  let e=e0;if(e<s)e+=1440;
+  return Math.round((Math.max(0,e-s-(parseInt(breakMinutes)||0))/60)*100)/100;
+}
+function gmsPaymentTotals(hist){
+  let cash=0,card=0;
+  (hist||[]).forEach(h=>{
+    if(h.splits&&h.splits.length)h.splits.forEach(sp=>{if(sp.method==="card")card+=gmsInt(sp.amount);else cash+=gmsInt(sp.amount);});
+    else if(h.payMethod==="card")card+=gmsInt(h.total);
+    else cash+=gmsInt(h.total);
+  });
+  return{cash,card};
+}
+function gmsUniqueStrings(list){return[...new Set((list||[]).filter(x=>x!=null&&x!=="").map(String))];}
+function gmsItemCategory(item){
+  if(item.category)return item.category;
+  const id=String(item.id||"");
+  if(item.isVipCharge)return"vipRoom";
+  if(item.isHonShimei)return"honShimei";
+  if(item.isBanaiShimei)return"banaiShimei";
+  if(item.id==="dh"||item.label==="同伴料")return"dohan";
+  if(id.startsWith("cd_"))return"castDrink";
+  if(item.isExtension)return item.isBanaiExtension?"banaiExtension":"extension";
+  if(/シャンパン|ワイン/.test(item.label||""))return"champagneWine";
+  if(/キープ|ボトル/.test(item.label||""))return"keepBottle";
+  return"";
+}
+function gmsIsBanaiBackItem(item){const c=gmsItemCategory(item);return c==="champagneWine"||c==="keepBottle";}
+function gmsBanaiExtensionSalesPhases(items){
+  const phases=new Map();
+  let currentIds=[];
+  (items||[]).forEach(i=>{
+    if(i.isBanaiExtension)currentIds=gmsUniqueStrings([...(i.banaiExtCastIds||[]),i.banaiExtCastId,i.castId]);
+    if(!currentIds.length||i.isDiscount)return;
+    const ids=[...currentIds].sort(),key=ids.join("|");
+    if(!phases.has(key))phases.set(key,{ids,total:0,backTotal:0});
+    const amount=gmsInt((i.price||0)*(i.qty||1));
+    if(gmsIsBanaiBackItem(i))phases.get(key).backTotal+=amount;
+    else phases.get(key).total+=amount;
+  });
+  return[...phases.values()].filter(p=>p.ids.length);
+}
+function gmsCastName(id,fallback){
+  const c=allCasts().find(c=>String(c.id)===String(id));
+  return c?.name||fallback||"";
+}
+function gmsCastSales(hist){
+  const map={};
+  const ensure=(id,name)=>{
+    const k=String(id||name||"unknown");
+    if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,drinkSales:0,totalAttributedSales:0};
+    return map[k];
+  };
+  (hist||[]).forEach(h=>{
+    const items=h.items||[];
+    const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
+    if(hon.length){
+      const share=Math.floor(gmsInt(h.subtotal||h.total)/hon.length);
+      hon.forEach(i=>{ensure(i.castId,gmsCastName(i.castId,i.castName||itemCastName(i))).honShimeiSales+=share;});
+    }else{
+      gmsBanaiExtensionSalesPhases(items).forEach(phase=>{
+        const share=Math.floor((phase.total||0)/phase.ids.length);
+        const backShare=Math.floor((phase.backTotal||0)/phase.ids.length);
+        phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,""));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
+      });
+    }
+    items.filter(i=>gmsItemCategory(i)==="castDrink").forEach(i=>{
+      const ids=gmsUniqueStrings(i.backTargetCastIds?.length?i.backTargetCastIds:[i.castId]);
+      ids.forEach(id=>{ensure(id,gmsCastName(id,i.castName)).drinkSales+=gmsInt((i.price||0)*(i.qty||1));});
+    });
+  });
+  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
+}
+function gmsTransactionItems(items){
+  const src=(items||[]).filter(Boolean);
+  const noHon=!src.some(i=>i.isHonShimei);
+  let currentBanaiIds=[];
+  return src.map(item=>{
+    if(item.isBanaiExtension)currentBanaiIds=gmsUniqueStrings([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId]);
+    const category=gmsItemCategory(item);
+    let backTargetCastIds=gmsUniqueStrings(item.backTargetCastIds);
+    let backType=item.backType||"",backAllocation=item.backAllocation||"";
+    if(category==="castDrink"){
+      backTargetCastIds=backTargetCastIds.length?backTargetCastIds:gmsUniqueStrings([item.castId]);
+      backType=backType||"castDrink";backAllocation=backAllocation||"orderedCast";
+    }else if(noHon&&currentBanaiIds.length&&gmsIsBanaiBackItem(item)){
+      backTargetCastIds=currentBanaiIds;
+      backType=backType||"jonaiExtension";
+      backAllocation=backAllocation||(backTargetCastIds.length>1?"splitEvenly":"singleCast");
+    }
+    return{
+      itemId:String(item.id||""),label:String(item.label||""),category,
+      price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
+      castId:item.castId==null?"":String(item.castId),castName:String(item.castName||""),
+      banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
+      isSet:!!item.isSet,isHonShimei:!!item.isHonShimei,isBanaiShimei:!!item.isBanaiShimei,
+      isExtension:!!item.isExtension,isBanaiExtension:!!item.isBanaiExtension,isVipCharge:!!item.isVipCharge,isDiscount:!!item.isDiscount,
+      backTargetCastIds,backTargetCastNames:backTargetCastIds.map(id=>gmsCastName(id,"")),backType,backAllocation
+    };
+  });
+}
+function gmsTransactions(hist){
+  return(hist||[]).map(h=>({
+    transactionId:String(h.id||""),tableId:String(h.tableId||""),tableLabel:String(h.tableLabel||""),
+    startTime:Number(h.startTime)||0,endTime:Number(h.endTime)||0,guests:gmsInt(h.guests),note:String(h.note||""),
+    payMethod:h.payMethod==="card"?"card":"cash",
+    splits:(h.splits||[]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:gmsInt(sp.amount)})),
+    subtotal:gmsInt(h.subtotal),discount:gmsInt(h.discount),tax:gmsInt(h.tax),total:gmsInt(h.total),
+    items:gmsTransactionItems(h.items||[])
+  })).sort((a,b)=>a.startTime-b.startTime);
+}
+function gmsCastWork(day){
+  return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>{
+    const cast=allCasts().find(c=>String(c.id)===String(sh.castId));
+    const startTime=gmsHHMM(sh.clockIn),endTime=gmsHHMM(sh.clockOut||day.endedAt);
+    const castType=cast?.castType||sh.castType||"regular";
+    const name=sh.castName||cast?.name||"";
+    return{castId:String(sh.castId||""),castName:name,name,castType,isTrial:castType==="trial",startTime,endTime,breakMinutes:0,hours:gmsHours(startTime,endTime,0)};
+  });
+}
+function gmsLifecycleRows(date,type){
+  const log=(S.castLifecycleLogs||{})[date]||{};
+  const list=type==="entered"?log.enteredCasts:type==="exited"?log.exitedCasts:log.trialCasts;
+  return(Array.isArray(list)?list:[]).map(c=>({...c,castId:String(c.castId||""),castName:c.castName||c.name||"",internalNo:Number(c.internalNo)||0}));
+}
+function gmsChecksum(payload){
+  const copy={...payload};delete copy.checksum;
+  const text=JSON.stringify(copy);
+  let hash=2166136261;
+  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
+  return("00000000"+(hash>>>0).toString(16)).slice(-8);
+}
+function gmsClosingPayload(dayId){
+  const day=S.bizDays[dayId];if(!day)return null;
+  const hist=day.history||[],pay=gmsPaymentTotals(hist);
+  const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
+  const payload={
+    schema:"club-genesis-pos-closing",schemaVersion:1,exportedFrom:"CLUB_GENESIS_POS",exportedAt:new Date().toISOString(),
+    businessDate:day.date||dayId,status:"submitted",
+    sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
+    customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
+    nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
+    transactions:gmsTransactions(hist),castSales:gmsCastSales(hist),castWork:gmsCastWork(day),staffWork:[],
+    expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(day.date||dayId,"entered"),exitedCasts:gmsLifecycleRows(day.date||dayId,"exited"),trialCasts:gmsLifecycleRows(day.date||dayId,"trial"),
+    cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
+    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+  };
+  payload.checksum=gmsChecksum(payload);
+  return payload;
+}
+function exportGmsClosingJSON(dayId){
+  const payload=gmsClosingPayload(dayId);
+  if(!payload){alert("出力対象の営業日が見つかりません");return;}
+  if(!payload.transactions.length){alert("この営業日の会計データがありません");return;}
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="genesis-pos-closing_"+payload.businessDate+"_v"+payload.schemaVersion+".json";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function loadBizDayForReEdit(dayId){
   if(S.activeBizDay){
 alert("現在「"+S.activeBizDay+"」の営業が進行中です。\n営業終了後に読み込みできます。");
@@ -1186,15 +1480,16 @@ return;
   S.sessions={};
   if(window._db){
 const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
-await guardedRootUpdate({
+	try{await guardedRootUpdateIfActive(null,{
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:Object.keys(_lhObj).length>0?_lhObj:null,
   shifts:S.shifts,
   assignments:S.assignments,
   sessions:null
-});
+},"他端末で営業状態が変更されています。最新データに更新してから再実行してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業状態の保存に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   closeM();vw="floor";render();
 }
@@ -1212,12 +1507,13 @@ closeM();vw="floor";render();return;
   // history/shifts/assignmentsをクリア（新営業日）
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   if(window._db){
-await guardedRootUpdate({
+try{await guardedRootUpdateIfActive(null,{
   bizDays:S.bizDays,
   activeBizDay:S.activeBizDay,
   history:[],shifts:null,assignments:null,sessions:null
-});
+},"他端末で営業が開始されています。最新状態を確認してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業開始に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   closeM();vw="floor";render();
 }
@@ -1269,14 +1565,15 @@ if(wasReEdit){
 }else{
   await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
 }
-await guardedRootUpdate({
+try{await guardedRootUpdateIfActive(id,{
   bizDays:S.bizDays,
   activeBizDay:null,
   ...(castsChanged?{casts:S.casts}:{}),
   ...(castsChanged?{castLifecycleLogs:S.castLifecycleLogs}:{}),
   history:null,shifts:null,assignments:null,sessions:null
-});
+},"他端末で営業状態が変更されています。最新データに更新してから営業終了してください。");
 sbs(true,"同期済み ✓");
+}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業終了に失敗しました。最新状態を確認してください。");location.reload();return;}
   }
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   closeM();vw="home";render();
@@ -1359,6 +1656,13 @@ function rList(){
   const waiting=getWaitingCasts();
   const brk=getBreakCasts();
   const activeSessions=S.tables.filter(t=>S.sessions[t.id]);
+  const activeAssignments=Object.values(S.assignments||{}).filter(a=>!a.endTime);
+  const assignmentsByTable={};
+  activeAssignments.forEach(a=>{
+    const key=String(a.tableId||"");
+    if(!assignmentsByTable[key])assignmentsByTable[key]=[];
+    assignmentsByTable[key].push(a);
+  });
   const totalGuests=S.tables.reduce((s,t)=>s+(S.sessions[t.id]?.guests||0),0);
   const totalOnduty=getOnduty().length;
   const storeDiff=totalGuests-totalOnduty;
@@ -1425,7 +1729,7 @@ html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:
   html+='<div class="list-table-grid" style="display:grid;grid-template-columns:'+tblCols+';gap:clamp(8px,1.4vw,12px);align-content:start;align-items:start;">';
   S.tables.forEach(t=>{
 const s=S.sessions[t.id];
-const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
+const ac=assignmentsByTable[String(t.id)]||[];
 const rv=s?rem(s.setEndTime):null;
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
 const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
@@ -1919,7 +2223,7 @@ function saveAssignTimeEdit(){
 a.startTime=hhmm2ts(sEl.value);
 a.attachedAt=a.startTime; // カウントアップ基準も同期
   }
-  if(eEl&&eEl.value)a.endTime=hhmm2ts(eEl.value);
+  if(eEl&&eEl.value){a.endTime=hhmm2ts(eEl.value);if(a.startTime&&a.endTime<=a.startTime)a.endTime+=86400000;}
   else if(eEl&&eEl.value==="")a.endTime=null;
   save("assignments/"+window._editAid,a);closeM();render();
 }
@@ -1998,6 +2302,13 @@ function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.is
 function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return true;if(i.id==="fd"||i.id==="fd_add"||i.id==="freedrink"||(i.label||"").includes("フリードリンク"))return true;return (S.menus.drinks||[]).some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return [...(S.menus.champagne||[]),...(S.menus.keepBottles||[])].some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
+function isBanaiExtensionBackItem(i){
+  if(!i||isSetCatItem(i)||i.isDiscount)return false;
+  const id=String(i.id||"");
+  if(i.category==="champagneWine"||i.category==="keepBottle")return true;
+  const inMenu=(key)=>(S.menus?.[key]||[]).some(d=>id===String(d.id)||id.startsWith(String(d.id)+"_"));
+  return inMenu("champagne")||inMenu("keepBottles");
+}
 function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
 async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
@@ -2215,9 +2526,9 @@ histFilter.toTime="18:59";
 }
 function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};render();}
 function getFilteredHist(){
-  // 現在の営業日 + 全過去営業日のhistoryをマージ
-  let allHist=Array.isArray(S.history)?[...S.history]:[];
-  Object.values(S.bizDays||{}).forEach(day=>{
+  // 分析は営業終了済みの営業日だけを対象にする
+  let allHist=[];
+  Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).forEach(day=>{
 if(Array.isArray(day.history))allHist=allHist.concat(day.history);
   });
   // 重複除去（id基準）
@@ -2744,7 +3055,7 @@ function restoreFromBackupDay(bkKey){
   if(window._db){
 const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date]};
 if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;
-guardedUpdate(updates)
+guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。")
   .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
   .catch(()=>sbs(false,"復旧エラー"));
   }
@@ -2808,7 +3119,7 @@ updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
   }
   if(window._db){
 try{
-  await guardedUpdate(updates);
+  await guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。");
   sbs(true,"全件復旧完了 ✓");
   alert("全"+dates.length+"営業日の復旧が完了しました。");
   closeM();render();
@@ -2918,7 +3229,7 @@ function dc2(id){
     alert(cast.name+" は退店できません。\n退店前に退勤と付け回し終了を完了してください。\n\n"+details.join("\n"));
     return;
   }
-  if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は締めデータ/GMS側で管理します。"))return;
+  if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は営業履歴/GMS側で管理します。"))return;
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
   upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
   S.casts=normalizeCasts(S.casts).filter(c=>String(c.id)!==String(id));
@@ -3161,7 +3472,7 @@ ePosDev.createDevice("local_printer",ePosDev.DEVICE_TYPE_PRINTER,{crypto:false,b
   buildEposCommands(prn,data,isEstimate);
   prn.send();
   prn.onreceive=function(res){ePosDev.deleteDevice(prn,()=>ePosDev.disconnect());if(res.success)sbs(true,"印刷完了 ✓");};
-  prn.onerror=function(err){console.error("ePOS error:",err);ePosDev.disconnect();};
+  prn.onerror=function(err){console.error("ePOS error:",err);ePosDev.disconnect();showEposPrintError(ip,port,err);};
 });
   });
 }
@@ -3181,7 +3492,7 @@ if(lastError)throw lastError;
 sbs(true,"印刷しました ✓");
   }catch(e){
 console.warn("ePOS-Print XML送信失敗:",e.message);
-printReceiptFallback(data,isEstimate);
+showEposPrintError(ip,port,e);
   }
 }
 
@@ -3327,6 +3638,11 @@ function printReceiptFallback(data,isEstimate){
   setTimeout(()=>{window.print();setTimeout(()=>{el.style.display="none";},500);},150);
 }
 
+function showEposPrintError(ip,port,e){
+  sbs(false,"Epson接続エラー");
+  alert("Epsonプリンターに接続できないため、レシート印刷を中止しました。\n\n通常印刷には切り替えません。\n\n設定IP: "+ip+"\n設定ポート: "+port+"\nエラー: "+(e?.message||e||"接続失敗")+"\n\n確認してください:\n・POS端末とプリンターが同じWi-Fiか\n・プリンターIPが現在のネットワークと一致しているか\n・プリンターの電源とLAN/Wi-Fi接続\n・管理 > プリンター設定のIP/ポート");
+}
+
 function printReceipt(data, isEstimate){
   if(!confirm("レシートを印刷しますか？"))return;
   eposPrint(data,isEstimate);
@@ -3469,7 +3785,7 @@ function safeShiftDurationMsInRange(sh,range){
 function _getShiftMsForCast(castId,filtered){
   let ms=0;
   const range=_analysisRangeFromFilter(filtered);
-  const allShifts=[...Object.values(S.shifts||{}),...Object.values(S.bizDays||{}).flatMap(d=>Object.values(d.shifts||{}))];
+  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
   const seen=new Set();
   allShifts.forEach(sh=>{
     if(String(sh.castId)!==String(castId))return;
@@ -3580,8 +3896,10 @@ function banaiExtensionSalesPhases(items){
     if(!currentIds.length||i.isDiscount)return;
     const ids=[...currentIds].sort();
     const key=ids.join("|");
-    if(!phases.has(key))phases.set(key,{ids,total:0});
-    phases.get(key).total+=Math.max(0,Number(i.price)||0)*Math.max(1,Number(i.qty)||1);
+    if(!phases.has(key))phases.set(key,{ids,total:0,backTotal:0});
+    const amount=Math.max(0,Number(i.price)||0)*Math.max(1,Number(i.qty)||1);
+    if(isBanaiExtensionBackItem(i))phases.get(key).backTotal+=amount;
+    else phases.get(key).total+=amount;
   });
   return[...phases.values()];
 }
@@ -3591,6 +3909,198 @@ function banaiExtensionSalesForCast(items,castId){
     if(!phase.ids.includes(cid))return total;
     return total+Math.floor(phase.total/phase.ids.length);
   },0);
+}
+function banaiExtensionBackSalesForCast(items,castId){
+  const cid=String(castId);
+  return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
+    if(!phase.ids.includes(cid))return total;
+    return total+Math.floor((phase.backTotal||0)/phase.ids.length);
+  },0);
+}
+function anaBizDateFromMs(ms){
+  const d=new Date(Number(ms)||Date.now());
+  if(d.getHours()<19)d.setDate(d.getDate()-1);
+  return d.toLocaleDateString("sv-SE");
+}
+function anaTime(ms){
+  return ms?new Date(ms).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";
+}
+function anaLiquorLabel(item){
+  const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+  return String(item.label||"")+(qty>1?" x"+qty:"");
+}
+function anaHasHonCast(rec,cid){
+  return(rec.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(cid));
+}
+function anaHonShare(rec,cid){
+  if(!anaHasHonCast(rec,cid))return 0;
+  const honCount=Math.max(1,(rec.items||[]).filter(i=>i.isHonShimei).length);
+  return Math.floor((Number(rec.subtotal||rec.total)||0)/honCount);
+}
+function anaBanaiExtMatch(item,cid){
+  return item&&item.isBanaiExtension&&((item.banaiExtCastIds||[]).map(String).includes(String(cid))||(item.banaiExtCastId&&String(item.banaiExtCastId)===String(cid)));
+}
+function anaBanaiExtensionDetails(items,cid){
+  let currentIds=[];
+  let sales=0;
+  const liquors=[];
+  (items||[]).forEach(item=>{
+    if(item.isBanaiExtension){
+      currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
+    }
+    if(!currentIds.length||!currentIds.includes(String(cid))||item.isDiscount)return;
+    const shareCount=Math.max(1,currentIds.length);
+    const amount=Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1);
+    if(isBanaiExtensionBackItem(item))liquors.push(anaLiquorLabel(item));
+    else sales+=Math.floor(amount/shareCount);
+  });
+  return{sales,liquors};
+}
+function anaCastDrinkCounts(items,cid){
+  const counts={p2000:0,p3000:0,other:{}};
+  (items||[]).forEach(item=>{
+    const cat=item.category==="castDrink"||(item.id&&String(item.id).startsWith("cd_"));
+    if(!cat||String(item.castId)!==String(cid))return;
+    const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+    const price=Math.max(0,Number(item.price)||0);
+    if(price===2000)counts.p2000+=qty;
+    else if(price===3000)counts.p3000+=qty;
+    else counts.other[price]=(counts.other[price]||0)+qty;
+  });
+  return counts;
+}
+function anaMergeDrinkCounts(target,src){
+  target.p2000+=src.p2000;
+  target.p3000+=src.p3000;
+  Object.entries(src.other).forEach(([price,count])=>{target.other[price]=(target.other[price]||0)+count;});
+}
+function anaDrinkCountText(counts){
+  const parts=["2000円 "+counts.p2000+"杯","3000円 "+counts.p3000+"杯"];
+  Object.keys(counts.other).sort((a,b)=>Number(a)-Number(b)).forEach(price=>parts.push((Number(price)?price+"円":"その他")+" "+counts.other[price]+"杯"));
+  return parts.join(" / ");
+}
+function anaFmtWorkMs(ms){
+  const totalMin=Math.max(0,Math.round((Number(ms)||0)/60000));
+  const h=Math.floor(totalMin/60);
+  const m=totalMin%60;
+  return h>0?h+"h"+m+"m":m+"m";
+}
+function anaDetailRange(){
+  const from=histFilter.from?new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime():null;
+  const to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime():null;
+  return{from,to};
+}
+function anaShiftEndMs(sh){
+  return Number(sh.clockOut)||Number(sh._dayEndedAt)||0;
+}
+function anaShiftIntervalInRange(sh,range){
+  const start=Number(sh.clockIn)||0;
+  let end=anaShiftEndMs(sh);
+  if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return null;
+  end=Math.min(end,start+MAX_SHIFT_MS);
+  const from=range&&range.from?range.from:null;
+  const to=range&&range.to?range.to:null;
+  const overlapStart=from?Math.max(start,from):start;
+  const overlapEnd=to?Math.min(end,to):end;
+  if(!isFinite(overlapStart)||!isFinite(overlapEnd)||overlapEnd<=overlapStart)return null;
+  return{start:overlapStart,end:overlapEnd};
+}
+function anaMergedIntervalMs(intervals){
+  const sorted=(intervals||[]).filter(i=>i&&i.end>i.start).sort((a,b)=>a.start-b.start);
+  let total=0,current=null;
+  sorted.forEach(i=>{
+    if(!current){current={start:i.start,end:i.end};return;}
+    if(i.start<=current.end)current.end=Math.max(current.end,i.end);
+    else{total+=current.end-current.start;current={start:i.start,end:i.end};}
+  });
+  if(current)total+=current.end-current.start;
+  return safeDurationMs(total);
+}
+function anaCastNameKey(name){
+  return String(name||"").replace(/\s+/g,"").trim();
+}
+function anaShiftRowsForCast(castId,castName,filtered){
+  const range=anaDetailRange();
+  const nameKey=anaCastNameKey(castName);
+  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}).map(sh=>({...sh,_dayEndedAt:d.endedAt,_dayDate:d.date})));
+  const seen=new Set();
+  return allShifts.filter(sh=>{
+    const idMatched=String(sh.castId)===String(castId);
+    const nameMatched=nameKey&&anaCastNameKey(sh.castName)===nameKey;
+    if(!idMatched&&!nameMatched)return false;
+    const key=sh.id||[sh.castId,sh.clockIn,sh.clockOut].join("_");
+    if(seen.has(key))return false;
+    seen.add(key);
+    return !!anaShiftIntervalInRange(sh,range);
+  }).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
+}
+function anaCastDetailRows(filtered,castId,castName){
+  const cid=String(castId);
+  const days={};
+  const ensure=(date)=>days[date]||(days[date]={date,firstIn:null,lastOut:null,hasOpenShift:false,shiftIntervals:[],workMs:0,honCount:0,honSales:0,banaiCount:0,banaiExtSales:0,dohanCount:0,honLiquors:[],banaiLiquors:[],drinkCounts:{p2000:0,p3000:0,other:{}}});
+  anaShiftRowsForCast(cid,castName,filtered).forEach(sh=>{
+    const range=anaDetailRange();
+    const interval=anaShiftIntervalInRange(sh,range);
+    if(!interval)return;
+    const date=sh._dayDate||anaBizDateFromMs(sh.clockIn);
+    const row=ensure(date);
+    row.shiftIntervals.push(interval);
+    row.firstIn=row.firstIn?Math.min(row.firstIn,interval.start):interval.start;
+    row.lastOut=row.lastOut?Math.max(row.lastOut,interval.end):interval.end;
+    const clockOut=anaShiftEndMs(sh);
+    if(clockOut)row.lastOut=row.lastOut?Math.max(row.lastOut,clockOut):clockOut;
+    else row.hasOpenShift=true;
+  });
+  filtered.forEach(rec=>{
+    const items=rec.items||[];
+    const date=anaBizDateFromMs(rec.startTime);
+    const row=ensure(date);
+    const isHon=anaHasHonCast(rec,cid);
+    if(isHon){
+      row.honCount+=1;
+      row.honSales+=anaHonShare(rec,cid);
+      if(items.some(i=>i.id==="dh"||i.label==="同伴料"))row.dohanCount+=1;
+      items.filter(isBanaiExtensionBackItem).forEach(i=>row.honLiquors.push(anaLiquorLabel(i)));
+    }
+    row.banaiCount+=items.filter(i=>i.isBanaiShimei&&String(i.castId)===cid).length;
+    if(!items.some(i=>i.isHonShimei)&&items.some(i=>anaBanaiExtMatch(i,cid))){
+      const det=anaBanaiExtensionDetails(items,cid);
+      row.banaiExtSales+=det.sales;
+      row.banaiLiquors.push(...det.liquors);
+    }
+    anaMergeDrinkCounts(row.drinkCounts,anaCastDrinkCounts(items,cid));
+  });
+  Object.values(days).forEach(row=>{row.workMs=anaMergedIntervalMs(row.shiftIntervals);});
+  return Object.values(days).sort((a,b)=>b.date.localeCompare(a.date));
+}
+function anaCastDetailHtml(filtered,castId,castName){
+  const rows=anaCastDetailRows(filtered,castId,castName);
+  if(!rows.length)return'<div style="padding:18px;text-align:center;color:#666;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;">対象データなし</div>';
+  return rows.map(row=>{
+    const total=row.honSales+row.banaiExtSales;
+    const honLiquors=[...new Set(row.honLiquors)].join(" / ")||"なし";
+    const banaiLiquors=[...new Set(row.banaiLiquors)].join(" / ")||"なし";
+    const workH=anaFmtWorkMs(row.workMs);
+    const inText=anaTime(row.firstIn)||"-";
+    const outText=row.hasOpenShift?"出勤中":(anaTime(row.lastOut)||"-");
+    return '<div class="glass" style="border-radius:8px;padding:12px;margin-bottom:10px;">'
+      +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:10px;"><div style="font-size:15px;font-weight:800;color:#d4a017;">'+row.date+'</div><div style="font-size:14px;font-weight:800;color:#e8dcc8;">合計 '+pAmt(total)+'</div></div>'
+      +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px;">'
+      +anaMiniMetric("出勤",inText,"#e8dcc8")+anaMiniMetric("退勤",outText,"#e8dcc8")+anaMiniMetric("勤務",workH,"#38bdf8")
+      +anaMiniMetric("本指名",row.honCount+"件","#ff4444")+anaMiniMetric("本指名売上",pAmt(row.honSales),"#d4a017")
+      +anaMiniMetric("場内指名",row.banaiCount+"件","#4ade80")+anaMiniMetric("場内延長売上",pAmt(row.banaiExtSales),"#ffa500")
+      +anaMiniMetric("同伴",row.dohanCount+"件","#e8dcc8")
+      +'</div>'
+      +'<div style="font-size:12px;line-height:1.7;color:#bbb;border-top:1px solid rgba(255,255,255,.06);padding-top:8px;">'
+      +'<div><span style="color:#888;">ボトル・シャンパン（本指名）</span> '+honLiquors+'</div>'
+      +'<div><span style="color:#888;">ボトル・シャンパン（場内延長）</span> '+banaiLiquors+'</div>'
+      +'<div><span style="color:#888;">キャストDrink</span> '+anaDrinkCountText(row.drinkCounts)+'</div>'
+      +'</div>'
+      +'</div>';
+  }).join("");
+}
+function anaMiniMetric(label,value,color){
+  return'<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;"><div style="font-size:10px;color:#888;margin-bottom:3px;">'+label+'</div><div style="font-size:13px;font-weight:800;color:'+color+';word-break:break-word;">'+value+'</div></div>';
 }
 function exportUriageCSV(filtered,castId,castName){
   const cid=String(castId);
@@ -3607,6 +4117,7 @@ return a+(h.subtotal||h.total)/honCount;
   const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
   const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
@@ -3615,8 +4126,9 @@ return a+(h.subtotal||h.total)/honCount;
   const bom="\uFEFF";
   const rows=[
 ["キャスト","本指名小計","場内延長小計","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"],
-[castName,Math.round(sub),Math.round(banaiExtSub),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
+[castName,Math.round(sub),Math.round(banaiExtSub),Math.round(banaiExtBack),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
   ];
+  rows[0]=["キャスト","本指名小計","場内延長小計","場内延長バック","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"uriage_"+castName+".csv");
 }
 function exportAssignHistCSV(){
@@ -3854,20 +4366,6 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div style="display:flex;gap:8px;">'
   +'<button class="btn" onclick="closeM()" style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;touch-action:manipulation;">キャンセル</button>'
   +'<button class="btn" onclick="execDeleteSession()" style="flex:1;padding:12px;background:rgba(255,30,30,.18);border:1px solid rgba(255,30,30,.4);color:#ff4444;border-radius:6px;font-size:14px;font-weight:700;touch-action:manipulation;">削除する</button>'
-  +'</div></div></div>';
-  }
-  else if(md==="closingConfirm"){
-const p=window._closingPayload;
-h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
-  +'<h3 style="font-size:17px;color:#4ade80;margin-bottom:12px;">締め確定</h3>'
-  +'<div style="font-size:13px;color:#aaa;line-height:1.8;margin-bottom:16px;">'
-  +'営業日 <strong style="color:#e8dcc8;">'+(p?.businessDate||"")+'</strong> を店舗締め済みとしてFirestoreへ保存します。<br>'
-  +'同じ営業日の再送信は、GMS側の同じ日付データを上書き更新します。<br>'
-  +'総売上 '+pAmt(p?.sales?.totalSales||0)
-  +'</div>'
-  +'<div style="display:flex;gap:8px;">'
-  +'<button class="btn" onclick="closeM()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:14px;">戻る</button>'
-  +'<button class="btn gbg" onclick="clSubmit()" '+(closingState.submitting?"disabled":"")+' style="flex:1;padding:12px;border-radius:6px;font-size:14px;font-weight:700;'+(closingState.submitting?"opacity:.5;":"")+'">'+(closingState.submitting?"保存中...":"確定する")+'</button>'
   +'</div></div></div>';
   }
   else if(md==="opsMenu"){
@@ -4698,7 +5196,7 @@ const modeLabel=isShimei?"指名情報":"売上情報";
 const modeColor=isShimei?"#ff6b6b":"#d4a017";
 const modeBg=isShimei?"rgba(255,68,68,.08)":"rgba(212,160,23,.08)";
 const modeBdr=isShimei?"rgba(255,68,68,.25)":"rgba(212,160,23,.25)";
-const castBtns=activeRegularCasts().map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\'anaDetail\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
+const castBtns=activeRegularCasts().map(c=>'<button class="btn" onclick="analysisSt.castId=\''+c.id+'\';analysisSt.castName=\''+c.name+'\';md=\''+(isShimei?"anaDetail":"anaActionSel")+'\';rModal()" style="padding:10px 8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);color:#e8dcc8;border-radius:8px;font-size:13px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>').join("");
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:'+modeColor+';">'+modeLabel+' — キャスト選択</h3>'
   +'<div style="font-size:12px;color:#888;margin-bottom:16px;">分析対象のキャストを選んでください</div>'
@@ -4708,6 +5206,32 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div>'
   +(!isShimei?'<button class="btn" onclick="md=\'anaDateSel\';rModal()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 期間選択に戻る</button>':"")
   +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
+  +'</div></div>';
+  }
+  else if(md==="anaActionSel"){
+const {castName}=analysisSt;
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;padding:20px;">'
+  +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">'+castName+'</h3>'
+  +'<div style="font-size:12px;color:#888;margin-bottom:16px;">表示する内容を選択してください</div>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">'
+  +'<button class="btn" onclick="md=\'anaDetail\';rModal()" style="padding:16px 10px;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;border-radius:8px;font-size:14px;font-weight:800;touch-action:manipulation;">売上</button>'
+  +'<button class="btn" onclick="md=\'anaCastInfo\';rModal()" style="padding:16px 10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:8px;font-size:14px;font-weight:800;touch-action:manipulation;">詳細情報</button>'
+  +'</div>'
+  +'<button class="btn" onclick="md=\'anaCastSel\';rModal()" style="width:100%;margin-bottom:8px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← キャスト選択に戻る</button>'
+  +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
+  +'</div></div>';
+  }
+  else if(md==="anaCastInfo"){
+const {castId,castName}=analysisSt;
+const filtered=getFilteredHist();
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:760px;padding:20px;max-height:84vh;overflow-y:auto;">'
+  +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px;">'
+  +'<h3 style="font-size:16px;color:#38bdf8;">詳細情報 — '+castName+'</h3>'
+  +'<button class="btn" onclick="md=\'anaActionSel\';rModal()" style="padding:5px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">戻る</button>'
+  +'</div>'
+  +anaCastDetailHtml(filtered,castId,castName)
+  +'<button class="btn" onclick="md=\'anaActionSel\';rModal()" style="width:100%;margin-top:10px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上 / 詳細情報に戻る</button>'
+  +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
   +'</div></div>';
   }
   else if(md==="anaDetail"){
@@ -4759,14 +5283,16 @@ if(isShimei){
   },0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
   const hon=honRecs.length;
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
   const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
-  statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
+  statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
   statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(Math.round(banaiExtSub))+'</div></div>';
+  statsHtml+='<div style="padding:8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場延バック</div><div style="font-size:14px;font-weight:700;color:#f59e0b;">'+pAmt(Math.round(banaiExtBack))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
   statsHtml+='</div>';
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
@@ -4811,7 +5337,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div>'
   +statsHtml
   +histListHtml
-  +'<button class="btn" onclick="md=\'anaCastSel\';rModal()" style="width:100%;margin-top:14px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← キャスト選択に戻る</button>'
+  +'<button class="btn" onclick="md=\''+(isShimei?'anaCastSel':'anaActionSel')+'\';rModal()" style="width:100%;margin-top:14px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 戻る</button>'
   +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:6px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">閉じる</button>'
   +'</div></div>';
   }
@@ -5090,7 +5616,7 @@ return;
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,castId:cdc,castName:c?.name||""}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,category:"castDrink",castId:cdc,castName:c?.name||"",backTargetCastIds:[String(cdc)],backTargetCastNames:[c?.name||""],backType:"castDrink",backAllocation:"orderedCast"}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function tryExt(){
@@ -5109,7 +5635,7 @@ function addSCToSession(){
   const s=S.sessions[at];if(!s)return;
   const scPrice=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
   s.items=[...s.items,{id:"sc_add_"+Date.now(),label:"シングルチャージ",price:scPrice,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];render();rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history/"+dhi,null);dhi=null;closeM();render();}
@@ -5144,21 +5670,13 @@ function adjustHHMM(hhmm,deltaMins){
   total=((total%1440)+1440)%1440; // 24時間循環
   return String(Math.floor(total/60)).padStart(2,"0")+":"+String(total%60).padStart(2,"0");
 }
-function hhmm2ts(hhmm){
-  // HH:MM を現在の営業日内のtimestampに変換
-  // 営業時間: 当日19:00〜翌18:59
+function hhmm2ts(hhmm,bizDate){
   if(!hhmm||!hhmm.includes(":"))return Date.now();
   const[h,m]=hhmm.split(":").map(Number);
-  const bizStart=new Date(getBizDayStart(Date.now())); // 当営業日の19:00
-  const d=new Date(bizStart);
-  if(h>=19){
-// 19:00〜23:59 → 営業日開始日（bizStartと同日）
-d.setHours(h,m,0,0);
-  } else {
-// 0:00〜18:59 → 翌日（bizStart+1日）
-d.setDate(d.getDate()+1);
-d.setHours(h,m,0,0);
-  }
+  const baseBizDate=bizDate||S.activeBizDay||getBizDate();
+  const d=new Date(baseBizDate+"T19:00:00");
+  if(h>=19)d.setHours(h,m,0,0);
+  else{d.setDate(d.getDate()+1);d.setHours(h,m,0,0);}
   return d.getTime();
 }
 function getOnduty(){
@@ -5187,15 +5705,32 @@ function safeShiftDurationMs(sh,nowMs){
   if(!start||!end||!isFinite(start)||!isFinite(end)||end<=start)return 0;
   return safeDurationMs(end-start);
 }
+function remoteActiveShift(root,castId){
+  return Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(castId)&&!sh.clockOut);
+}
+function remoteActiveAssign(root,castId,ignoreIds=[]){
+  const ignored=ignoreIds.map(String);
+  return Object.values(root.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!ignored.includes(String(a.id)));
+}
 
-function clockIn(castId,time){
+async function clockIn(castId,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+Date.now();
   // statusLogは待機・休憩の開始/終了を記録する配列
   S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
-  save("shifts/"+sid,S.shifts[sid]);closeM();render();
+  try{
+    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+sid]:S.shifts[sid]},root=>{
+      if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
+      return{ok:true};
+    });
+    sbs(true,"同期済み ✓");closeM();render();
+  }catch(e){
+    delete S.shifts[sid];
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"出勤保存に失敗しました。最新状態を確認してください。");
+  }
 }
 function setCastStatus(castId,newStatus){
   const sh=getShiftByCastId(castId);if(!sh)return;
@@ -5210,12 +5745,25 @@ sh.statusLog.push({status:newStatus,startTime:now2,endTime:null});
   }
   sh.status=newStatus;
 }
-function clockOut(shiftId,time){
+async function clockOut(shiftId,time){
   const sh=S.shifts[shiftId];if(!sh)return;
+  const prev=cloneData(sh);
   sh.clockOut=hhmm2ts(time||nowHHMM());
   // 退勤が出勤より前なら翌日扱い
   if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
-  save("shifts/"+shiftId,sh);closeM();render();
+  try{
+    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+shiftId]:sh},root=>{
+      const remote=(root.shifts||{})[shiftId];
+      if(!remote)return{ok:false,message:"この出勤データは他端末で削除されています。最新状態を確認してください。"};
+      if(remote.clockOut)return{ok:false,message:"このキャストは他端末で既に退勤済みです。最新状態を確認してください。"};
+      return{ok:true};
+    });
+    sbs(true,"同期済み ✓");closeM();render();
+  }catch(e){
+    S.shifts[shiftId]=prev;
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"退勤保存に失敗しました。最新状態を確認してください。");
+  }
 }
 function saveLocalBackup(){/* localStorageバックアップは廃止、Firebase backup/bizDaysを使用 */}
 
@@ -5292,7 +5840,7 @@ startAssign(tsukeMd.castId,tableId,tsukeMd.type,t,prevAssignId);
   }
   tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true,prevAssignId:null};
 }
-function startAssignNow(castId,tableId,type,prevAssignId=null){
+async function startAssignNow(castId,tableId,type,prevAssignId=null){
   // Nowモード：確定した瞬間のtimestampをstartTime・attachedAt両方に使う
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
@@ -5306,17 +5854,26 @@ function startAssignNow(castId,tableId,type,prevAssignId=null){
   closingAssignments.forEach(a=>{a.endTime=now_sa;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active");
+  closeM();render();
   if(window._db){
 const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
-  }
-  closeM();render();
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
+  location.reload();return;
 }
-function startAssign(castId,tableId,type,time,prevAssignId=null){
+  }
+}
+async function startAssign(castId,tableId,type,time,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
   // 既にテーブルについている（active）は付けられない
@@ -5335,15 +5892,24 @@ function startAssign(castId,tableId,type,time,prevAssignId=null){
   closingAssignments.forEach(a=>{a.endTime=startTs;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
+  closeM();render();
   if(window._db){
 const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
 _cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
-  closeM();render();
 }
 function changeAssignType(aid,newType){
   const a=S.assignments[aid];if(!a)return;
@@ -5352,33 +5918,56 @@ function changeAssignType(aid,newType){
 }
 function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
-function endAssign(aid){
+async function endAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   const now2=Date.now();
   a.endTime=now2;
   setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
+  closeM();render();
   if(window._db){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=a;
 const _sh=getShiftByCastId(a.castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
-  }
-  closeM();render();
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    const remote=(root.assignments||{})[aid];
+    if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
+    if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し終了に失敗しました。最新状態を確認してください。");
+  location.reload();return;
 }
-function moveToBreak(castId){
+  }
+}
+async function moveToBreak(castId){
   const now2=Date.now();
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
   if(a)a.endTime=now2;
   setCastStatus(castId,"break"); // statusLogに新エントリを追加
+  closeM();render();
   if(window._db){
 const _cu={};
 if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
 const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    if(a){
+      const remote=(root.assignments||{})[a.id];
+      if(!remote||remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了しています。最新状態を確認してください。"};
+    }
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"休憩への変更に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
-  closeM();render();
 }
 function moveToWaiting(castId){
   setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
@@ -5388,19 +5977,29 @@ if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;guardedUpdate(_cu).then(
   }
   render();
 }
-function deleteAssign(aid){
+async function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
   const _wasActive=!a.endTime;const _cid=a.castId;
   if(_wasActive){setCastStatus(_cid,"waiting");}
   delete S.assignments[aid];
+  closeM();render();
   if(window._db){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=null;
 if(_wasActive){const _sh=getShiftByCastId(_cid);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
-guardedUpdate(_cu)
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{
+  await guardedCheckedUpdate(_cu,root=>{
+    const remote=(root.assignments||{})[aid];
+    if(!remote)return{ok:false,message:"この付け回しは他端末で既に削除されています。最新状態を確認してください。"};
+    return{ok:true};
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"付け回し削除に失敗しました。最新状態を確認してください。");
+  location.reload();return;
+}
   }
-  closeM();render();
 }
 
 // ===== 出勤画面 =====

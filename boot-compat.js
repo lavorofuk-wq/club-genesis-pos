@@ -22,7 +22,7 @@
   window.addEventListener("error",function(e){
     if(window._fbReady||window._fbInitError)return;
     var src=(e.filename||"").split("/").pop();
-    if(src==="app.js"||src==="closing.js"||src==="firebase-init.js"){
+    if(src==="app.js"||src==="firebase-init.js"){
       setLoading("POS読み込みエラー","端末のキャッシュ削除またはOS/ブラウザ更新を行ってください。");
     }
   });
