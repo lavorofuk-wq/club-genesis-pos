@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.94";
+const APP_VERSION="6.95";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -4063,6 +4063,17 @@ function _dlCSV(csvStr,filename){
 // ===== RECEIPT PRINT END =====
 
 // 概算：指定延長分数でのコスト計算
+function hasFreeDrinkItem(s){
+  return (s?.items||[]).some(i=>{
+    const id=String(i?.id||"");
+    const label=String(i?.label||"");
+    return id==="fd"||id==="fd_add"||id==="freedrink"||id.startsWith("fd_")||label.includes("\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af");
+  });
+}
+function freeDrinkPrice(){
+  const opt=(S.menus.options||[]).find(o=>o.id==="fd"||String(o.label||"").includes("\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af"));
+  return Number(opt?.price)||2000;
+}
 function calcEstForMinutes(s,extraMinutes,useVipExt){
   const extraItems=[];
   if(extraMinutes>0){
@@ -4087,6 +4098,9 @@ if(vip30&&extraMinutes>0){
   const units=Math.ceil(extraMinutes/30);
   extraItems.push({id:"est_vip",label:vip30.label,price:vip30.price,qty:units,isVipCharge:true});
 }
+  }
+  if(extraMinutes>0&&hasFreeDrinkItem(s)){
+    extraItems.push({id:"est_fd",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af\u3010\u6982\u7b97\u8ffd\u52a0\u3011",price:freeDrinkPrice(),qty:s.guests});
   }
   // SC加算：入店時にSCあり または1名の場合、かつ追加セットなしの場合
   const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
