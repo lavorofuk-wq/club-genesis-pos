@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.86";
+const APP_VERSION="6.87";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -1230,7 +1230,10 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
 });
   }
   // CSV出力ボタン
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="margin-top:14px;padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">GMS取込JSON</button>';
+  html+='</div>';
   html+='</div>';
   return html;
 }
@@ -1280,6 +1283,173 @@ h.payMethod==="card"?"カード":"現金"
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download="genesis_"+day.date+".csv";a.click();URL.revokeObjectURL(url);
+}
+
+function gmsInt(v){return Math.max(0,Math.floor(Number(v)||0));}
+function gmsHHMM(ms){return ms?new Date(Math.round(Number(ms)/60000)*60000).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit",hour12:false}):"";}
+function gmsMinutes(t){if(!/^\d{2}:\d{2}$/.test(t||""))return null;const[h,m]=t.split(":").map(Number);return h>=0&&h<=23&&m>=0&&m<=59?h*60+m:null;}
+function gmsHours(start,end,breakMinutes){
+  const s=gmsMinutes(start),e0=gmsMinutes(end);if(s==null||e0==null)return 0;
+  let e=e0;if(e<s)e+=1440;
+  return Math.round((Math.max(0,e-s-(parseInt(breakMinutes)||0))/60)*100)/100;
+}
+function gmsPaymentTotals(hist){
+  let cash=0,card=0;
+  (hist||[]).forEach(h=>{
+    if(h.splits&&h.splits.length)h.splits.forEach(sp=>{if(sp.method==="card")card+=gmsInt(sp.amount);else cash+=gmsInt(sp.amount);});
+    else if(h.payMethod==="card")card+=gmsInt(h.total);
+    else cash+=gmsInt(h.total);
+  });
+  return{cash,card};
+}
+function gmsUniqueStrings(list){return[...new Set((list||[]).filter(x=>x!=null&&x!=="").map(String))];}
+function gmsItemCategory(item){
+  if(item.category)return item.category;
+  const id=String(item.id||"");
+  if(item.isVipCharge)return"vipRoom";
+  if(item.isHonShimei)return"honShimei";
+  if(item.isBanaiShimei)return"banaiShimei";
+  if(item.id==="dh"||item.label==="同伴料")return"dohan";
+  if(id.startsWith("cd_"))return"castDrink";
+  if(item.isExtension)return item.isBanaiExtension?"banaiExtension":"extension";
+  if(/シャンパン|ワイン/.test(item.label||""))return"champagneWine";
+  if(/キープ|ボトル/.test(item.label||""))return"keepBottle";
+  return"";
+}
+function gmsIsBanaiBackItem(item){const c=gmsItemCategory(item);return c==="champagneWine"||c==="keepBottle";}
+function gmsBanaiExtensionSalesPhases(items){
+  const phases=new Map();
+  let currentIds=[];
+  (items||[]).forEach(i=>{
+    if(i.isBanaiExtension)currentIds=gmsUniqueStrings([...(i.banaiExtCastIds||[]),i.banaiExtCastId,i.castId]);
+    if(!currentIds.length||i.isDiscount)return;
+    const ids=[...currentIds].sort(),key=ids.join("|");
+    if(!phases.has(key))phases.set(key,{ids,total:0,backTotal:0});
+    const amount=gmsInt((i.price||0)*(i.qty||1));
+    if(gmsIsBanaiBackItem(i))phases.get(key).backTotal+=amount;
+    else phases.get(key).total+=amount;
+  });
+  return[...phases.values()].filter(p=>p.ids.length);
+}
+function gmsCastName(id,fallback){
+  const c=allCasts().find(c=>String(c.id)===String(id));
+  return c?.name||fallback||"";
+}
+function gmsCastSales(hist){
+  const map={};
+  const ensure=(id,name)=>{
+    const k=String(id||name||"unknown");
+    if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,drinkSales:0,totalAttributedSales:0};
+    return map[k];
+  };
+  (hist||[]).forEach(h=>{
+    const items=h.items||[];
+    const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
+    if(hon.length){
+      const share=Math.floor(gmsInt(h.subtotal||h.total)/hon.length);
+      hon.forEach(i=>{ensure(i.castId,gmsCastName(i.castId,i.castName||itemCastName(i))).honShimeiSales+=share;});
+    }else{
+      gmsBanaiExtensionSalesPhases(items).forEach(phase=>{
+        const share=Math.floor((phase.total||0)/phase.ids.length);
+        const backShare=Math.floor((phase.backTotal||0)/phase.ids.length);
+        phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,""));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
+      });
+    }
+    items.filter(i=>gmsItemCategory(i)==="castDrink").forEach(i=>{
+      const ids=gmsUniqueStrings(i.backTargetCastIds?.length?i.backTargetCastIds:[i.castId]);
+      ids.forEach(id=>{ensure(id,gmsCastName(id,i.castName)).drinkSales+=gmsInt((i.price||0)*(i.qty||1));});
+    });
+  });
+  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
+}
+function gmsTransactionItems(items){
+  const src=(items||[]).filter(Boolean);
+  const noHon=!src.some(i=>i.isHonShimei);
+  let currentBanaiIds=[];
+  return src.map(item=>{
+    if(item.isBanaiExtension)currentBanaiIds=gmsUniqueStrings([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId]);
+    const category=gmsItemCategory(item);
+    let backTargetCastIds=gmsUniqueStrings(item.backTargetCastIds);
+    let backType=item.backType||"",backAllocation=item.backAllocation||"";
+    if(category==="castDrink"){
+      backTargetCastIds=backTargetCastIds.length?backTargetCastIds:gmsUniqueStrings([item.castId]);
+      backType=backType||"castDrink";backAllocation=backAllocation||"orderedCast";
+    }else if(noHon&&currentBanaiIds.length&&gmsIsBanaiBackItem(item)){
+      backTargetCastIds=currentBanaiIds;
+      backType=backType||"jonaiExtension";
+      backAllocation=backAllocation||(backTargetCastIds.length>1?"splitEvenly":"singleCast");
+    }
+    return{
+      itemId:String(item.id||""),label:String(item.label||""),category,
+      price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
+      castId:item.castId==null?"":String(item.castId),castName:String(item.castName||""),
+      banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
+      isSet:!!item.isSet,isHonShimei:!!item.isHonShimei,isBanaiShimei:!!item.isBanaiShimei,
+      isExtension:!!item.isExtension,isBanaiExtension:!!item.isBanaiExtension,isVipCharge:!!item.isVipCharge,isDiscount:!!item.isDiscount,
+      backTargetCastIds,backTargetCastNames:backTargetCastIds.map(id=>gmsCastName(id,"")),backType,backAllocation
+    };
+  });
+}
+function gmsTransactions(hist){
+  return(hist||[]).map(h=>({
+    transactionId:String(h.id||""),tableId:String(h.tableId||""),tableLabel:String(h.tableLabel||""),
+    startTime:Number(h.startTime)||0,endTime:Number(h.endTime)||0,guests:gmsInt(h.guests),note:String(h.note||""),
+    payMethod:h.payMethod==="card"?"card":"cash",
+    splits:(h.splits||[]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:gmsInt(sp.amount)})),
+    subtotal:gmsInt(h.subtotal),discount:gmsInt(h.discount),tax:gmsInt(h.tax),total:gmsInt(h.total),
+    items:gmsTransactionItems(h.items||[])
+  })).sort((a,b)=>a.startTime-b.startTime);
+}
+function gmsCastWork(day){
+  return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>{
+    const cast=allCasts().find(c=>String(c.id)===String(sh.castId));
+    const startTime=gmsHHMM(sh.clockIn),endTime=gmsHHMM(sh.clockOut||day.endedAt);
+    const castType=cast?.castType||sh.castType||"regular";
+    const name=sh.castName||cast?.name||"";
+    return{castId:String(sh.castId||""),castName:name,name,castType,isTrial:castType==="trial",startTime,endTime,breakMinutes:0,hours:gmsHours(startTime,endTime,0)};
+  });
+}
+function gmsLifecycleRows(date,type){
+  const log=(S.castLifecycleLogs||{})[date]||{};
+  const list=type==="entered"?log.enteredCasts:type==="exited"?log.exitedCasts:log.trialCasts;
+  return(Array.isArray(list)?list:[]).map(c=>({...c,castId:String(c.castId||""),castName:c.castName||c.name||"",internalNo:Number(c.internalNo)||0}));
+}
+function gmsChecksum(payload){
+  const copy={...payload};delete copy.checksum;
+  const text=JSON.stringify(copy);
+  let hash=2166136261;
+  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
+  return("00000000"+(hash>>>0).toString(16)).slice(-8);
+}
+function gmsClosingPayload(dayId){
+  const day=S.bizDays[dayId];if(!day)return null;
+  const hist=day.history||[],pay=gmsPaymentTotals(hist);
+  const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
+  const payload={
+    schema:"club-genesis-pos-closing",schemaVersion:1,exportedFrom:"CLUB_GENESIS_POS",exportedAt:new Date().toISOString(),
+    businessDate:day.date||dayId,status:"submitted",
+    sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
+    customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
+    nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
+    transactions:gmsTransactions(hist),castSales:gmsCastSales(hist),castWork:gmsCastWork(day),staffWork:[],
+    expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(day.date||dayId,"entered"),exitedCasts:gmsLifecycleRows(day.date||dayId,"exited"),trialCasts:gmsLifecycleRows(day.date||dayId,"trial"),
+    cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
+    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+  };
+  payload.checksum=gmsChecksum(payload);
+  return payload;
+}
+function exportGmsClosingJSON(dayId){
+  const payload=gmsClosingPayload(dayId);
+  if(!payload){alert("出力対象の営業日が見つかりません");return;}
+  if(!payload.transactions.length){alert("この営業日の会計データがありません");return;}
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download="genesis-pos-closing_"+payload.businessDate+"_v"+payload.schemaVersion+".json";
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 async function loadBizDayForReEdit(dayId){

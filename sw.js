@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.86-remove-closing';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.86', './printer-loader.js?v=6.86', './firebase-init.js?v=6.86', './app.js?v=6.86', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.87-gms-file-export';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.87', './printer-loader.js?v=6.87', './firebase-init.js?v=6.87', './app.js?v=6.87', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
