@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.92";
+const APP_VERSION="6.93";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -330,11 +330,11 @@ if(!window._fbFirstSync){
   render();return;
 }
 // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
-if(at&&vw!=="checkin"&&!S.sessions[at]){
+if(at&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
   at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
 }
 // 営業日が終了していたらホームへ
-if(S.activeBizDay===null&&["floor","checkin","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
+if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
@@ -616,7 +616,7 @@ function startSession(){
   const si=items.find(i=>i.isSet);
   S.sessions[at]=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
   guardedSessionSet(at,S.sessions[at],{expectCreate:true}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
-  vw="floor";ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
+  vw="floor";md=null;ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
   render();openFloorDetail(at);
 }
 function addExt(ext,wsc){
@@ -929,7 +929,7 @@ if(bizOnly){el.style.display=inBiz?"":"none";}
 else if(v==="admin"){el.style.display=isAdmin?"":"none";}
 // 設定は常時表示
 else{el.style.display="";}
-el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
+el.className="nb"+((v==="floor"&&vw==="floor")||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
   // 営業ボタン: LOモード中は赤ハイライト
   const opsBtn2=document.getElementById("ops-btn");
@@ -952,7 +952,6 @@ else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
 else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
-else if(vw==="checkin")m.innerHTML=rCI();
 else if(vw==="history")m.innerHTML=rHist();
 else if(vw==="analysis")m.innerHTML=rAnalysis();
 else if(vw==="shifts")m.innerHTML=rShifts();
@@ -982,9 +981,9 @@ function sv(v,extra){
   const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
-  vw=v;if(!["checkin","tableDetail","assignHistory"].includes(v))at=null;render();
+  vw=v;if(!["tableDetail","assignHistory"].includes(v))at=null;render();
 }
-function tc2(id){at=id;if(!S.sessions[id]){vw="checkin";etv=roundHHMM(5);render();}else{openFloorDetail(id);}}
+function tc2(id){if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
   const fom=document.getElementById("floor-order-modal");if(!fom)return;
@@ -2209,69 +2208,16 @@ a.attachedAt=a.startTime; // カウントアップ基準も同期
 }
 
 // ===== CHECKIN =====
-function rCI(){
-  const tl=S.tables.find(t=>t.id===at)?.label||"";
-  const isTabletPlus=DEV!=="mobile";
-  let html='<div style="max-width:600px;margin:0 auto;">';
-  html+='<button class="btn" onclick="sv(\'floor\')" style="font-size:12px;color:#888;padding:4px 0;margin-bottom:16px;background:none;">← フロアへ戻る</button>';
-  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;margin-bottom:20px;color:#d4a017;">'+tl+' — チェックイン</h2>';
-  // 人数
-  const btnSz=isTabletPlus?"50px":"44px";
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">人数</div><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
-  [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{
-html+='<button class="btn" data-n="'+n+'" onclick="sg(parseInt(this.dataset.n))" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';background:'+(ci.guests===n?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests===n?"#1a1200":"#e8dcc8")+';touch-action:manipulation;">'+n+'</button>';
-  });
-  html+='<input type="number" inputmode="numeric" min="1" max="99" placeholder="他" value="'+(ci.guests>12?ci.guests:"")+'" oninput="const v=parseInt(this.value);if(v>0){ci.guests=v;this.style.background=\'linear-gradient(135deg,#b8960c,#e8c84a)\';this.style.color=\'#1a1200\';}" onchange="const v=parseInt(this.value);if(v>0)sg(v);" style="width:'+btnSz+';height:'+btnSz+';border-radius:6px;font-weight:700;font-size:'+(isTabletPlus?"16px":"14px")+';text-align:center;background:'+(ci.guests>12?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';color:'+(ci.guests>12?"#1a1200":"#e8dcc8")+';border:1px solid rgba(255,255,255,.12);"/>';
-  html+='</div></div>';
-  // セットメニュー
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">セットメニュー *</div>';
-  const _selSet=ci.setMenu?[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===ci.setMenu):null;
-  if(_selSet){
-html+='<div style="background:rgba(184,150,12,.15);border:1px solid #b8960c;border-radius:6px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">'
-  +'<span style="color:#d4a017;font-size:'+(isTabletPlus?"15px":"13px")+'">'+_selSet.label+'</span>'
-  +'<span style="color:#d4a017;font-size:'+(isTabletPlus?"14px":"12px")+'">¥'+fmt(_selSet.price)+' / '+_selSet.minutes+'分</span>'
-  +'</div>';
-  }
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
-  const _nsCnt=(S.menus.normalSets||[]).length;
-  const _spCnt=(S.menus.sets||[]).length;
-  html+='<button class="btn" onclick="ci.setType=\'normal\';ci.setMenu=null;om(\'ci-set-select\')" style="padding:'+(isTabletPlus?"18px 12px":"14px 10px")+';border-radius:8px;background:'+(ci.setType==="normal"?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(ci.setType==="normal"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(ci.setType==="normal"?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"16px":"14px")+';font-weight:700;touch-action:manipulation;line-height:1.5;">通常セット<br><small style="font-size:11px;font-weight:400;opacity:.7;">'+(_nsCnt?_nsCnt+'種':'未設定')+'</small></button>';
-  html+='<button class="btn" onclick="ci.setType=\'special\';ci.setMenu=null;om(\'ci-set-select\')" style="padding:'+(isTabletPlus?"18px 12px":"14px 10px")+';border-radius:8px;background:'+(ci.setType==="special"?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:2px solid '+(ci.setType==="special"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(ci.setType==="special"?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"16px":"14px")+';font-weight:700;touch-action:manipulation;line-height:1.5;">特別セット<br><small style="font-size:11px;font-weight:400;opacity:.7;">'+(_spCnt?_spCnt+'種':'未設定')+'</small></button>';
-  html+='</div></div>';
-  // 時刻
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
-  html+='<div class="st" style="margin-bottom:10px;">入店時刻</div>';
-  html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">';
-  html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),-5);render()" style="width:44px;height:44px;font-size:18px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;flex-shrink:0;touch-action:manipulation;">−</button>';
-  html+='<input type="time" step="300" class="ip" style="flex:1;font-size:'+(isTabletPlus?"20px":"18px")+';text-align:center;height:44px;padding:0;" value="'+(etv||roundHHMM(5))+'" onchange="etv=this.value"/>';
-  html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),5);render()" style="width:44px;height:44px;font-size:18px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);color:#ccc;border-radius:8px;flex-shrink:0;touch-action:manipulation;">＋</button>';
-  html+='</div>';
-  html+='<div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px;">';
-  [-30,-15,-10,-5,5,10,15,30].forEach(d=>{
-const lbl=(d>0?"+":"")+d+"分";
-html+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),'+d+');render()" style="flex:1;min-width:42px;padding:6px 2px;font-size:11px;font-weight:700;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;touch-action:manipulation;">'+lbl+'</button>';
-  });
-  html+='</div>';
-  html+='<button class="btn" onclick="etv=roundHHMM(5);render()" style="font-size:11px;color:#666;background:none;padding:2px 0;">↺ 現在時刻にリセット</button>';
-  html+='</div>';
-  // 本指名
-  const hs=ci.honShimeis.map(id=>{const c=S.casts.find(c=>c.id===id);return'<span style="display:inline-flex;align-items:center;gap:4px;background:rgba(184,150,12,.2);border:1px solid #b8960c;border-radius:20px;padding:3px 10px;font-size:12px;color:#d4a017;">'+c?.name+' <button class="btn" data-hid="'+id+'" onclick="rhs(parseInt(this.dataset.hid))" style="background:none;color:#d4a017;font-size:14px;padding:2px;">×</button></span>';}).join("");
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">本指名キャスト</div>'+(hs?'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;">'+hs+'</div>':'<div style="font-size:12px;color:#444;margin-bottom:10px;">なし（フリー）</div>')+'<button class="btn" onclick="om(\'hsc\')" style="padding:'+(isTabletPlus?"9px 18px":"7px 14px")+';background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.3);color:#a78bfa;border-radius:4px;font-size:'+(isTabletPlus?"14px":"12px")+';">+ キャストを選択</button>'+(ci.honShimeis.length?'<div style="margin-top:8px;font-size:12px;color:#d4a017;">本指名料 ¥'+fmt(HON_SHIMEI_PRICE)+' × '+ci.honShimeis.length+'名 = ¥'+fmt(HON_SHIMEI_PRICE*ci.honShimeis.length)+'</div>':"")+'</div>';
-  // オプション
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:20px;"><div class="st">オプション</div><div style="display:flex;flex-wrap:wrap;gap:8px;">';
-  [["douhan","同伴料 ¥3,000"],["single","シングルチャージ ¥2,000/人"]].forEach(([k,l])=>{
-html+='<button class="btn" data-key="'+k+'" onclick="to2(this.dataset.key)" style="padding:'+(isTabletPlus?"10px 18px":"8px 14px")+';border-radius:6px;background:'+(ci[k]?"rgba(184,150,12,.2)":"rgba(255,255,255,.04)")+';border:1px solid '+(ci[k]?"#b8960c":"rgba(255,255,255,.08)")+';color:'+(ci[k]?"#d4a017":"#888")+';font-size:'+(isTabletPlus?"14px":"13px")+';touch-action:manipulation;">'+l+'</button>';
-  });
-  html+='</div></div>';
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st" style="margin-bottom:8px;">備考（任意）</div><input type="text" class="ip" placeholder="例: VIP希望、誕生日など" maxlength="40" value="'+ci.note+'" oninput="ci.note=this.value" style="font-size:'+(isTabletPlus?"15px":"14px")+';"/></div>';
-  html+='<button class="btn gbg" onclick="startSession()" '+(ci.setMenu?"":"disabled")+' style="width:100%;padding:'+(isTabletPlus?"16px":"14px")+';font-size:'+(isTabletPlus?"18px":"16px")+';font-weight:700;letter-spacing:.1em;border-radius:6px;touch-action:manipulation;'+(ci.setMenu?"":"opacity:.5;cursor:not-allowed;")+'">入店スタート</button>';
-  html+='</div>';
-  return html;
-}
-function sg(n){ci.guests=n;render();}
-function sm2(id){ci.setMenu=id;closeM();render();}
-function to2(k){ci[k]=!ci[k];render();}
-function rhs(id){ci.honShimeis=ci.honShimeis.filter(x=>x!==id);render();}
+function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);}
+function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
+function cancelCheckin(){resetCheckinState();at=null;closeM();render();}
+function ciGo(step){md=step;rModal();}
+function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set");}}
+function ciSelectSet(id){ci.setMenu=id;ciGo("ci-time");}
+function ciToggleHon(id){id=parseInt(id,10);ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
+function ciAfterHon(){if(ci.honShimeis.length>0)ciGo("ci-douhan");else if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
+function ciSetDouhan(v){ci.douhan=!!v;if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
+function ciSetSingle(v){ci.single=!!v;ciGo("ci-note");}
 function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save("sessions/"+at,S.sessions[at]);}
 
 // ===== ORDER =====
@@ -4683,30 +4629,50 @@ if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:r
 const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const isHon=(s?.items||[]).some(i=>i.isHonShimei&&i.castId===c.id);const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);const dsbl=isHon||dn;cb+='<button class="btn" '+(dsbl?"disabled":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":isHon?"rgba(255,255,255,.03)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":isHon?"rgba(255,255,255,.07)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":isHon?"#3a3a3a":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dsbl?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(isHon?'<div style="font-size:9px;color:#555;margin-top:2px;">本指名</div>':!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥'+fmt(BANAI_SHIMEI_PRICE)+'</div>':"")+' </button>';});
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥'+fmt(BANAI_SHIMEI_PRICE)+'/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
-  else if(md==="ci-set-select"){
-const _isNormal=ci.setType==="normal";
-const _ciMenus=_isNormal?(S.menus.normalSets||[]):(S.menus.sets||[]);
-const _ciTitle=_isNormal?"通常セット":"特別セット";
-let _ciBtns="";
-_ciMenus.forEach(s=>{
-  _ciBtns+='<button class="btn" data-sid="'+s.id+'" onclick="sm2(this.dataset.sid)" style="text-align:left;padding:14px 16px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;display:flex;justify-content:space-between;width:100%;margin-bottom:8px;touch-action:manipulation;">'
-    +'<span style="font-size:15px;">'+s.label+'</span>'
-    +'<span style="color:#d4a017;white-space:nowrap;font-size:14px;">¥'+fmt(s.price)+' / '+s.minutes+'分</span>'
-    +'</button>';
-});
-if(!_ciMenus.length){_ciBtns='<div style="font-size:14px;color:#555;padding:20px;text-align:center;">メニュー未設定<br><span style="font-size:12px;color:#444;">設定タブから追加してください</span></div>';}
-h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
-  +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">'+_ciTitle+'</h3>'
-  +'<div style="font-size:12px;color:#666;margin-bottom:14px;">メニューを選択してください</div>'
-  +'<div style="max-height:60vh;overflow-y:auto;">'+_ciBtns+'</div>'
-  +'<button class="btn" onclick="closeM()" style="margin-top:8px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
-  +'</div></div>';
+  else if(md&&String(md).indexOf("ci-")===0){
+const tl=S.tables.find(t=>t.id===at)?.label||"";
+const titleColor="#d4a017";
+const head='<div class="mo" onclick="cancelCheckin()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;"><h3 style="font-size:17px;color:'+titleColor+';margin-bottom:4px;">'+tl+' Check-in</h3>';
+const foot='<button class="btn" onclick="cancelCheckin()" style="margin-top:12px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">&#12461;&#12515;&#12531;&#12475;&#12523;</button></div></div>';
+if(md==="ci-guests"){
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20154;&#25968;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px;">';
+  [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{body+='<button class="btn" onclick="ciSetGuests('+n+')" style="height:48px;border-radius:8px;font-size:17px;font-weight:900;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;touch-action:manipulation;">'+n+'</button>';});
+  body+='</div><div style="display:flex;gap:8px;margin-top:10px;"><input id="ci-guests-custom" type="number" inputmode="numeric" min="1" max="99" class="ip" placeholder="&#12381;&#12398;&#20182;" style="flex:1;font-size:16px;"><button class="btn gbg" onclick="ciSetGuests(document.getElementById(\'ci-guests-custom\').value)" style="padding:10px 18px;font-weight:700;border-radius:6px;">OK</button></div>';
+  h=head+body+foot;
+}else if(md==="ci-set"){
+  const menus=[...(S.menus.normalSets||[]),...(S.menus.sets||[])];
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12475;&#12483;&#12488;&#12513;&#12491;&#12517;&#12540;&#12434;&#36984;&#25246;</div><div style="max-height:58vh;overflow-y:auto;">';
+  menus.forEach(m=>{body+='<button class="btn" data-sid="'+m.id+'" onclick="ciSelectSet(this.dataset.sid)" style="width:100%;margin-bottom:8px;padding:14px 16px;text-align:left;display:flex;justify-content:space-between;gap:10px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;touch-action:manipulation;"><span>'+m.label+'</span><span style="color:#d4a017;white-space:nowrap;">&#165;'+fmt(m.price)+' / '+m.minutes+'&#20998;</span></button>';});
+  if(!menus.length)body+='<div style="font-size:13px;color:#555;padding:18px;text-align:center;">&#12513;&#12491;&#12517;&#12540;&#26410;&#35373;&#23450;</div>';
+  body+='</div><button class="btn" onclick="ciGo(\'ci-guests\')" style="width:100%;padding:10px;margin-top:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  h=head+body+foot;
+}else if(md==="ci-time"){
+  if(!etv)etv=roundHHMM(5);
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20837;&#24215;&#26178;&#21051;&#12434;&#36984;&#25246;</div><div style="display:flex;align-items:center;gap:8px;">';
+  body+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),-5);rModal()" style="width:46px;height:46px;font-size:18px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.08);color:#ccc;">-</button>';
+  body+='<input type="time" step="300" class="ip" value="'+etv+'" onchange="etv=this.value" style="flex:1;height:46px;font-size:20px;text-align:center;">';
+  body+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),5);rModal()" style="width:46px;height:46px;font-size:18px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.08);color:#ccc;">+</button></div>';
+  body+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;">';[-30,-15,-10,-5,5,10,15,30].forEach(d=>{body+='<button class="btn" onclick="etv=adjustHHMM(etv||roundHHMM(5),'+d+');rModal()" style="flex:1;min-width:48px;padding:7px 4px;font-size:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;">'+(d>0?'+':'')+d+'</button>';});body+='</div>';
+  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-set\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciGo(\'ci-hon\')" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
+  h=head+body+foot;
+}else if(md==="ci-hon"){
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#26412;&#25351;&#21517;&#12461;&#12515;&#12473;&#12488;&#12434;&#36984;&#25246;&#65288;&#12394;&#12375;&#12391;&#12418;&#21487;&#65289;</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">';
+  sc().forEach(c=>{const sel=ci.honShimeis.includes(c.id);body+='<button class="btn" data-cid="'+c.id+'" onclick="ciToggleHon(this.dataset.cid)" style="padding:13px 8px;border-radius:6px;font-size:14px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(124,77,255,.1)')+';border:1px solid '+(sel?'#d4a017':'rgba(124,77,255,.3)')+';color:'+(sel?'#d4a017':'#a78bfa')+';touch-action:manipulation;">'+(sel?'&#10003; ':'')+c.name+'</button>';});
+  body+='</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-time\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterHon()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
+  h=head+body+foot;
+}else if(md==="ci-douhan"){
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#21516;&#20276;&#12458;&#12503;&#12471;&#12519;&#12531;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><button class="btn gbg" onclick="ciSetDouhan(true)" style="padding:16px;font-weight:900;border-radius:8px;">&#12388;&#12369;&#12427;</button><button class="btn" onclick="ciSetDouhan(false)" style="padding:16px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;">&#12388;&#12369;&#12394;&#12356;</button></div><button class="btn" onclick="ciGo(\'ci-hon\')" style="width:100%;padding:10px;margin-top:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  h=head+body+foot;
+}else if(md==="ci-single"){
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12471;&#12531;&#12464;&#12523;&#12481;&#12515;&#12540;&#12472;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><button class="btn gbg" onclick="ciSetSingle(true)" style="padding:16px;font-weight:900;border-radius:8px;">&#12388;&#12369;&#12427;</button><button class="btn" onclick="ciSetSingle(false)" style="padding:16px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;">&#12388;&#12369;&#12394;&#12356;</button></div><button class="btn" onclick="ciGo(\''+(ci.honShimeis.length?'ci-douhan':'ci-hon')+'\')" style="width:100%;padding:10px;margin-top:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  h=head+body+foot;
+}else if(md==="ci-note"){
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20633;&#32771;&#65288;&#20219;&#24847;&#65289;</div><input id="ci-note-input" class="ip" maxlength="40" value="'+(ci.note||'')+'" placeholder="&#20363;: VIP&#24076;&#26395;&#12394;&#12393;" oninput="ci.note=this.value" style="font-size:15px;margin-bottom:12px;">';
+  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><button class="btn" onclick="ciGo(\''+(ci.guests===1?'ci-single':(ci.honShimeis.length?'ci-douhan':'ci-hon'))+'\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="startSession()" style="padding:10px;font-weight:900;border-radius:4px;">&#20837;&#24215;&#12473;&#12479;&#12540;&#12488;</button></div>';
+  h=head+body+foot;
+}
   }
-  else if(md==="hsc"){
-let cb="";sc().forEach(c=>{const sel=ci.honShimeis.includes(c.id);cb+='<button class="btn" data-cid="'+c.id+'" onclick="thn(parseInt(this.dataset.cid))" style="padding:14px 8px;background:'+(sel?"rgba(184,150,12,.25)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#b8960c":"rgba(124,77,255,.3)")+';color:'+(sel?"#d4a017":"#a78bfa")+';border-radius:6px;font-size:14px;text-align:center;touch-action:manipulation;">'+(sel?"✓ ":"")+c.name+'<div style="font-size:10px;margin-top:2px;opacity:.7;">¥'+fmt(HON_SHIMEI_PRICE)+'</div></button>';});
-h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#a78bfa;">本指名キャストを選択</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">¥'+fmt(HON_SHIMEI_PRICE)+'/名</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow-y:auto;">'+cb+'</div>'+(ci.honShimeis.length?'<div style="margin-top:12px;padding:8px 12px;background:rgba(184,150,12,.1);border-radius:4px;font-size:12px;color:#d4a017;">合計 ¥'+fmt(HON_SHIMEI_PRICE*ci.honShimeis.length)+'（'+ci.honShimeis.length+'名）</div>':"")+'<button class="btn gbg" onclick="closeM()" style="margin-top:12px;width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:4px;touch-action:manipulation;">確定</button></div></div>';
-  }
-  else if(md==="setDetail"&&s){
+    else if(md==="setDetail"&&s){
 const items=(s.items||[]).filter(isSetCatItem);
 const delSt='width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;';
 let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div class="ir" style="min-height:36px;gap:4px;"><span style="flex:1;color:#ccc;font-size:13px;line-height:1.4;">'+lb+'</span><div style="display:flex;align-items:center;gap:5px;flex-shrink:0;"><span style="color:#d4a017;font-size:13px;font-weight:600;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
@@ -5568,7 +5534,6 @@ function addSCToSession(){
   s.items=[...s.items,{id:"sc_add_"+Date.now(),label:"シングルチャージ",price:scPrice,qty:1}];
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];render();rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history/"+dhi,null);dhi=null;closeM();render();}
 
 // ===== 出勤・退勤 =====
