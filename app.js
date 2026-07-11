@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.90";
+const APP_VERSION="6.91";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -5854,6 +5854,7 @@ async function startAssignNow(castId,tableId,type,prevAssignId=null){
   closingAssignments.forEach(a=>{a.endTime=now_sa;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active");
+  closeM();render();
   if(window._db){
 const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
@@ -5871,7 +5872,6 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
 }
 async function startAssign(castId,tableId,type,time,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
@@ -5892,6 +5892,7 @@ async function startAssign(castId,tableId,type,time,prevAssignId=null){
   closingAssignments.forEach(a=>{a.endTime=startTs;});
   const sh=getShiftByCastId(castId);
   if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
+  closeM();render();
   if(window._db){
 const _cu={};
 closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
@@ -5909,7 +5910,6 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
 }
 function changeAssignType(aid,newType){
   const a=S.assignments[aid];if(!a)return;
@@ -5923,6 +5923,7 @@ async function endAssign(aid){
   const now2=Date.now();
   a.endTime=now2;
   setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
+  closeM();render();
   if(window._db){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=a;
@@ -5941,13 +5942,13 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
 }
 async function moveToBreak(castId){
   const now2=Date.now();
   const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
   if(a)a.endTime=now2;
   setCastStatus(castId,"break"); // statusLogに新エントリを追加
+  closeM();render();
   if(window._db){
 const _cu={};
 if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
@@ -5967,7 +5968,6 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
 }
 function moveToWaiting(castId){
   setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
@@ -5982,6 +5982,7 @@ async function deleteAssign(aid){
   const _wasActive=!a.endTime;const _cid=a.castId;
   if(_wasActive){setCastStatus(_cid,"waiting");}
   delete S.assignments[aid];
+  closeM();render();
   if(window._db){
 const _cu={};
 _cu[FB_ROOT+"/assignments/"+aid]=null;
@@ -5999,7 +6000,6 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
 }
 
 // ===== 出勤画面 =====
