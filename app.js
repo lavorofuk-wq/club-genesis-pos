@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.88";
+const APP_VERSION="6.89";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -358,7 +358,7 @@ if(S.activeBizDay===null&&["floor","checkin","list","tableDetail","assignHistory
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-window._fbRenderTimer=setTimeout(()=>{render();refreshFloorModal();},80);
+window._fbRenderTimer=setTimeout(()=>{scheduleRender();refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
@@ -986,6 +986,13 @@ m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エ�
   }
   syncLegacyFloorCardSizes();
   if(!md)document.getElementById("md").innerHTML="";
+}
+let _renderPending=false;
+function scheduleRender(){
+  if(_renderPending)return;
+  _renderPending=true;
+  const schedule=window.requestAnimationFrame||function(fn){return setTimeout(fn,16);};
+  schedule(()=>{_renderPending=false;render();});
 }
 function sv(v,extra){
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
@@ -1649,6 +1656,13 @@ function rList(){
   const waiting=getWaitingCasts();
   const brk=getBreakCasts();
   const activeSessions=S.tables.filter(t=>S.sessions[t.id]);
+  const activeAssignments=Object.values(S.assignments||{}).filter(a=>!a.endTime);
+  const assignmentsByTable={};
+  activeAssignments.forEach(a=>{
+    const key=String(a.tableId||"");
+    if(!assignmentsByTable[key])assignmentsByTable[key]=[];
+    assignmentsByTable[key].push(a);
+  });
   const totalGuests=S.tables.reduce((s,t)=>s+(S.sessions[t.id]?.guests||0),0);
   const totalOnduty=getOnduty().length;
   const storeDiff=totalGuests-totalOnduty;
@@ -1715,7 +1729,7 @@ html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:
   html+='<div class="list-table-grid" style="display:grid;grid-template-columns:'+tblCols+';gap:clamp(8px,1.4vw,12px);align-content:start;align-items:start;">';
   S.tables.forEach(t=>{
 const s=S.sessions[t.id];
-const ac=Object.values(S.assignments||{}).filter(a=>a.tableId===t.id&&!a.endTime);
+const ac=assignmentsByTable[String(t.id)]||[];
 const rv=s?rem(s.setEndTime):null;
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
 const tc=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
@@ -5857,7 +5871,7 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
+  closeM();scheduleRender();
 }
 async function startAssign(castId,tableId,type,time,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
@@ -5895,12 +5909,12 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
+  closeM();scheduleRender();
 }
 function changeAssignType(aid,newType){
   const a=S.assignments[aid];if(!a)return;
   a.type=newType;
-  save("assignments/"+aid,a);closeM();render();
+  save("assignments/"+aid,a);closeM();scheduleRender();
 }
 function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
@@ -5927,7 +5941,7 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
+  closeM();scheduleRender();
 }
 async function moveToBreak(castId){
   const now2=Date.now();
@@ -5953,7 +5967,7 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
+  closeM();scheduleRender();
 }
 function moveToWaiting(castId){
   setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
@@ -5961,7 +5975,7 @@ function moveToWaiting(castId){
 const _sh=getShiftByCastId(castId);
 if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   }
-  render();
+  scheduleRender();
 }
 async function deleteAssign(aid){
   const a=S.assignments[aid];if(!a)return;
@@ -5985,7 +5999,7 @@ try{
   location.reload();return;
 }
   }
-  closeM();render();
+  closeM();scheduleRender();
 }
 
 // ===== 出勤画面 =====
