@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.87";
+const APP_VERSION="6.88";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -648,14 +648,14 @@ function addExt(ext,wsc){
   if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid,...becExtra});
   s.items=[...s.items,...ni];s.setEndTime=(s.setEndTime||Date.now())+ext.minutes*60000;
   banaiExtCastIds=[];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addVip(vip){
   const s=S.sessions[at];
   s.items=[...s.items,{id:vip.id+"_"+Date.now(),label:vip.label,price:vip.price,qty:1,isVipCharge:true}];
   if(vip.id==="v60")s.vipEndTime=Date.now()+vip.minutes*60000;
   else if(vip.id==="v30")s.vipEndTime=(s.vipEndTime||Date.now())+vip.minutes*60000;
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
@@ -686,7 +686,6 @@ function applyET(){
   etv=v;
   save("sessions/"+at,S.sessions[at]);closeM();
   if(vw==="floor")render();else renderOrderPartial();
-  refreshFloorModal();
 }
 function remItem(id){
   const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
@@ -720,7 +719,6 @@ s.items=(s?.items||[]).filter(i=>i.id!==id);
   }
   if(!_savedInline)save("sessions/"+at,S.sessions[at]);
   if(t.isSet)render();else renderOrderPartial();
-  refreshFloorModal();
 }
 // qty モーダル: DOM再構築なしで表示を更新（iPad キーボード維持用）
 function updateQtyDisplay(v){
@@ -747,14 +745,14 @@ function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
   s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.label,price:qm.price,qty,category:qm.category||""}];
-  save("sessions/"+at,S.sessions[at]);qm=null;qv=1;closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);qm=null;qv=1;closeM();renderOrderPartial();
 }
 function addCD(cid,did){
   const c=S.casts.find(c=>c.id===cid);const d=S.menus.castDrinks.find(d=>d.id===did);
   if(!c||!d)return;
   const s=S.sessions[at];
   s.items=[...s.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c.name+")",price:d.price,qty:1,category:"castDrink",castId:cid,castName:c.name,backTargetCastIds:[String(cid)],backTargetCastNames:[c.name],backType:"castDrink",backAllocation:"orderedCast"}];
-  save("sessions/"+at,S.sessions[at]);closeM();cds=0;cdc=null;renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();cds=0;cdc=null;renderOrderPartial();
 }
 function addCustom(){
   const lEl=document.getElementById("cu-label");
@@ -764,7 +762,7 @@ function addCustom(){
   const l=lEl?.value||"その他";
   const s=S.sessions[at];
   s.items=[...s.items,{id:"cu_"+Date.now(),label:l,price:p,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addGuestCustom(){
   const lEl=document.getElementById("gcu-label");
@@ -774,13 +772,13 @@ function addGuestCustom(){
   const l=lEl?.value||"その他";
   const s=S.sessions[at];
   s.items=[...s.items,{id:"gcu_"+Date.now(),label:l,price:p,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addCastCustomItem(itemId){
   const item=(S.menus.castCustomItems||[]).find(x=>x.id===itemId);if(!item)return;
   const s=S.sessions[at];
   s.items=[...s.items,{id:"cci_"+itemId+"_"+Date.now(),label:item.label,price:item.price,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function addDiscount(id){
   const d=(S.menus.discounts||[]).find(x=>x.id===id);if(!d)return;
@@ -806,7 +804,7 @@ function addCustomDiscount(){
   s.items=[...s.items,{id:"disc_"+Date.now(),label:lbl,price:-amt,qty:1,isDiscount:true,discountTarget:tgt}];
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[]).filter(i=>i.id!==id);save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();rModal();}
+function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[]).filter(i=>i.id!==id);save("sessions/"+at,S.sessions[at]);renderOrderPartial();rModal();}
 // 後からセット/指名を追加
 function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
@@ -830,7 +828,7 @@ function addHonShimeiToSession(cid){
   if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   s.items=[...s.items,{id:"hs_"+cid+"_"+Date.now(),label:"本指名料 ("+c.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isHonShimei:true}];
   s.honShimeis=[...(s.honShimeis||[]),cid];
-  save("sessions/"+at,S.sessions[at]);renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);renderOrderPartial();
 }
 async function checkout(){
   if(!at||!S.sessions[at])return;
@@ -931,6 +929,7 @@ _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
 
 // ===== RENDER ENGINE =====
 // order画面の差分更新（スクロール位置を保持する）
+let _floorModalRefreshPending=false;
 function renderOrderPartial(){refreshFloorModal();}
 
 
@@ -1018,8 +1017,14 @@ function closeFloorDetail(){
 function refreshFloorModal(){
   const fom=document.getElementById("floor-order-modal");
   if(!fom||fom.style.display==="none")return;
+  if(_floorModalRefreshPending)return;
+  _floorModalRefreshPending=true;
+  const schedule=window.requestAnimationFrame||function(fn){return setTimeout(fn,16);};
+  schedule(()=>{
+  _floorModalRefreshPending=false;
   const inner=document.getElementById("fom-inner");
   if(inner)inner.innerHTML=buildFloorOrderContent();
+  });
 }
 function buildFloorOrderContent(){
   const s=S.sessions[at];if(!s)return'';
@@ -5597,7 +5602,7 @@ return;
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,category:"castDrink",castId:cdc,castName:c?.name||"",backTargetCastIds:[String(cdc)],backTargetCastNames:[c?.name||""],backType:"castDrink",backAllocation:"orderedCast"}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();refreshFloorModal();}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;const c=S.casts.find(c=>c.id===cdc);const ses=S.sessions[at];ses.items=[...ses.items,{id:"cd_"+Date.now(),label:"キャストDrink ("+c?.name+")",price:p,qty:1,category:"castDrink",castId:cdc,castName:c?.name||"",backTargetCastIds:[String(cdc)],backTargetCastNames:[c?.name||""],backType:"castDrink",backAllocation:"orderedCast"}];save("sessions/"+at,S.sessions[at]);closeM();cds=0;renderOrderPartial();}
 function addExt2(id,wsc){const e=S.menus.extensions.find(e=>e.id===id);if(e)addExt(e,wsc);}
 function addVip2(id){const v=S.menus.vip.find(v=>v.id===id);if(v)addVip(v);}
 function tryExt(){
@@ -5616,7 +5621,7 @@ function addSCToSession(){
   const s=S.sessions[at];if(!s)return;
   const scPrice=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
   s.items=[...s.items,{id:"sc_add_"+Date.now(),label:"シングルチャージ",price:scPrice,qty:1}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();refreshFloorModal();
+  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
 function thn(id){ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];render();rModal();}
 function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history/"+dhi,null);dhi=null;closeM();render();}
