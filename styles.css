@@ -295,19 +295,9 @@ textarea.ip:focus{
   background:rgb(15 23 42 / .72)!important;
 }
 
-#pw-screen,
 #loading{
   background:var(--gms-bg)!important;
   color:var(--gms-text)!important;
-}
-
-#pw-screen > div{
-  width:min(92vw,420px)!important;
-  border:1px solid var(--gms-line)!important;
-  border-radius:8px!important;
-  background:var(--gms-surface)!important;
-  padding:30px!important;
-  box-shadow:0 10px 28px rgb(15 23 42 / .08)!important;
 }
 
 .sp{

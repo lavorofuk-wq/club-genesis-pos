@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.91";
+const APP_VERSION="6.92";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -89,7 +89,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},activeBizDay:null,config:{password:'genesis0127',pwEnabled:true,printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -232,22 +232,7 @@ function togglePriceHide(){
 }
 
 // ===== FIREBASE =====
-// Firebaseのconfig変更をリアルタイムでパスワード画面に反映
-function applyPWConfig(config){
-  const pwScreen=document.getElementById("pw-screen");
-  if(!pwScreen||pwScreen.style.display==="none")return;
-  const KEY="genesis_auth";
-  if(!config.pwEnabled){
-// パスワード無効 → 強制入室
-sessionStorage.setItem(KEY,"1");
-pwScreen.style.display="none";
-const loading=document.getElementById("loading");
-const app=document.getElementById("app");
-if(loading)loading.style.display="none";
-if(app)app.style.display="block";
-if(!window._fbInitDone){window._fbInitDone=true;render();initFB();}
-  }
-}
+// Firebase config
 function initFB(){
   const db=window._db;
   if(!db)return;
@@ -332,12 +317,7 @@ S.activeBizDay=d.activeBizDay||null;
 S.loMode=d.loMode||false;
 S.loStatus=d.loStatus||{};
 if(d.config){
-  S.config={password:d.config.password||'genesis0127',pwEnabled:d.config.pwEnabled!==false,printerIP:d.config.printerIP||'192.168.150.76',printerPort:d.config.printerPort||8008};
-  // キャッシュ更新（次回起動時に使用）
-  localStorage.setItem("genesis_pw_cache",S.config.password);
-  localStorage.setItem("genesis_pw_enabled_cache",S.config.pwEnabled?"1":"0");
-  // パスワード無効化をリアルタイムで反映（他端末からの変更にも対応）
-  applyPWConfig(S.config);
+  S.config={printerIP:d.config.printerIP||'192.168.150.76',printerPort:d.config.printerPort||8008};
 }
 // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
 sbs(true,"同期済み ✓");
@@ -2847,8 +2827,6 @@ html+='</div>';
 function rAdmin(){
   const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
   if(!isAdmin)return '<div style="padding:20px;color:#666;">管理モードが必要です</div>';
-  const pwEnabled=S.config.pwEnabled!==false;
-  const currentPW=S.config.password||'genesis0127';
   const bkDays=Object.values((S.backups||{}).bizDays||{}).sort((a,b)=>b.date.localeCompare(a.date));
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;margin-bottom:16px;">管理</h2>';
@@ -2871,22 +2849,8 @@ function rAdmin(){
   html+='<button class="btn" onclick="testPrint()" style="flex:1;padding:10px;font-size:13px;font-weight:600;border-radius:6px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;touch-action:manipulation;">テスト印刷</button>';
   html+='</div>';
   html+='</div>';
-  html+='<div class="st" style="margin-bottom:12px;">パスワード設定</div>';
-  html+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">';
-  html+='<div><div style="font-size:13px;color:#e8dcc8;">パスワード認証</div><div style="font-size:11px;color:#666;margin-top:2px;">OFFにすると認証なしでアクセス可能</div></div>';
-  html+='<button class="btn" onclick="togglePWEnabled()" style="padding:6px 14px;border-radius:20px;font-size:13px;font-weight:700;background:'+(pwEnabled?"rgba(74,222,128,.15)":"rgba(255,255,255,.08)")+';border:1px solid '+(pwEnabled?"rgba(74,222,128,.3)":"rgba(255,255,255,.15)")+';color:'+(pwEnabled?"#4ade80":"#666")+';touch-action:manipulation;">'+(pwEnabled?"ON":"OFF")+'</button>';
-  html+='</div>';
-  html+='<div class="st" style="margin-bottom:8px;">パスワードを変更</div>';
-  html+='<div style="display:flex;gap:8px;">';
-  html+='<input type="text" id="pw-new1" class="ip" placeholder="新しいパスワード" style="flex:1;font-size:14px;"/>';
-  html+='<input type="text" id="pw-new2" class="ip" placeholder="確認" style="flex:1;font-size:14px;"/>';
-  html+='<button class="btn gbg" onclick="changePW()" style="padding:8px 14px;font-size:13px;font-weight:700;white-space:nowrap;touch-action:manipulation;">変更</button>';
-  html+='</div>';
-  html+='<div style="font-size:11px;color:#555;margin-top:6px;">現在: <span style="color:#888;letter-spacing:.05em;">'+currentPW+'</span></div>';
-  html+='</div>';
-  // バックアップ管理（蓄積方式）
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:16px;border:1px solid rgba(56,189,248,.2);">';
-  html+='<div class="st" style="color:#38bdf8;margin-bottom:4px;">バックアップ</div>';
+  html+='<div class="st" style="color:#38bdf8;margin-bottom:4px;">Backup</div>';
   html+='<div style="font-size:11px;color:#666;margin-bottom:10px;">営業終了ごとに当営業日データを個別保存（蓄積）。削除操作の影響を受けません。</div>';
   const bkEntries2=Object.entries((S.backups||{}).bizDays||{}).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
   const bkDays2=bkEntries2.map(([,v])=>v);
@@ -3312,39 +3276,6 @@ alert("接続失敗: "+e.message+"\n\nIP: "+ip+"\nポート: "+port+"\n\n確認�
   }
 }
 
-function changePW(){
-  const v1=document.getElementById("pw-new1")?.value.trim();
-  const v2=document.getElementById("pw-new2")?.value.trim();
-  if(!v1){alert("新しいパスワードを入力してください");return;}
-  if(v1!==v2){alert("パスワードが一致しません");return;}
-  if(v1.length<4){alert("4文字以上で設定してください");return;}
-  S.config.password=v1;
-  const newConfig={password:v1,pwEnabled:S.config.pwEnabled!==false};
-  if(window._db){
-guardedSet("config",newConfig)
-  .then(()=>{
-    localStorage.setItem("genesis_pw_cache",v1);
-    sbs(true,"パスワード変更済み ✓");
-    alert("パスワードを変更しました："+v1+"\n全端末に反映されます");
-  })
-  .catch(()=>sbs(false,"保存エラー"));
-  }
-  render();
-}
-function togglePWEnabled(){
-  const cur=S.config.pwEnabled!==false;
-  S.config.pwEnabled=!cur;
-  const newConfig={password:S.config.password||'genesis0127',pwEnabled:!cur};
-  if(window._db){
-guardedSet("config",newConfig)
-  .then(()=>{
-    localStorage.setItem("genesis_pw_enabled_cache",(!cur)?"1":"0");
-    sbs(true,"設定保存済み ✓");
-  })
-  .catch(()=>sbs(false,"保存エラー"));
-  }
-  render();
-}
 function uml(k,id,v){if(v.trim()){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,label:v.trim()}:x);save("menus",S.menus);}}
 function ump(k,id,v){const p=parseInt(v,10);if(p>0){S.menus[k]=S.menus[k].map(x=>x.id===id?x.type==="percent"?{...x,value:p}:{...x,price:p}:x);S.menus=applyFixedShimeiPrices(S.menus);save("menus",S.menus);}}
 function umm(k,id,v){const m=parseInt(v,10);if(m>0){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,minutes:m}:x);save("menus",S.menus);}}
@@ -6153,69 +6084,15 @@ if(code==="gen"){
 }
 
 // ===== BOOT =====
-// ===== パスワード認証 =====
-(function(){
-  const KEY="genesis_auth";
-  // 起動時: Firebaseキャッシュ→localStorage→デフォルトの順で参照
-  const PW_ENABLED=localStorage.getItem("genesis_pw_enabled_cache")!=="0";
-  const PW=localStorage.getItem("genesis_pw_cache")||"genesis0127";
-  const pwScreen=document.getElementById("pw-screen");
-  const app=document.getElementById("app");
-  const loading=document.getElementById("loading");
-  if(!PW_ENABLED||sessionStorage.getItem(KEY)==="1"){
-// パスワード無効 or 認証済み：パスワード画面を非表示
-pwScreen.style.display="none";
-if(!PW_ENABLED)sessionStorage.setItem(KEY,"1"); // 無効時は自動認証
-  }else{
-// 未認証：アプリとローディングを隠してパスワード画面を表示
-pwScreen.style.display="flex";
-app.style.display="none";
-loading.style.display="none";
-  }
-  window.checkPW=function(){
-const val=document.getElementById("pw-input").value;
-if(val===PW){
-  sessionStorage.setItem(KEY,"1");
-  pwScreen.style.display="none";
-  loading.style.display="flex";
-  // Firebase接続開始
-	  waitFirebaseReadyForBoot();
-}else{
-  document.getElementById("pw-error").textContent="パスワードが違います";
-  document.getElementById("pw-input").value="";
-  document.getElementById("pw-input").focus();
-}
-  };
-})();
-
 function boot(){
-  // Firebaseからconfigを先読みしてパスワード状態を最新化
-  if(window._db){
-window._db.ref(FB_ROOT+"/config").once("value").then(snap=>{
-  const cfg=snap.val();
-  if(cfg){
-    localStorage.setItem("genesis_pw_cache",cfg.password||"genesis0127");
-    localStorage.setItem("genesis_pw_enabled_cache",cfg.pwEnabled!==false?"1":"0");
-    if(cfg.pwEnabled===false){
-      sessionStorage.setItem("genesis_auth","1");
-      document.getElementById("pw-screen").style.display="none";
-    }
-  }
-}).catch(()=>{}).finally(()=>{
-  // appを表示するがloadingはキープ → initFBの初回sync後に解除
-  document.getElementById("app").style.display="block";
+  const app=document.getElementById("app");
+  if(app)app.style.display="block";
   const lmsg=document.getElementById("lmsg");
-  if(lmsg)lmsg.textContent="データを同期中...";
+  if(lmsg)lmsg.textContent="Syncing data...";
   const lsub=document.getElementById("lsub");
-  if(lsub)lsub.textContent="同期が完了するまでお待ちください";
+  if(lsub)lsub.textContent="Please wait until sync completes";
   window._fbFirstSync=false;
   initFB();
-});
-  }else{
-document.getElementById("loading").style.display="none";
-document.getElementById("app").style.display="block";
-render();initFB();
-  }
 }
 	function waitFirebaseReadyForBoot(){
 	  const lmsg=document.getElementById("lmsg");
@@ -6231,6 +6108,4 @@ render();initFB();
 	  setTimeout(()=>{if(!window._fbReady)setMsg("Firebase接続を継続確認中...","まだ接続できていません。必要なら再読み込みしてください");},30000);
 	  setTimeout(()=>{if(!window._fbReady)setMsg("Firebase接続未完了","回線確認後、再読み込みしてください");},60000);
 	}
-	if(sessionStorage.getItem("genesis_auth")==="1"){
-	  waitFirebaseReadyForBoot();
-	}
+	waitFirebaseReadyForBoot();
