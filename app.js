@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.74";
+const APP_VERSION="6.73";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -345,7 +345,7 @@ if(at&&vw!=="checkin"&&!S.sessions[at]){
   at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
 }
 // 営業日が終了していたらホームへ
-if(S.activeBizDay===null&&["floor","checkin","list","assign","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
+if(S.activeBizDay===null&&["floor","checkin","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
@@ -823,17 +823,17 @@ function updateNav(){
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
   if(opsBtn)opsBtn.style.display=inBiz?"":"none";
-  [["nf","floor"],["nli","list"],["nas","assign"],["nsh","shifts"],["nh","history"],["ncl","closing"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
+  [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["ncl","closing"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
 const el=document.getElementById(id);if(!el)return;
 // フロア・リスト・出勤・売上は営業中のみ表示
-const bizOnly=["floor","list","assign","shifts","history"].includes(v);
+const bizOnly=["floor","list","shifts","history"].includes(v);
 if(bizOnly){el.style.display=inBiz?"":"none";}
 else if(v==="closing"){el.style.display=inBiz?"none":"";}
 // 管理は管理モード時のみ
 else if(v==="admin"){el.style.display=isAdmin?"":"none";}
 // 設定は常時表示
 else{el.style.display="";}
-el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v==="assign"&&vw==="assign")||(v===vw)?" ac":"");
+el.className="nb"+((v==="floor"&&["floor","checkin"].includes(vw))||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
   });
   // 営業ボタン: LOモード中は赤ハイライト
   const opsBtn2=document.getElementById("ops-btn");
@@ -855,7 +855,6 @@ function render(){
 if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis","closing"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
-else if(vw==="assign")m.innerHTML=rAssignMode();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
 else if(vw==="assignHistory")m.innerHTML=rAssignHistory();
 else if(vw==="checkin")m.innerHTML=rCI();
@@ -1522,101 +1521,6 @@ html+='</div>';
   html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\',useNow:true};om(\'tsuke\')" style="pointer-events:auto;padding:10px 20px;font-size:14px;font-weight:700;border-radius:24px;box-shadow:0 4px 20px rgba(0,0,0,.4);touch-action:manipulation;">＋ 付け回し</button>';
   html+='</div>';
 
-  html+='</div>';
-  return html;
-}
-
-function rAssignMode(){
-  const waiting=getWaitingCasts();
-  const brk=getBreakCasts();
-  const activeAssignments=Object.values(S.assignments||{}).filter(a=>!a.endTime);
-  const assignmentsByTable={};
-  activeAssignments.forEach(a=>{
-    const key=String(a.tableId||"");
-    if(!assignmentsByTable[key])assignmentsByTable[key]=[];
-    assignmentsByTable[key].push(a);
-  });
-  const activeTables=S.tables.filter(t=>S.sessions[t.id]);
-  const totalGuests=activeTables.reduce((sum,t)=>sum+(S.sessions[t.id]?.guests||0),0);
-  const onDutyCount=getOnduty().length;
-
-  let html='<div id="assign-mode-root" style="display:flex;flex-direction:column;gap:12px;">';
-  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">';
-  html+='<div style="flex:1;min-width:180px;">';
-  html+='<div style="font-size:11px;color:#888;letter-spacing:.12em;">ASSIGN MODE</div>';
-  html+='<div style="font-size:20px;font-weight:900;color:#e8dcc8;margin-top:2px;">付け回し専用</div>';
-  html+='</div>';
-  html+='<span style="font-size:12px;padding:5px 10px;border-radius:20px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.25);color:#d4a017;">卓 '+activeTables.length+'</span>';
-  html+='<span style="font-size:12px;padding:5px 10px;border-radius:20px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;">待機 '+waiting.length+'</span>';
-  html+='<span style="font-size:12px;padding:5px 10px;border-radius:20px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;">休憩 '+brk.length+'</span>';
-  html+='<span style="font-size:12px;padding:5px 10px;border-radius:20px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.25);color:#a78bfa;">出勤 '+onDutyCount+'</span>';
-  html+='<span style="font-size:12px;padding:5px 10px;border-radius:20px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.22);color:#38bdf8;">客数 '+totalGuests+'</span>';
-  html+='<button class="btn" onclick="sv(\'assignHistory\')" style="padding:8px 12px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;touch-action:manipulation;">履歴</button>';
-  html+='</div>';
-
-  const isMob=DEV==="mobile";
-  html+='<div style="display:grid;grid-template-columns:'+(isMob?"1fr":"minmax(190px,240px) 1fr")+';gap:12px;align-items:start;">';
-  html+='<div style="display:flex;flex-direction:column;gap:10px;">';
-
-  html+='<div id="dz-waiting" class="glass" style="border-radius:8px;padding:10px;min-height:90px;transition:background .2s;" ondragover="dzOver(event,\'waiting\')" ondragleave="dzLeave(\'waiting\')" ondrop="dzDrop(event,\'waiting\')">';
-  html+='<div style="font-size:12px;font-weight:900;color:#4ade80;margin-bottom:8px;">待機 '+waiting.length+'</div>';
-  if(!waiting.length)html+='<div style="font-size:12px;color:#444;text-align:center;padding:10px 0;">なし</div>';
-  waiting.forEach(sh=>{
-    const logs=sh.statusLog||[];
-    const lastLog=logs.filter(l=>l.status==="waiting"&&!l.endTime).pop();
-    const base=lastLog?lastLog.startTime:sh.clockIn;
-    html+=castChip(sh.castId,sh.castName,"waiting",null,Date.now()-base,base);
-  });
-  html+='</div>';
-
-  html+='<div id="dz-break" class="glass" style="border-radius:8px;padding:10px;min-height:90px;transition:background .2s;" ondragover="dzOver(event,\'break\')" ondragleave="dzLeave(\'break\')" ondrop="dzDrop(event,\'break\')">';
-  html+='<div style="font-size:12px;font-weight:900;color:#ffa500;margin-bottom:8px;">休憩 '+brk.length+'</div>';
-  if(!brk.length)html+='<div style="font-size:12px;color:#444;text-align:center;padding:10px 0;">なし</div>';
-  brk.forEach(sh=>{
-    const logs=sh.statusLog||[];
-    const lastLog=logs.filter(l=>l.status==="break"&&!l.endTime).pop();
-    const base=lastLog?lastLog.startTime:sh.clockIn;
-    html+=castChip(sh.castId,sh.castName,"break",null,Date.now()-base,base);
-  });
-  html+='</div>';
-  html+='<button class="btn gbg" onclick="tsukeMd={step:\'cast\',castId:null,type:null,tableId:null,time:\'\',useNow:true};om(\'tsuke\')" style="padding:12px 14px;font-size:14px;font-weight:900;border-radius:8px;touch-action:manipulation;">＋ 付け回し</button>';
-  html+='</div>';
-
-  const tblCols="repeat(auto-fit,minmax(min(100%,clamp(150px,18vw,220px)),1fr))";
-  html+='<div style="display:grid;grid-template-columns:'+tblCols+';gap:10px;align-items:start;">';
-  S.tables.forEach(t=>{
-    const s=S.sessions[t.id];
-    const ac=assignmentsByTable[String(t.id)]||[];
-    const active=!!s;
-    const rv=s?rem(s.setEndTime):null;
-    const exp=rv!==null&&rv<=0;
-    const urg=rv!==null&&rv>0&&rv<600000;
-    const timeText=rv===null?"--":exp?"- "+ts(-rv):"残 "+ts(rv);
-    const timeColor=exp?"#ff4444":urg?"#ff6b6b":"#d4a017";
-    html+='<div id="dz-tbl-'+t.id+'" class="glass" style="border-radius:8px;padding:10px;min-height:124px;transition:background .2s;border:1px solid '+(active?"rgba(212,160,23,.28)":"rgba(255,255,255,.06)")+';background:'+(active?"rgba(255,255,255,.045)":"rgba(255,255,255,.015)")+';" '+(active?'ondragover="dzOver(event,\'tbl\',\''+t.id+'\')" ondragleave="dzLeave(\'tbl\',\''+t.id+'\')" ondrop="dzDrop(event,\'tbl\',\''+t.id+'\')"':'')+'>';
-    html+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;margin-bottom:8px;">';
-    html+='<div style="min-width:0;">';
-    html+='<div style="font-size:14px;font-weight:900;color:'+(active?"#e8dcc8":"#555")+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.label+'</div>';
-    html+='<div style="font-size:11px;color:#888;margin-top:2px;">'+(active?(s.guests+'名 / '+ac.length+'人'):'空席')+'</div>';
-    html+='</div>';
-    if(active)html+='<div data-countdown="'+s.setEndTime+'" data-fmt="r" style="font-size:12px;font-weight:900;color:'+timeColor+';white-space:nowrap;">'+timeText+'</div>';
-    html+='</div>';
-    if(active){
-      if(ac.length){
-        html+='<div style="display:flex;flex-direction:column;gap:5px;">';
-        ac.forEach(a=>{
-          const base=a.attachedAt||a.startTime;
-          html+=castChip(a.castId,a.castName,"active",a,Date.now()-base,base);
-        });
-        html+='</div>';
-      }else{
-        html+='<div style="font-size:12px;color:#444;text-align:center;padding:14px 0;border:1px dashed rgba(255,255,255,.08);border-radius:6px;">ドロップ</div>';
-      }
-    }
-    html+='</div>';
-  });
-  html+='</div>';
-  html+='</div>';
   html+='</div>';
   return html;
 }
