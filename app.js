@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.93";
+const APP_VERSION="6.94";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -2212,12 +2212,15 @@ function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[
 function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
 function cancelCheckin(){resetCheckinState();at=null;closeM();render();}
 function ciGo(step){md=step;rModal();}
-function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set");}}
+function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set-type");}}
+function ciSelectSetType(type){ci.setType=type;ci.setMenu=null;ciGo("ci-set");}
 function ciSelectSet(id){ci.setMenu=id;ciGo("ci-time");}
 function ciToggleHon(id){id=parseInt(id,10);ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function ciAfterHon(){if(ci.honShimeis.length>0)ciGo("ci-douhan");else if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
-function ciSetDouhan(v){ci.douhan=!!v;if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
-function ciSetSingle(v){ci.single=!!v;ciGo("ci-note");}
+function ciSetDouhan(v){ci.douhan=!!v;rModal();}
+function ciAfterDouhan(){if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
+function ciSetSingle(v){ci.single=!!v;rModal();}
+function ciAfterSingle(){ciGo("ci-note");}
 function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save("sessions/"+at,S.sessions[at]);}
 
 // ===== ORDER =====
@@ -4632,19 +4635,29 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   else if(md&&String(md).indexOf("ci-")===0){
 const tl=S.tables.find(t=>t.id===at)?.label||"";
 const titleColor="#d4a017";
-const head='<div class="mo" onclick="cancelCheckin()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;"><h3 style="font-size:17px;color:'+titleColor+';margin-bottom:4px;">'+tl+' Check-in</h3>';
+const head='<div class="mo" onclick="cancelCheckin()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;"><h3 style="font-size:17px;color:'+titleColor+';margin-bottom:4px;">'+tl+' &#12481;&#12455;&#12483;&#12463;&#12452;&#12531;</h3>';
 const foot='<button class="btn" onclick="cancelCheckin()" style="margin-top:12px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">&#12461;&#12515;&#12531;&#12475;&#12523;</button></div></div>';
 if(md==="ci-guests"){
   let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20154;&#25968;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px;">';
   [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{body+='<button class="btn" onclick="ciSetGuests('+n+')" style="height:48px;border-radius:8px;font-size:17px;font-weight:900;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;touch-action:manipulation;">'+n+'</button>';});
   body+='</div><div style="display:flex;gap:8px;margin-top:10px;"><input id="ci-guests-custom" type="number" inputmode="numeric" min="1" max="99" class="ip" placeholder="&#12381;&#12398;&#20182;" style="flex:1;font-size:16px;"><button class="btn gbg" onclick="ciSetGuests(document.getElementById(\'ci-guests-custom\').value)" style="padding:10px 18px;font-weight:700;border-radius:6px;">OK</button></div>';
   h=head+body+foot;
+}else if(md==="ci-set-type"){
+  const normalCount=(S.menus.normalSets||[]).length;
+  const specialCount=(S.menus.sets||[]).length;
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12475;&#12483;&#12488;&#31278;&#21029;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">';
+  body+='<button class="btn" onclick="ciSelectSetType(\'normal\')" style="padding:18px 10px;border-radius:8px;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.32);color:#d4a017;font-weight:900;touch-action:manipulation;">&#36890;&#24120;&#12475;&#12483;&#12488;<div style="font-size:11px;color:#888;margin-top:5px;font-weight:500;">'+(normalCount?normalCount+'&#31278;':'&#26410;&#35373;&#23450;')+'</div></button>';
+  body+='<button class="btn" onclick="ciSelectSetType(\'special\')" style="padding:18px 10px;border-radius:8px;background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.32);color:#a78bfa;font-weight:900;touch-action:manipulation;">&#29305;&#21029;&#12475;&#12483;&#12488;<div style="font-size:11px;color:#888;margin-top:5px;font-weight:500;">'+(specialCount?specialCount+'&#31278;':'&#26410;&#35373;&#23450;')+'</div></button>';
+  body+='</div><button class="btn" onclick="ciGo(\'ci-guests\')" style="width:100%;padding:10px;margin-top:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  h=head+body+foot;
 }else if(md==="ci-set"){
-  const menus=[...(S.menus.normalSets||[]),...(S.menus.sets||[])];
-  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12475;&#12483;&#12488;&#12513;&#12491;&#12517;&#12540;&#12434;&#36984;&#25246;</div><div style="max-height:58vh;overflow-y:auto;">';
+  const isNormal=ci.setType==="normal";
+  const menus=isNormal?(S.menus.normalSets||[]):(S.menus.sets||[]);
+  const setLabel=isNormal?'&#36890;&#24120;&#12475;&#12483;&#12488;':'&#29305;&#21029;&#12475;&#12483;&#12488;';
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">'+setLabel+'&#12434;&#36984;&#25246;</div><div style="max-height:58vh;overflow-y:auto;">';
   menus.forEach(m=>{body+='<button class="btn" data-sid="'+m.id+'" onclick="ciSelectSet(this.dataset.sid)" style="width:100%;margin-bottom:8px;padding:14px 16px;text-align:left;display:flex;justify-content:space-between;gap:10px;border-radius:6px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#e8dcc8;touch-action:manipulation;"><span>'+m.label+'</span><span style="color:#d4a017;white-space:nowrap;">&#165;'+fmt(m.price)+' / '+m.minutes+'&#20998;</span></button>';});
   if(!menus.length)body+='<div style="font-size:13px;color:#555;padding:18px;text-align:center;">&#12513;&#12491;&#12517;&#12540;&#26410;&#35373;&#23450;</div>';
-  body+='</div><button class="btn" onclick="ciGo(\'ci-guests\')" style="width:100%;padding:10px;margin-top:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  body+='</div><button class="btn" onclick="ciGo(\'ci-set-type\')" style="width:100%;padding:10px;margin-top:8px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
   h=head+body+foot;
 }else if(md==="ci-time"){
   if(!etv)etv=roundHHMM(5);
@@ -4661,10 +4674,16 @@ if(md==="ci-guests"){
   body+='</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-time\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterHon()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-douhan"){
-  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#21516;&#20276;&#12458;&#12503;&#12471;&#12519;&#12531;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><button class="btn gbg" onclick="ciSetDouhan(true)" style="padding:16px;font-weight:900;border-radius:8px;">&#12388;&#12369;&#12427;</button><button class="btn" onclick="ciSetDouhan(false)" style="padding:16px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;">&#12388;&#12369;&#12394;&#12356;</button></div><button class="btn" onclick="ciGo(\'ci-hon\')" style="width:100%;padding:10px;margin-top:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  const sel=!!ci.douhan;
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#21516;&#20276;&#12458;&#12503;&#12471;&#12519;&#12531;&#65288;&#20219;&#24847;&#65289;</div>';
+  body+='<button class="btn" onclick="ciSetDouhan(!ci.douhan)" style="width:100%;padding:16px;font-weight:900;border-radius:8px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(255,255,255,.05)')+';border:1px solid '+(sel?'#d4a017':'rgba(255,255,255,.1)')+';color:'+(sel?'#d4a017':'#aaa')+';touch-action:manipulation;">'+(sel?'&#10003; ':'')+'&#21516;&#20276;</button>';
+  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-hon\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterDouhan()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-single"){
-  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12471;&#12531;&#12464;&#12523;&#12481;&#12515;&#12540;&#12472;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><button class="btn gbg" onclick="ciSetSingle(true)" style="padding:16px;font-weight:900;border-radius:8px;">&#12388;&#12369;&#12427;</button><button class="btn" onclick="ciSetSingle(false)" style="padding:16px;font-weight:900;border-radius:8px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;">&#12388;&#12369;&#12394;&#12356;</button></div><button class="btn" onclick="ciGo(\''+(ci.honShimeis.length?'ci-douhan':'ci-hon')+'\')" style="width:100%;padding:10px;margin-top:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button>';
+  const sel=!!ci.single;
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#12471;&#12531;&#12464;&#12523;&#12481;&#12515;&#12540;&#12472;&#65288;&#20219;&#24847;&#65289;</div>';
+  body+='<button class="btn" onclick="ciSetSingle(!ci.single)" style="width:100%;padding:16px;font-weight:900;border-radius:8px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(255,255,255,.05)')+';border:1px solid '+(sel?'#d4a017':'rgba(255,255,255,.1)')+';color:'+(sel?'#d4a017':'#aaa')+';touch-action:manipulation;">'+(sel?'&#10003; ':'')+'&#12471;&#12531;&#12464;&#12523;&#12481;&#12515;&#12540;&#12472;</button>';
+  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\''+(ci.honShimeis.length?'ci-douhan':'ci-hon')+'\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterSingle()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-note"){
   let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20633;&#32771;&#65288;&#20219;&#24847;&#65289;</div><input id="ci-note-input" class="ip" maxlength="40" value="'+(ci.note||'')+'" placeholder="&#20363;: VIP&#24076;&#26395;&#12394;&#12393;" oninput="ci.note=this.value" style="font-size:15px;margin-bottom:12px;">';
