@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.95";
+const APP_VERSION="6.96";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -1353,6 +1353,15 @@ function gmsCastSales(hist){
   });
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
+function gmsCastSalesSummary(rows){
+  return(rows||[]).reduce((sum,row)=>({
+    honShimeiSales:sum.honShimeiSales+gmsInt(row.honShimeiSales),
+    jonaiExtensionSales:sum.jonaiExtensionSales+gmsInt(row.jonaiExtensionSales),
+    jonaiExtensionBackSales:sum.jonaiExtensionBackSales+gmsInt(row.jonaiExtensionBackSales),
+    drinkSales:sum.drinkSales+gmsInt(row.drinkSales),
+    totalAttributedSales:sum.totalAttributedSales+gmsInt(row.totalAttributedSales)
+  }),{honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,drinkSales:0,totalAttributedSales:0});
+}
 function gmsTransactionItems(items){
   const src=(items||[]).filter(Boolean);
   const noHon=!src.some(i=>i.isHonShimei);
@@ -1416,16 +1425,17 @@ function gmsClosingPayload(dayId){
   const day=S.bizDays[dayId];if(!day)return null;
   const hist=day.history||[],pay=gmsPaymentTotals(hist);
   const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
+  const businessDate=day.date||dayId,transactions=gmsTransactions(hist),castSales=gmsCastSales(hist);
   const payload={
     schema:"club-genesis-pos-closing",schemaVersion:1,exportedFrom:"CLUB_GENESIS_POS",exportedAt:new Date().toISOString(),
-    businessDate:day.date||dayId,status:"submitted",
+    businessDate,status:"submitted",
     sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
     customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
-    transactions:gmsTransactions(hist),castSales:gmsCastSales(hist),castWork:gmsCastWork(day),staffWork:[],
-    expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(day.date||dayId,"entered"),exitedCasts:gmsLifecycleRows(day.date||dayId,"exited"),trialCasts:gmsLifecycleRows(day.date||dayId,"trial"),
+    transactions,castSales,castSalesSummary:gmsCastSalesSummary(castSales),castWork:gmsCastWork(day),staffWork:[],
+    expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(businessDate,"entered"),exitedCasts:gmsLifecycleRows(businessDate,"exited"),trialCasts:gmsLifecycleRows(businessDate,"trial"),
     cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
-    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",submissionId:"pos_json_"+businessDate,businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
   };
   payload.checksum=gmsChecksum(payload);
   return payload;
