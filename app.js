@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.97";
+const APP_VERSION="6.98";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -4097,6 +4097,12 @@ function freeDrinkPriceForMinutes(minutes,s){
   const m=Math.max(30,Number(minutes)||60);
   return Math.ceil(m/30)*1000;
 }
+function singleChargePriceForMinutes(minutes){
+  const scOpt=(S.menus.options||[]).find(o=>o.id==="sc");
+  const unit=Number(scOpt?.price)||2000;
+  const m=Math.max(0,Number(minutes)||0);
+  return Math.round((unit*m/60)/100)*100;
+}
 function calcEstForMinutes(s,extraMinutes,useVipExt){
   const extraItems=[];
   if(extraMinutes>0){
@@ -4129,9 +4135,8 @@ if(vip30&&extraMinutes>0){
   const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
   const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
   if((hasSC||s.guests===1)&&!hasAddedGuests&&extraMinutes>0){
-const scOpt=S.menus.options.find(o=>o.id==="sc");
-const scPrice=scOpt?scOpt.price:2000;
-extraItems.push({id:"est_sc",label:"シングルチャージ（延長）",price:scPrice,qty:1});
+const scPrice=singleChargePriceForMinutes(extraMinutes);
+if(scPrice>0)extraItems.push({id:"est_sc",label:"\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8\uff08\u6982\u7b97"+extraMinutes+"\u5206\uff09",price:scPrice,qty:1});
   }
   const fake={...s,items:[...s.items,...extraItems.map((x,i)=>({...x,id:"estx_"+i}))]};
   return{...ct(fake),extraItems,extraMinutes,useVipExt};
