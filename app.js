@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.98";
+const APP_VERSION="6.99";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -626,7 +626,7 @@ function addExt(ext,wsc){
   const becNames=becs.map(id=>S.casts.find(c=>c.id===id)?.name||"").filter(Boolean);
   const becExtra=becs.length>0?{isBanaiExtension:true,banaiExtCastIds:becs,banaiExtCastNames:becNames}:{};
   const ni=[{id:"e_"+gid,label:ext.label,price:ext.price,qty:s.guests,isExtension:true,extMinutes:ext.minutes,groupId:gid,...becExtra}];
-  if(wsc)ni.push({id:"sc_"+gid,label:"シングルチャージ（延長）",price:2000,qty:1,isExtension:true,groupId:gid,...becExtra});
+  if(wsc&&!hasExtensionSingleCharge(s))ni.push({id:"sc_"+gid,label:"\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8\uff08\u5ef6\u9577\uff09",price:singleChargePrice(),qty:1,isExtension:true,groupId:gid,...becExtra});
   if(hasFreeDrinkItem(s)){const fdMinutes=Number(ext.minutes)||60;ni.push({id:"fd_"+gid,label:freeDrinkLabel(fdMinutes,true),price:freeDrinkPriceForMinutes(fdMinutes,s),qty:s.guests,groupId:gid,isFreeDrink:true,freeDrinkMinutes:fdMinutes});}
   s.items=[...s.items,...ni];s.setEndTime=(s.setEndTime||Date.now())+ext.minutes*60000;
   banaiExtCastIds=[];
@@ -4088,20 +4088,19 @@ function isFreeDrinkItem(i){
   return !!(i?.isFreeDrink||id==="fd"||id==="fd_add"||id==="freedrink"||id.startsWith("fd_")||label.includes("\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af"));
 }
 function hasFreeDrinkItem(s){return (s?.items||[]).some(isFreeDrinkItem);}
-function hasZeroFreeDrinkItem(s){
-  const items=(s?.items||[]).filter(isFreeDrinkItem);
-  return items.length>0&&Number(items[items.length-1].price)===0;
-}
-function freeDrinkPriceForMinutes(minutes,s){
-  if(s&&hasZeroFreeDrinkItem(s))return 0;
+function freeDrinkPriceForMinutes(minutes){
   const m=Math.max(30,Number(minutes)||60);
   return Math.ceil(m/30)*1000;
 }
-function singleChargePriceForMinutes(minutes){
+function singleChargePrice(){
   const scOpt=(S.menus.options||[]).find(o=>o.id==="sc");
-  const unit=Number(scOpt?.price)||2000;
-  const m=Math.max(0,Number(minutes)||0);
-  return Math.round((unit*m/60)/100)*100;
+  return Number(scOpt?.price)||2000;
+}
+function hasExtensionSingleCharge(s){
+  return (s?.items||[]).some(i=>i.isExtension&&String(i.id||"").startsWith("sc_"));
+}
+function singleChargePriceForMinutes(minutes){
+  return Number(minutes)>0?singleChargePrice():0;
 }
 function calcEstForMinutes(s,extraMinutes,useVipExt){
   const extraItems=[];
@@ -4134,7 +4133,7 @@ if(vip30&&extraMinutes>0){
   // SC加算：入店時にSCあり または1名の場合、かつ追加セットなしの場合
   const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
   const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
-  if((hasSC||s.guests===1)&&!hasAddedGuests&&extraMinutes>0){
+  if((hasSC||s.guests===1)&&!hasAddedGuests&&!hasExtensionSingleCharge(s)&&extraMinutes>0){
 const scPrice=singleChargePriceForMinutes(extraMinutes);
 if(scPrice>0)extraItems.push({id:"est_sc",label:"\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8\uff08\u6982\u7b97"+extraMinutes+"\u5206\uff09",price:scPrice,qty:1});
   }
@@ -4611,14 +4610,15 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const hasSC=(s?.items||[]).some(i=>i.label&&i.label.includes("シングルチャージ")&&!i.isExtension);
 const hasAddedGuests=(s?.items||[]).some(i=>i.isSet&&(i.addedGuests||0)>0);
 // 1人の場合は（人数削減含む）常にSC込み延長を表示
-const showSCBtn=s.guests===1||(hasSC&&!hasAddedGuests);
+const hasExtSC=hasExtensionSingleCharge(s);
+const showSCBtn=!hasExtSC&&(s.guests===1||(hasSC&&!hasAddedGuests));
 let ns='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
 S.menus.extensions.forEach(e=>{ns+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,false)" style="padding:14px 8px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests)+'</div>'+(s.guests>1?'<div style="font-size:10px;opacity:.5;">¥'+fmt(e.price)+" × "+s.guests+'名</div>':"")+' </button>';});
 ns+='</div>';
 let ws="";
 if(showSCBtn){
   ws='<div style="margin-top:14px;"><div class="st" style="margin-bottom:8px;">SC込み</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">';
-  S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price+2000)+'</div><div style="font-size:10px;opacity:.5;">延長+SC</div></button>';});
+  S.menus.extensions.forEach(e=>{ws+='<button class="btn" data-eid="'+e.id+'" onclick="addExt2(this.dataset.eid,true)" style="padding:14px 8px;background:rgba(255,165,0,.16);border:1px solid rgba(255,165,0,.45);color:#ffd066;border-radius:6px;text-align:center;touch-action:manipulation;"><div style="font-weight:700;font-size:16px;">'+e.minutes+'分</div><div style="font-size:12px;margin-top:3px;">¥'+fmt(e.price*s.guests+singleChargePrice())+'</div><div style="font-size:10px;opacity:.5;">延長+SC</div></button>';});
   ws+='</div></div>';
 }
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;"><h3 style="margin-bottom:16px;font-size:16px;color:#ffa500;">延長</h3>'+ns+ws+'<button class="btn" onclick="closeM()" style="margin-top:16px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button></div></div>';
