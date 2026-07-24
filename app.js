@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.100";
+const APP_VERSION="6.101";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -90,7 +90,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -314,6 +314,7 @@ S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)
 S.shifts=d.shifts||{};
 S.assignments=d.assignments||{};
 S.bizDays=d.bizDays||{};
+S.gmsExportMeta=d.gmsExportMeta||{};
 S.activeBizDay=d.activeBizDay||null;
 S.loMode=d.loMode||false;
 S.loStatus=d.loStatus||{};
@@ -1225,7 +1226,8 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   // CSV出力ボタン
   html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">GMS取込JSON</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,false)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">GMS\u53d6\u8fbcJSON</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,true)" style="padding:8px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#d97706;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">\u8a02\u6b63\u7248JSON</button>';
   html+='</div>';
   html+='</div>';
   return html;
@@ -1303,11 +1305,11 @@ function gmsItemCategory(item){
   if(item.isFreeDrink||id.startsWith("fd"))return"freeDrink";
   if(item.isHonShimei)return"honShimei";
   if(item.isBanaiShimei)return"banaiShimei";
-  if(item.id==="dh"||item.label==="同伴料")return"dohan";
+  if(item.id==="dh"||item.label==="\u540c\u4f34\u6599")return"dohan";
   if(id.startsWith("cd_"))return"castDrink";
   if(item.isExtension)return item.isBanaiExtension?"banaiExtension":"extension";
-  if(/シャンパン|ワイン/.test(item.label||""))return"champagneWine";
-  if(/キープ|ボトル/.test(item.label||""))return"keepBottle";
+  if(/\u30b7\u30e3\u30f3\u30d1\u30f3|\u30ef\u30a4\u30f3/.test(item.label||""))return"champagneWine";
+  if(/\u30ad\u30fc\u30d7|\u30dc\u30c8\u30eb/.test(item.label||""))return"keepBottle";
   return"";
 }
 function gmsIsBanaiBackItem(item){const c=gmsItemCategory(item);return c==="champagneWine"||c==="keepBottle";}
@@ -1417,6 +1419,55 @@ function gmsLifecycleRows(date,type){
   const list=type==="entered"?log.enteredCasts:type==="exited"?log.exitedCasts:log.trialCasts;
   return(Array.isArray(list)?list:[]).map(c=>({...c,castId:String(c.castId||""),castName:c.castName||c.name||"",internalNo:Number(c.internalNo)||0}));
 }
+function gmsIso(value,fallback){
+  const v=value||fallback||Date.now();
+  const d=new Date(typeof v==="number"?v:String(v));
+  return isNaN(d.getTime())?new Date(fallback||Date.now()).toISOString():d.toISOString();
+}
+function gmsIsoForEvent(row,field,businessDate,day){
+  const v=row?.[field]||row?.eventAt||row?.registeredAt||row?.ts||day?.startedAt||businessDate+"T00:00:00+09:00";
+  return gmsIso(v,businessDate+"T00:00:00+09:00");
+}
+function gmsStableHash(text,seed){
+  let hash=seed||2166136261;
+  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
+  return("00000000"+(hash>>>0).toString(16)).slice(-8);
+}
+function gmsStableId(prefix,parts){
+  const text=JSON.stringify(parts||[]);
+  return prefix+"_"+gmsStableHash(text,2166136261)+gmsStableHash(text,2166136261^0x9e3779b9);
+}
+function gmsRosterSnapshot(capturedAt){
+  const casts=allCasts().map(c=>({
+    castId:String(c.id||""),
+    name:String(c.name||""),
+    castName:String(c.name||""),
+    internalNo:Number(c.internalNo)||0,
+    status:c.castType==="trial"?"trial":c.active===false?"departed":"active",
+    castType:c.castType||"regular"
+  }));
+  return{complete:casts.every(c=>!!c.castId),capturedAt,casts};
+}
+function gmsLifecycleEvents(businessDate,day){
+  const entered=gmsLifecycleRows(businessDate,"entered").map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
+  const departed=gmsLifecycleRows(businessDate,"exited").map(row=>({row,eventType:"departed",timeField:"exitedAt"}));
+  const trial=gmsLifecycleRows(businessDate,"trial").map(row=>({row,eventType:"trial",timeField:"trialRegisteredAt"}));
+  return[...entered,...departed,...trial].map(({row,eventType,timeField})=>{
+    const eventAt=gmsIsoForEvent(row,timeField,businessDate,day);
+    const castId=String(row.castId||"");
+    const eventId=String(row.eventId||gmsStableId("evt",[businessDate,eventType,castId,eventAt,Number(row.internalNo)||0]));
+    return{eventId,eventType,eventAt,castId,castName:String(row.castName||row.name||""),entryDate:String(row.entryDate||row.trialBizDay||businessDate),internalNo:Number(row.internalNo)||0};
+  }).sort((a,b)=>a.eventAt.localeCompare(b.eventAt)||a.eventId.localeCompare(b.eventId));
+}
+function gmsLocalMeta(){try{return JSON.parse(localStorage.getItem("genesis_gms_export_meta_v2")||"{}")||{};}catch(e){return{};}}
+function gmsPutLocalMeta(meta){try{localStorage.setItem("genesis_gms_export_meta_v2",JSON.stringify(meta||{}));}catch(e){}}
+function gmsGetExportMeta(date){return{...gmsLocalMeta()[date],...(S.gmsExportMeta||{})[date]};}
+async function gmsSaveExportMeta(date,meta){
+  const local={...gmsLocalMeta(),[date]:meta};
+  gmsPutLocalMeta(local);
+  S.gmsExportMeta={...(S.gmsExportMeta||{}),[date]:meta};
+  if(window._db){try{await guardedSet("gmsExportMeta/"+date,meta,{silent:true});}catch(e){console.warn("gms export meta save failed",e);}}
+}
 function gmsChecksum(payload){
   const copy={...payload};delete copy.checksum;
   const text=JSON.stringify(copy);
@@ -1424,36 +1475,140 @@ function gmsChecksum(payload){
   for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
   return("00000000"+(hash>>>0).toString(16)).slice(-8);
 }
-function gmsClosingPayload(dayId){
+function gmsValidateFiniteNumbers(value,path,errors){
+  if(value==null)return;
+  if(typeof value==="number"&&!Number.isFinite(value))errors.push(path+" の数値が不正です");
+  else if(Array.isArray(value))value.forEach((v,i)=>gmsValidateFiniteNumbers(v,path+"["+i+"]",errors));
+  else if(typeof value==="object")Object.keys(value).forEach(k=>gmsValidateFiniteNumbers(value[k],path+"."+k,errors));
+}
+function gmsReferencedCastIds(payload){
+  const refs=[];
+  (payload.castSales||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName,path:"castSales["+i+"]"});});
+  (payload.castWork||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName||r.name,path:"castWork["+i+"]"});});
+  ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>(payload[key]||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName||r.name,path:key+"["+i+"]"});}));
+  (payload.lifecycleEvents||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName,path:"lifecycleEvents["+i+"]"});});
+  (payload.transactions||[]).forEach((t,ti)=>(t.items||[]).forEach((it,ii)=>{
+    if(it.castId)refs.push({id:String(it.castId),name:it.castName,path:"transactions["+ti+"].items["+ii+"].castId"});
+    (it.banaiExtCastIds||[]).forEach((id,j)=>refs.push({id:String(id),name:"",path:"transactions["+ti+"].items["+ii+"].banaiExtCastIds["+j+"]"}));
+    (it.backTargetCastIds||[]).forEach((id,j)=>refs.push({id:String(id),name:"",path:"transactions["+ti+"].items["+ii+"].backTargetCastIds["+j+"]"}));
+  }));
+  return refs;
+}
+function validateGmsClosingPayload(payload){
+  const errors=[];
+  const validIso=v=>typeof v==="string"&&!Number.isNaN(Date.parse(v));
+  if(!payload||typeof payload!=="object")return["JSONデータを作成できませんでした"];
+  if(payload.schema!=="club-genesis-pos-closing")errors.push("schema が不正です");
+  if(payload.schemaVersion!==2)errors.push("schemaVersion は 2 である必要があります");
+  if(!payload.submissionId)errors.push("submissionId が空です");
+  if(!validIso(payload.generatedAt))errors.push("generatedAt がISO 8601形式ではありません");
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.businessDate||""))errors.push("businessDate がYYYY-MM-DD形式ではありません");
+  ["sales","customers","nominations","rosterSnapshot"].forEach(k=>{if(!payload[k]||typeof payload[k]!=="object"||Array.isArray(payload[k]))errors.push(k+" が不正です");});
+  ["transactions","castSales","castWork","enteredCasts","exitedCasts","trialCasts","lifecycleEvents"].forEach(k=>{if(!Array.isArray(payload[k]))errors.push(k+" は配列である必要があります");});
+  (payload.castSales||[]).forEach((r,i)=>{if(!r.castId)errors.push("castSales["+i+"].castId が空です");});
+  (payload.castWork||[]).forEach((r,i)=>{if(!r.castId)errors.push("castWork["+i+"].castId が空です");});
+  ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>(payload[key]||[]).forEach((r,i)=>{if(!r.castId)errors.push(key+"["+i+"].castId が空です");}));
+  (payload.transactions||[]).forEach((t,ti)=>(t.items||[]).forEach((it,ii)=>{
+    const path="transactions["+ti+"].items["+ii+"]";
+    if((it.isHonShimei||it.isBanaiShimei||it.category==="castDrink")&&!it.castId)errors.push(path+".castId が空です");
+    (it.banaiExtCastIds||[]).forEach((id,j)=>{if(!id)errors.push(path+".banaiExtCastIds["+j+"] が空です");});
+    (it.backTargetCastIds||[]).forEach((id,j)=>{if(!id)errors.push(path+".backTargetCastIds["+j+"] が空です");});
+  }));
+  if(payload.rosterSnapshot){
+    if(typeof payload.rosterSnapshot.complete!=="boolean")errors.push("rosterSnapshot.complete はbooleanである必要があります");
+    if(!validIso(payload.rosterSnapshot.capturedAt))errors.push("rosterSnapshot.capturedAt がISO 8601形式ではありません");
+    if(!Array.isArray(payload.rosterSnapshot.casts))errors.push("rosterSnapshot.casts は配列である必要があります");
+    (payload.rosterSnapshot.casts||[]).forEach((c,i)=>{if(!c.castId)errors.push("rosterSnapshot.casts["+i+"].castId が空です");});
+  }
+  const eventIds=new Set();
+  (payload.lifecycleEvents||[]).forEach((ev,i)=>{
+    if(!ev.eventId)errors.push("lifecycleEvents["+i+"].eventId が空です");
+    if(eventIds.has(ev.eventId))errors.push("lifecycleEvents["+i+"].eventId が重複しています");
+    eventIds.add(ev.eventId);
+    if(!["entered","departed","trial"].includes(ev.eventType))errors.push("lifecycleEvents["+i+"].eventType が不正です");
+    if(!ev.castId)errors.push("lifecycleEvents["+i+"].castId が空です");
+    if(!validIso(ev.eventAt))errors.push("lifecycleEvents["+i+"].eventAt がISO 8601形式ではありません");
+  });
+  const idName=new Map();
+  gmsReferencedCastIds(payload).forEach(ref=>{
+    if(!ref.id)return;
+    const name=String(ref.name||"").trim();
+    if(name&&idName.has(ref.id)&&idName.get(ref.id)&&idName.get(ref.id)!==name)errors.push(ref.path+" のcastIdと名前の組み合わせが他の配列と矛盾しています");
+    if(name&&!idName.has(ref.id))idName.set(ref.id,name);
+  });
+  gmsValidateFiniteNumbers(payload,"payload",errors);
+  const expected=gmsChecksum(payload);
+  if(payload.checksum!==expected)errors.push("checksum が再計算結果と一致しません");
+  return errors;
+}
+function gmsClosingBasePayload(dayId){
   const day=S.bizDays[dayId];if(!day)return null;
   const hist=day.history||[],pay=gmsPaymentTotals(hist);
   const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
   const businessDate=day.date||dayId,transactions=gmsTransactions(hist),castSales=gmsCastSales(hist);
-  const payload={
-    schema:"club-genesis-pos-closing",schemaVersion:1,exportedFrom:"CLUB_GENESIS_POS",exportedAt:new Date().toISOString(),
+  const capturedAt=gmsIso(day.endedAt||Date.now());
+  return{
+    schema:"club-genesis-pos-closing",schemaVersion:2,
     businessDate,status:"submitted",
     sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
     customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
     transactions,castSales,castSalesSummary:gmsCastSalesSummary(castSales),castWork:gmsCastWork(day),staffWork:[],
     expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(businessDate,"entered"),exitedCasts:gmsLifecycleRows(businessDate,"exited"),trialCasts:gmsLifecycleRows(businessDate,"trial"),
+    rosterSnapshot:gmsRosterSnapshot(capturedAt),lifecycleEvents:gmsLifecycleEvents(businessDate,day),
     cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
-    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",submissionId:"pos_json_"+businessDate,businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
   };
+}
+function gmsClosingPayload(dayId,opts={}){
+  const base=gmsClosingBasePayload(dayId);if(!base)return null;
+  const contentBase=JSON.parse(JSON.stringify(base));
+  if(contentBase.source)delete contentBase.source.posVersion;
+  const contentText=JSON.stringify(contentBase);
+  const contentHash=gmsStableHash(contentText,2166136261)+gmsStableHash(contentText,2166136261^0x9e3779b9);
+  const businessDate=base.businessDate;
+  const prev=gmsGetExportMeta(businessDate)||{};
+  const isCorrection=!!opts.correction;
+  if(!isCorrection&&prev.contentHash===contentHash&&prev.payload){
+    const payload=JSON.parse(JSON.stringify(prev.payload));
+    payload._gmsMeta={contentHash,isCorrection:false,previous:prev,reused:true};
+    return payload;
+  }
+  const submissionId=isCorrection?gmsStableId("pos",["correction",businessDate,contentHash,prev.submissionId||"",Date.now()]):gmsStableId("pos",[businessDate,contentHash]);
+  const generatedAt=(!isCorrection&&prev.contentHash===contentHash&&prev.generatedAt)?prev.generatedAt:gmsIso(base.source.businessEndedAt||Date.now());
+  const payload={...base,submissionId,generatedAt};
+  payload.source={...payload.source,submissionId};
+  if(isCorrection&&prev.submissionId)payload.supersedesSubmissionId=prev.submissionId;
   payload.checksum=gmsChecksum(payload);
+  payload._gmsMeta={contentHash,isCorrection,previous:prev};
   return payload;
 }
-function exportGmsClosingJSON(dayId){
-  const payload=gmsClosingPayload(dayId);
-  if(!payload){alert("出力対象の営業日が見つかりません");return;}
-  if(!payload.transactions.length){alert("この営業日の会計データがありません");return;}
+async function exportGmsClosingJSON(dayId,correction){
+  const payload=gmsClosingPayload(dayId,{correction});
+  if(!payload){alert("\u51fa\u529b\u5bfe\u8c61\u306e\u55b6\u696d\u65e5\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093");return;}
+  if(!payload.transactions.length){alert("\u3053\u306e\u55b6\u696d\u65e5\u306e\u4f1a\u8a08\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u305b\u3093");return;}
+  const meta=payload._gmsMeta||{};delete payload._gmsMeta;
+  const prev=meta.previous||{};
+  if(!correction&&prev.submissionId&&prev.contentHash&&prev.contentHash!==meta.contentHash){
+    const ok=confirm("\u524d\u56de\u51fa\u529b\u6642\u304b\u3089\u55b6\u696d\u7de0\u3081\u30c7\u30fc\u30bf\u304c\u5909\u66f4\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n\u540c\u3058submissionId\u3067\u7570\u306a\u308b\u5185\u5bb9\u306f\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n\u8a02\u6b63\u7248\u3068\u3057\u3066\u65b0\u3057\u3044submissionId\u3092\u767a\u884c\u3057\u307e\u3059\u304b\uff1f");
+    if(!ok)return;
+    return exportGmsClosingJSON(dayId,true);
+  }
+  if(correction){
+    const ok=confirm("\u8a02\u6b63\u7248JSON\u3092\u51fa\u529b\u3057\u307e\u3059\u3002\n\u55b6\u696d\u65e5: "+payload.businessDate+"\n\u5143submissionId: "+(payload.supersedesSubmissionId||"\u306a\u3057")+"\n\u65b0submissionId: "+payload.submissionId+"\n\n\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f");
+    if(!ok)return;
+  }
+  const errors=validateGmsClosingPayload(payload);
+  if(errors.length){alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n"+errors.slice(0,12).join("\n"));return;}
+  await gmsSaveExportMeta(payload.businessDate,{schemaVersion:2,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),updatedAt:gmsIso(Date.now())});
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
   a.href=url;
-  a.download="genesis-pos-closing_"+payload.businessDate+"_v"+payload.schemaVersion+".json";
+  a.download=("club-genesis-pos-closing_"+payload.businessDate+"_"+payload.submissionId.slice(-8)+".json").replace(/[\\/:*?"<>|]/g,"");
   a.click();
   URL.revokeObjectURL(url);
+  alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3057\u307e\u3057\u305f\u3002\n\u55b6\u696d\u65e5: "+payload.businessDate+"\nsubmissionId: "+payload.submissionId+"\ngeneratedAt: "+payload.generatedAt+"\nchecksum: "+payload.checksum);
 }
 
 async function loadBizDayForReEdit(dayId){
