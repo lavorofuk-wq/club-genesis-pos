@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.101";
+const APP_VERSION="6.102";
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -1192,6 +1192,82 @@ html+='</div>';
   return html;
 }
 
+
+function pastAssignSessionKey(day,a){
+  const hist=day?.history||[];
+  if(a.sessionId!=null)return String(a.tableId||"")+"::"+String(a.sessionId);
+  const rec=hist.find(h=>String(h.tableId||"")===String(a.tableId||"")&&Number(a.startTime||0)>=(Number(h.startTime||0)-60000)&&Number(a.startTime||0)<=((Number(h.endTime||0)||Number(h.startTime||0))+60000));
+  return String(a.tableId||"")+"::"+String(rec?.startTime||a.startTime||a.id||"unknown");
+}
+function findPastAssignHistRec(day,tableId,sessionId,assigns){
+  const hist=day?.history||[];
+  let rec=hist.find(h=>String(h.tableId||"")===String(tableId||"")&&String(h.startTime||"")===String(sessionId||""));
+  if(rec)return rec;
+  const first=assigns?.[0];
+  if(!first)return null;
+  return hist.find(h=>String(h.tableId||"")===String(tableId||"")&&Number(first.startTime||0)>=(Number(h.startTime||0)-60000)&&Number(first.startTime||0)<=((Number(h.endTime||0)||Number(h.startTime||0))+60000))||null;
+}
+function rPastAssignHistory(day){
+  const allA=Object.values(day?.assignments||{}).filter(Boolean).sort((a,b)=>(a.startTime||0)-(b.startTime||0));
+  if(!allA.length)return "";
+  const groups={};
+  allA.forEach(a=>{
+    const key=pastAssignSessionKey(day,a);
+    if(!groups[key])groups[key]={tableId:a.tableId,sessionId:a.sessionId||null,assigns:[]};
+    groups[key].assigns.push(a);
+  });
+  const sessions=Object.values(groups).sort((a,b)=>{
+    const ta=a.assigns[0]?.sessionId||a.assigns[0]?.startTime||0;
+    const tb=b.assigns[0]?.sessionId||b.assigns[0]?.startTime||0;
+    return ta-tb;
+  });
+  const areaTypes=[
+    {key:"hon",label:"\u672c\u6307\u540d",col:"#ff4444",types:["hon"]},
+    {key:"free",label:"\u30d5\u30ea\u30fc",col:"#38bdf8",types:["free","harem"]},
+    {key:"help",label:"\u30d8\u30eb\u30d7",col:"#e8dcc8",types:["help"]},
+    {key:"banai",label:"\u5834\u5185\u6307\u540d",col:"#4ade80",types:["banai"]}
+  ];
+  let html='<div class="st" style="margin-top:14px;margin-bottom:10px;">\u4ed8\u3051\u56de\u3057\u5c65\u6b74 ('+allA.length+'\u4ef6)</div>';
+  sessions.forEach(group=>{
+    const assigns=group.assigns.sort((a,b)=>(a.startTime||0)-(b.startTime||0));
+    const table=S.tables.find(t=>String(t.id)===String(group.tableId));
+    const histRec=findPastAssignHistRec(day,group.tableId,group.sessionId,assigns);
+    const sessionTs=histRec?.startTime||assigns[0]?.sessionId||assigns[0]?.startTime;
+    const inTime=sessionTs?new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"--:--";
+    const guests=histRec?.guests||"?";
+    const honNames=histRec?(histRec.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean):[];
+    const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean):[];
+    html+='<div class="glass" style="border-radius:8px;margin-bottom:10px;overflow:hidden;border:1px solid rgba(255,255,255,.08);">';
+    html+='<div style="padding:9px 12px;background:rgba(212,160,23,.06);border-bottom:1px solid rgba(212,160,23,.18);display:flex;align-items:center;flex-wrap:wrap;gap:7px;">';
+    html+='<span style="font-size:14px;font-weight:700;color:#d4a017;">'+(table?.label||group.tableId||"\u30c6\u30fc\u30d6\u30eb\u4e0d\u660e")+'</span>';
+    if(histRec?.note)html+='<span style="font-size:11px;color:#ffa500;">'+histRec.note+'</span>';
+    html+='<span style="font-size:11px;color:#888;">'+inTime+'</span>';
+    html+='<span style="font-size:11px;color:#aaa;">'+guests+'\u540d</span>';
+    if(honNames.length)html+='<span style="font-size:10px;color:#ff4444;background:rgba(255,68,68,.1);padding:1px 6px;border-radius:8px;">\u672c: '+honNames.join("\u30fb")+'</span>';
+    if(banaiNames.length)html+='<span style="font-size:10px;color:#4ade80;background:rgba(74,222,128,.1);padding:1px 6px;border-radius:8px;">\u5834: '+banaiNames.join("\u30fb")+'</span>';
+    if(histRec)html+='<span data-hid="'+histRec.id+'" onclick="event.stopPropagation();window._viewHistRec=_findHistRec(Number(this.dataset.hid));window._histDetailBack=null;if(window._viewHistRec){md=\'viewHistDetail\';rModal();}" style="margin-left:auto;font-size:10px;color:#d4a017;padding:1px 7px;border:1px solid rgba(212,160,23,.35);border-radius:3px;cursor:pointer;">\u4f1d\u7968\u8a73\u7d30</span>';
+    html+='</div>';
+    areaTypes.forEach(area=>{
+      const aItems=assigns.filter(a=>area.types.includes(a.type));
+      if(!aItems.length)return;
+      html+='<div style="padding:6px 12px 2px;">';
+      html+='<div style="font-size:10px;font-weight:700;color:'+area.col+';padding:3px 8px;background:'+area.col+'12;border-left:2px solid '+area.col+';border-radius:0 3px 3px 0;margin-bottom:4px;">'+area.label+' ('+aItems.length+'\u4ef6)</div>';
+      aItems.forEach(a=>{
+        const sT=a.startTime?new Date(a.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"--:--";
+        const eT=a.endTime?new Date(a.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"\u672a\u7d42\u4e86";
+        const dur=a.endTime&&a.startTime?fmtDur(a.endTime-a.startTime):"";
+        html+='<div style="display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.03);">';
+        html+='<span style="font-size:13px;font-weight:700;color:#e8dcc8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(a.castName||"\u540d\u524d\u306a\u3057")+'</span>';
+        html+='<span style="font-size:11px;color:#888;white-space:nowrap;text-align:right;">'+sT+' \u2192 '+eT+(dur?' <span style="color:#555;">('+dur+')</span>':"")+'</span>';
+        html+='</div>';
+      });
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+  return html;
+}
+
 function rDayDetail(day){
   let html='<div style="padding:16px;border-top:1px solid rgba(255,255,255,.08);">';
   // 売上
@@ -1223,6 +1299,7 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   html+='<div class="ir" style="font-size:13px;"><span style="color:#bbb;">'+sh.castName+'</span><span style="color:#888;">'+inT+' → '+outT+' '+durStr+'</span></div>';
 });
   }
+  html+=rPastAssignHistory(day);
   // CSV出力ボタン
   html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';

@@ -101,7 +101,7 @@ function sample(overrides = {}) {
     expenses: [],
     allowances: [],
     cashReconciliation: { expectedCash: 12000, actualCash: 12000, difference: 0, note: "" },
-    source: { posVersion: "6.101", exportMethod: "file", exportedBy: "POS", submissionId: "pos_abc123def4567890" },
+    source: { posVersion: "6.102", exportMethod: "file", exportedBy: "POS", submissionId: "pos_abc123def4567890" },
   };
   const payload = { ...core, ...overrides };
   payload.checksum = closingChecksum(payload);
