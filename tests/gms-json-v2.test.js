@@ -1,165 +1,159 @@
 const assert = require("assert");
+const fs = require("fs");
+const path = require("path");
+const GmsJson = require("../gms-json-core.js");
 
-function closingChecksum(payload) {
-  const copy = { ...payload };
-  delete copy.checksum;
-  const text = JSON.stringify(copy);
-  let hash = 2166136261;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (`00000000${(hash >>> 0).toString(16)}`).slice(-8);
-}
+assert.strictEqual(GmsJson.closingChecksum({
+  schema: "club-genesis-pos-closing",
+  schemaVersion: 2,
+  submissionId: "compat-1",
+  businessDate: "2026-07-25",
+  sales: { totalSales: 12345 },
+  checksum: ""
+}), "8b5cbbfd", "GMS FNV-1a互換の固定ベクトル");
 
-function stableHash(text, seed = 2166136261) {
-  let hash = seed;
-  for (let i = 0; i < text.length; i += 1) {
-    hash ^= text.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (`00000000${(hash >>> 0).toString(16)}`).slice(-8);
-}
-
-function stableId(prefix, parts) {
-  const text = JSON.stringify(parts);
-  return `${prefix}_${stableHash(text)}${stableHash(text, 2166136261 ^ 0x9e3779b9)}`;
-}
-
-function validate(payload) {
-  const errors = [];
-  const iso = (v) => typeof v === "string" && !Number.isNaN(Date.parse(v));
-  if (payload.schema !== "club-genesis-pos-closing") errors.push("schema");
-  if (payload.schemaVersion !== 2) errors.push("schemaVersion");
-  if (!payload.submissionId) errors.push("submissionId");
-  if (!iso(payload.generatedAt)) errors.push("generatedAt");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(payload.businessDate || "")) errors.push("businessDate");
-  ["sales", "customers", "nominations", "rosterSnapshot"].forEach((k) => {
-    if (!payload[k] || typeof payload[k] !== "object" || Array.isArray(payload[k])) errors.push(k);
-  });
-  ["transactions", "castSales", "castWork", "enteredCasts", "exitedCasts", "trialCasts", "lifecycleEvents"].forEach((k) => {
-    if (!Array.isArray(payload[k])) errors.push(k);
-  });
-  if (payload.rosterSnapshot) {
-    if (typeof payload.rosterSnapshot.complete !== "boolean") errors.push("rosterSnapshot.complete");
-    if (!iso(payload.rosterSnapshot.capturedAt)) errors.push("rosterSnapshot.capturedAt");
-    (payload.rosterSnapshot.casts || []).forEach((c, i) => {
-      if (!c.castId) errors.push(`rosterSnapshot.casts.${i}.castId`);
-    });
-  }
-  const eventIds = new Set();
-  (payload.lifecycleEvents || []).forEach((ev, i) => {
-    if (!ev.eventId) errors.push(`lifecycleEvents.${i}.eventId`);
-    if (eventIds.has(ev.eventId)) errors.push(`lifecycleEvents.${i}.eventId.duplicate`);
-    eventIds.add(ev.eventId);
-    if (!["entered", "departed", "trial"].includes(ev.eventType)) errors.push(`lifecycleEvents.${i}.eventType`);
-    if (!iso(ev.eventAt)) errors.push(`lifecycleEvents.${i}.eventAt`);
-    if (!ev.castId) errors.push(`lifecycleEvents.${i}.castId`);
-  });
-  if (payload.checksum !== closingChecksum(payload)) errors.push("checksum");
-  return errors;
-}
-
-function sample(overrides = {}) {
-  const core = {
+function basePayload(overrides = {}) {
+  return {
     schema: "club-genesis-pos-closing",
     schemaVersion: 2,
-    submissionId: "pos_abc123def4567890",
-    generatedAt: "2026-07-25T14:10:00.000Z",
     businessDate: "2026-07-25",
-    sales: { totalSales: 12000, cashSales: 12000, cardSales: 0, discountTotal: 0, taxServiceTotal: 3600 },
-    customers: { groupCount: 1, totalCustomers: 2, customerUnitPrice: 6000 },
-    nominations: { honShimeiCount: 1, jonaiCount: 1 },
+    status: "submitted",
+    sales: { totalSales: 12000, cashSales: 12000, cardSales: 0 },
+    customers: { groupCount: 1, totalCustomers: 2 },
+    nominations: { honShimeiCount: 1, jonaiCount: 0 },
     transactions: [{
       transactionId: "tx1",
-      items: [
-        { itemId: "hs_c1", castId: "c1", castName: "\u3042\u3044", banaiExtCastIds: [], backTargetCastIds: [] },
-        { itemId: "be1", castId: "", castName: "", banaiExtCastIds: ["c2"], backTargetCastIds: ["c2"] },
-      ],
+      items: [{
+        itemId: "hs1",
+        category: "honShimei",
+        castId: "c1",
+        castName: "当時名",
+        isHonShimei: true,
+        banaiExtCastIds: [],
+        backTargetCastIds: []
+      }]
     }],
-    castSales: [
-      { castId: "c1", castName: "\u3042\u3044", honShimeiSales: 6000, jonaiExtensionSales: 0, drinkSales: 0, totalAttributedSales: 6000 },
-      { castId: "c2", castName: "\u3042\u3044", honShimeiSales: 0, jonaiExtensionSales: 6000, drinkSales: 0, totalAttributedSales: 6000 },
-    ],
-    castWork: [{ castId: "c1", castName: "\u3042\u3044", startTime: "20:00", endTime: "00:00", breakMinutes: 0, hours: 4 }],
-    enteredCasts: [{ castId: "c1", castName: "\u3042\u3044" }],
-    exitedCasts: [{ castId: "c3", castName: "\u3057\u304a" }],
-    trialCasts: [{ castId: "t100", castName: "\u4f53\u5165" }],
+    castSales: [{ castId: "c1", castName: "現在名", honShimeiSales: 12000, totalAttributedSales: 12000 }],
+    castWork: [{ castId: "c1", castName: "当時名", startTime: "20:00", endTime: "00:00", hours: 4 }],
+    enteredCasts: [{ castId: "c1", castName: "当時名", enteredAt: 1753437600000 }],
+    exitedCasts: [],
+    trialCasts: [],
     rosterSnapshot: {
       complete: true,
-      capturedAt: "2026-07-25T14:10:00.000Z",
-      casts: [
-        { castId: "c1", name: "\u3042\u3044", status: "active" },
-        { castId: "c2", name: "\u3042\u3044", status: "active" },
-      ],
+      capturedAt: "2026-07-25T15:00:00.000Z",
+      casts: [{ castId: "c1", name: "当時名", status: "active" }]
     },
-    lifecycleEvents: [
-      { eventId: "evt_enter_c1", eventType: "entered", eventAt: "2026-07-25T11:00:00.000Z", castId: "c1", castName: "\u3042\u3044", entryDate: "2026-07-25" },
-      { eventId: "evt_trial_t100", eventType: "trial", eventAt: "2026-07-25T12:00:00.000Z", castId: "t100", castName: "\u4f53\u5165", entryDate: "2026-07-25" },
-    ],
+    lifecycleEvents: [{
+      eventId: "evt_enter_c1",
+      eventType: "entered",
+      eventAt: "2026-07-25T11:00:00.000Z",
+      castId: "c1",
+      castName: "当時名",
+      entryDate: "2026-07-25"
+    }],
     staffWork: [],
     expenses: [],
     allowances: [],
     cashReconciliation: { expectedCash: 12000, actualCash: 12000, difference: 0, note: "" },
-    source: { posVersion: "6.102", exportMethod: "file", exportedBy: "POS", submissionId: "pos_abc123def4567890" },
+    source: {
+      posVersion: "6.102",
+      exportMethod: "file",
+      exportedBy: "POS",
+      businessStartedAt: 1753430400000,
+      businessEndedAt: 1753446000000
+    },
+    ...overrides
   };
-  const payload = { ...core, ...overrides };
-  payload.checksum = closingChecksum(payload);
-  return payload;
 }
 
-const normal = sample();
-assert.deepStrictEqual(validate(normal), [], "v2 normal output is valid");
+function prepare(base, previous = {}, options = {}) {
+  return GmsJson.prepareSubmission(base, previous, {
+    correction: false,
+    generatedAt: "2026-07-25T15:00:00.000Z",
+    nonce: 1,
+    ...options
+  });
+}
 
-const missing = sample({ submissionId: "" });
-missing.checksum = closingChecksum(missing);
-assert(validate(missing).includes("submissionId"), "missing required field is blocked");
+const initial = prepare(basePayload());
+assert(initial.payload, "通常版を生成できる");
+assert.strictEqual(initial.payload.schemaVersion, 2, "schemaVersion 2");
+assert.strictEqual(initial.payload.source.posVersion, undefined, "POS更新で内容が変わるposVersionは出力しない");
+assert.strictEqual(GmsJson.closingChecksum(initial.payload), initial.payload.checksum, "GMS互換checksum");
+assert.deepStrictEqual(GmsJson.validatePayload(initial.payload), [], "実装本体の正常payloadが検証を通る");
 
-const contentHash = stableHash(JSON.stringify({ businessDate: normal.businessDate, sales: normal.sales }));
-const submissionA = stableId("pos", [normal.businessDate, contentHash]);
-const submissionB = stableId("pos", [normal.businessDate, contentHash]);
-assert.strictEqual(submissionA, submissionB, "same submission keeps submissionId");
-assert.strictEqual(closingChecksum(normal), normal.checksum, "same submission keeps checksum");
+const previous = {
+  submissionId: initial.payload.submissionId,
+  generatedAt: initial.payload.generatedAt,
+  checksum: initial.payload.checksum,
+  contentHash: initial.meta.contentHash,
+  payload: GmsJson.clone(initial.payload),
+  updatedAt: "2026-07-25T15:01:00.000Z"
+};
+const repeated = prepare(basePayload(), previous, { nonce: 2 });
+assert.strictEqual(repeated.meta.reused, true, "同じ内容は保存済みpayloadを再利用する");
+assert.deepStrictEqual(repeated.payload, initial.payload, "再ダウンロード時は完成済みJSONが完全一致する");
 
-const changedHash = stableHash(JSON.stringify({ businessDate: normal.businessDate, sales: { ...normal.sales, totalSales: 13000 } }));
-assert.notStrictEqual(stableId("pos", [normal.businessDate, contentHash]), stableId("pos", [normal.businessDate, changedHash]), "changed content uses new submissionId");
+const repeatedCorrection = prepare(basePayload(), previous, { correction: true, nonce: 3 });
+assert.strictEqual(repeatedCorrection.meta.reused, true, "内容不変の訂正版操作でも新しい提出を作らない");
+assert.deepStrictEqual(repeatedCorrection.payload, initial.payload, "内容不変ならsubmissionIdとchecksumを維持する");
 
-const correction = sample({ submissionId: stableId("pos", ["correction", normal.businessDate, changedHash, normal.submissionId, 1]), supersedesSubmissionId: normal.submissionId });
-correction.checksum = closingChecksum(correction);
-assert.notStrictEqual(correction.submissionId, normal.submissionId, "correction gets new submissionId");
-assert.strictEqual(correction.supersedesSubmissionId, normal.submissionId, "correction points to previous submissionId");
+const noPreviousCorrection = prepare(basePayload(), {}, { correction: true, nonce: 4 });
+assert.strictEqual(noPreviousCorrection.payload, null, "訂正元なしの訂正版を拒否する");
+assert(noPreviousCorrection.error.includes("訂正元"), "訂正元エラーを返す");
 
-assert.strictEqual(stableId("evt", ["2026-07-25", "entered", "c1", "2026-07-25T11:00:00.000Z", 1]), stableId("evt", ["2026-07-25", "entered", "c1", "2026-07-25T11:00:00.000Z", 1]), "eventId is stable");
+const changedBase = basePayload({
+  sales: { totalSales: 13000, cashSales: 13000, cardSales: 0 }
+});
+const correction = prepare(changedBase, previous, { correction: true, nonce: 5 });
+assert(correction.payload, "変更後の訂正版を生成できる");
+assert.notStrictEqual(correction.payload.submissionId, initial.payload.submissionId, "訂正版は新しいsubmissionId");
+assert.strictEqual(correction.payload.supersedesSubmissionId, initial.payload.submissionId, "訂正元submissionIdを保持");
+assert.strictEqual(GmsJson.closingChecksum(correction.payload), correction.payload.checksum, "訂正版checksum");
 
-const dup = sample({ lifecycleEvents: [normal.lifecycleEvents[0], normal.lifecycleEvents[0]] });
-dup.checksum = closingChecksum(dup);
-assert(validate(dup).some((e) => e.includes("duplicate")), "duplicate eventId is blocked");
+const versionChanged = prepare(basePayload({
+  source: { ...basePayload().source, posVersion: "9.999" }
+}));
+assert.strictEqual(versionChanged.payload.submissionId, initial.payload.submissionId, "メタデータ消失後もPOSバージョンだけではIDを変えない");
+assert.strictEqual(versionChanged.payload.checksum, initial.payload.checksum, "POSバージョンだけではchecksumを変えない");
 
-const noCastId = sample({ rosterSnapshot: { ...normal.rosterSnapshot, casts: [{ name: "no id", status: "active" }] } });
-noCastId.checksum = closingChecksum(noCastId);
-assert(validate(noCastId).some((e) => e.includes("castId")), "missing roster castId is blocked");
+const capturedRoster = GmsJson.createRosterSnapshot([
+  { id: "c1", name: "在籍", active: true },
+  { id: "t1", name: "体入", active: true, castType: "trial" }
+], "2026-07-25T15:00:00.000Z", true);
+assert.strictEqual(capturedRoster.complete, true, "営業終了時名簿は完全として固定できる");
+assert.deepStrictEqual(capturedRoster.casts.map((cast) => cast.castId), ["c1", "t1"], "体入を含む営業終了時名簿");
 
-const badEventAt = sample({ lifecycleEvents: [{ ...normal.lifecycleEvents[0], eventAt: "bad-date" }] });
-badEventAt.checksum = closingChecksum(badEventAt);
-assert(validate(badEventAt).some((e) => e.includes("eventAt")), "invalid eventAt is rejected");
+const legacyRoster = GmsJson.createRosterSnapshot([
+  { id: "current1", name: "現在在籍", active: true }
+], "2026-07-25T15:00:00.000Z", false);
+assert.strictEqual(legacyRoster.complete, false, "過去日の推測名簿を完全扱いしない");
 
-assert.notStrictEqual(normal.rosterSnapshot.casts[0].castId, normal.rosterSnapshot.casts[1].castId, "same-name casts keep unique IDs");
-assert(normal.transactions[0].items[1].banaiExtCastIds.includes("c2"), "cast references keep POS castId");
+const differentNames = GmsJson.clone(initial.payload);
+differentNames.castSales[0].castName = "現在名";
+differentNames.transactions[0].items[0].castName = "当時名";
+differentNames.checksum = GmsJson.closingChecksum(differentNames);
+assert.deepStrictEqual(GmsJson.validatePayload(differentNames), [], "同じcastIdの表示名変更は取込を妨げない");
 
-const compatible = closingChecksum(normal);
-assert.strictEqual(compatible, normal.checksum, "checksum matches GMS-compatible code");
-const mutated = { ...normal, sales: { ...normal.sales, totalSales: 999 } };
-assert.notStrictEqual(closingChecksum(mutated), normal.checksum, "mutation changes checksum");
+const duplicateEvent = GmsJson.clone(initial.payload);
+duplicateEvent.lifecycleEvents.push(GmsJson.clone(duplicateEvent.lifecycleEvents[0]));
+duplicateEvent.checksum = GmsJson.closingChecksum(duplicateEvent);
+assert(GmsJson.validatePayload(duplicateEvent).some((error) => error.includes("重複")), "eventId重複を拒否");
 
-const japanese = sample({ castSales: [{ castId: "jp1", castName: "\u6f22\u5b57\u304b\u306a", honShimeiSales: 1, jonaiExtensionSales: 0, drinkSales: 0, totalAttributedSales: 1 }] });
-japanese.checksum = closingChecksum(japanese);
-assert.strictEqual(validate(japanese).filter((e) => e === "checksum").length, 0, "Japanese names keep checksum stable");
+const missingRosterId = GmsJson.clone(initial.payload);
+missingRosterId.rosterSnapshot.casts[0].castId = "";
+missingRosterId.checksum = GmsJson.closingChecksum(missingRosterId);
+assert(GmsJson.validatePayload(missingRosterId).some((error) => error.includes("castId")), "名簿ID欠損を拒否");
 
-delete global.firebase;
-assert.doesNotThrow(() => sample(), "JSON output logic does not require Firebase");
+const tampered = GmsJson.clone(initial.payload);
+tampered.sales.totalSales = 999;
+assert(GmsJson.validatePayload(tampered).some((error) => error.includes("checksum")), "改ざんを検出");
 
-const historical = sample({ businessDate: "2026-06-30" });
-historical.checksum = closingChecksum(historical);
-assert.deepStrictEqual(validate(historical), [], "historical business day can be exported");
+const appSource = fs.readFileSync(path.join(__dirname, "..", "app.js"), "utf8");
+assert(appSource.includes("GMS_JSON.prepareSubmission"), "POS本体がテスト対象の共通提出処理を使用する");
+assert(appSource.includes("GMS_JSON.validatePayload"), "POS本体がテスト対象の共通検証処理を使用する");
+assert(appSource.includes("day.rosterSnapshot=GMS_JSON.createRosterSnapshot"), "営業終了時に名簿を固定保存する");
+assert(appSource.includes("async function redownloadGmsClosingJSON"), "保存済み完成JSONの専用再ダウンロード処理を持つ");
+assert(appSource.includes("if(!window._db)throw new Error"), "共有提出履歴を保存できない場合は出力を止める");
 
-console.log("gms-json-v2 tests passed");
+console.log("gms-json-v2 production-core tests passed");

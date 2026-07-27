@@ -4,7 +4,8 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.102";
+const APP_VERSION="6.103";
+const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -51,10 +52,16 @@ function lifecycleFor(date){
 }
 function upsertLifecycle(date,key,row,idField){
   const l=lifecycleFor(date);
-  const id=String(row[idField||"castId"]||"");
+  const eventType=key==="enteredCasts"?"entered":key==="exitedCasts"?"departed":key==="trialCasts"?"trial":"";
+  const timeField=eventType==="entered"?"enteredAt":eventType==="departed"?"exitedAt":"trialRegisteredAt";
+  const eventAt=eventType?gmsIso(row.eventAt||row[timeField]||row.registeredAt||date+"T00:00:00+09:00",date+"T00:00:00+09:00"):"";
+  const enriched=eventType&&!row.eventId
+    ?{...row,eventId:gmsStableId("evt",[date,eventType,String(row.castId||""),eventAt,Number(row.internalNo)||0])}
+    :row;
+  const id=String(enriched[idField||"castId"]||"");
   const idx=l[key].findIndex(x=>String(x[idField||"castId"]||"")===id);
-  if(idx>=0)l[key][idx]={...l[key][idx],...row};
-  else l[key].push(row);
+  if(idx>=0)l[key][idx]={...l[key][idx],...enriched};
+  else l[key].push(enriched);
 }
 function castSnapshot(c,extra={}){
   return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",...extra};
@@ -1301,10 +1308,12 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   }
   html+=rPastAssignHistory(day);
   // CSV出力ボタン
+  const gmsMeta=gmsGetExportMeta(day.date||day.id);
+  const hasGmsSubmission=!!(gmsMeta&&gmsMeta.submissionId&&gmsMeta.payload);
   html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,false)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">GMS\u53d6\u8fbcJSON</button>';
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,true)" style="padding:8px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#d97706;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">\u8a02\u6b63\u7248JSON</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="'+(hasGmsSubmission?'redownloadGmsClosingJSON':'exportGmsClosingJSON')+'(this.dataset.dayid'+(hasGmsSubmission?'':',false')+')" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">'+(hasGmsSubmission?'前回JSON再ダウンロード':'GMS取込JSON')+'</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,true)" '+(hasGmsSubmission?'':'disabled title="通常版の出力履歴がありません"')+' style="padding:8px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#d97706;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;'+(hasGmsSubmission?'':'opacity:.4;cursor:not-allowed;')+'">\u8a02\u6b63\u7248JSON</button>';
   html+='</div>';
   html+='</div>';
   return html;
@@ -1506,24 +1515,21 @@ function gmsIsoForEvent(row,field,businessDate,day){
   return gmsIso(v,businessDate+"T00:00:00+09:00");
 }
 function gmsStableHash(text,seed){
-  let hash=seed||2166136261;
-  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
-  return("00000000"+(hash>>>0).toString(16)).slice(-8);
+  return GMS_JSON.stableHash(text,seed);
 }
 function gmsStableId(prefix,parts){
-  const text=JSON.stringify(parts||[]);
-  return prefix+"_"+gmsStableHash(text,2166136261)+gmsStableHash(text,2166136261^0x9e3779b9);
+  return GMS_JSON.stableId(prefix,parts);
 }
-function gmsRosterSnapshot(capturedAt){
-  const casts=allCasts().map(c=>({
-    castId:String(c.id||""),
-    name:String(c.name||""),
-    castName:String(c.name||""),
-    internalNo:Number(c.internalNo)||0,
-    status:c.castType==="trial"?"trial":c.active===false?"departed":"active",
-    castType:c.castType||"regular"
-  }));
-  return{complete:casts.every(c=>!!c.castId),capturedAt,casts};
+function gmsRosterSnapshot(capturedAt,day){
+  if(day?.rosterSnapshot&&Array.isArray(day.rosterSnapshot.casts)){
+    return GMS_JSON.createRosterSnapshot(
+      day.rosterSnapshot.casts,
+      day.rosterSnapshot.capturedAt||capturedAt,
+      day.rosterSnapshot.complete===true
+    );
+  }
+  // Ver6.102以前の営業日は当時の完全名簿を復元できないため、現在名簿を参考値として出力する。
+  return GMS_JSON.createRosterSnapshot(allCasts(),capturedAt,false);
 }
 function gmsLifecycleEvents(businessDate,day){
   const entered=gmsLifecycleRows(businessDate,"entered").map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
@@ -1537,86 +1543,28 @@ function gmsLifecycleEvents(businessDate,day){
   }).sort((a,b)=>a.eventAt.localeCompare(b.eventAt)||a.eventId.localeCompare(b.eventId));
 }
 function gmsLocalMeta(){try{return JSON.parse(localStorage.getItem("genesis_gms_export_meta_v2")||"{}")||{};}catch(e){return{};}}
-function gmsPutLocalMeta(meta){try{localStorage.setItem("genesis_gms_export_meta_v2",JSON.stringify(meta||{}));}catch(e){}}
-function gmsGetExportMeta(date){return{...gmsLocalMeta()[date],...(S.gmsExportMeta||{})[date]};}
+function gmsPutLocalMeta(meta){try{localStorage.setItem("genesis_gms_export_meta_v2",JSON.stringify(meta||{}));return true;}catch(e){return false;}}
+function gmsMetaTime(meta){const value=Date.parse(meta?.updatedAt||meta?.generatedAt||"");return Number.isNaN(value)?0:value;}
+function gmsGetExportMeta(date){
+  const local=gmsLocalMeta()[date]||null;
+  const remote=(S.gmsExportMeta||{})[date]||null;
+  if(!local)return remote||{};
+  if(!remote)return local;
+  return gmsMetaTime(local)>gmsMetaTime(remote)?local:remote;
+}
 async function gmsSaveExportMeta(date,meta){
   const local={...gmsLocalMeta(),[date]:meta};
-  gmsPutLocalMeta(local);
+  const localSaved=gmsPutLocalMeta(local);
+  if(!window._db)throw new Error(localSaved?"POS Firebaseに接続できません。共有提出履歴を保存できないため出力を中止しました。":"提出履歴を保存できません。");
+  await guardedSet("gmsExportMeta/"+date,meta,{silent:true});
   S.gmsExportMeta={...(S.gmsExportMeta||{}),[date]:meta};
-  if(window._db){try{await guardedSet("gmsExportMeta/"+date,meta,{silent:true});}catch(e){console.warn("gms export meta save failed",e);}}
+  return{localSaved,remoteSaved:true};
 }
 function gmsChecksum(payload){
-  const copy={...payload};delete copy.checksum;
-  const text=JSON.stringify(copy);
-  let hash=2166136261;
-  for(let i=0;i<text.length;i++){hash^=text.charCodeAt(i);hash=Math.imul(hash,16777619);}
-  return("00000000"+(hash>>>0).toString(16)).slice(-8);
-}
-function gmsValidateFiniteNumbers(value,path,errors){
-  if(value==null)return;
-  if(typeof value==="number"&&!Number.isFinite(value))errors.push(path+" の数値が不正です");
-  else if(Array.isArray(value))value.forEach((v,i)=>gmsValidateFiniteNumbers(v,path+"["+i+"]",errors));
-  else if(typeof value==="object")Object.keys(value).forEach(k=>gmsValidateFiniteNumbers(value[k],path+"."+k,errors));
-}
-function gmsReferencedCastIds(payload){
-  const refs=[];
-  (payload.castSales||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName,path:"castSales["+i+"]"});});
-  (payload.castWork||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName||r.name,path:"castWork["+i+"]"});});
-  ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>(payload[key]||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName||r.name,path:key+"["+i+"]"});}));
-  (payload.lifecycleEvents||[]).forEach((r,i)=>{if(r.castId)refs.push({id:String(r.castId),name:r.castName,path:"lifecycleEvents["+i+"]"});});
-  (payload.transactions||[]).forEach((t,ti)=>(t.items||[]).forEach((it,ii)=>{
-    if(it.castId)refs.push({id:String(it.castId),name:it.castName,path:"transactions["+ti+"].items["+ii+"].castId"});
-    (it.banaiExtCastIds||[]).forEach((id,j)=>refs.push({id:String(id),name:"",path:"transactions["+ti+"].items["+ii+"].banaiExtCastIds["+j+"]"}));
-    (it.backTargetCastIds||[]).forEach((id,j)=>refs.push({id:String(id),name:"",path:"transactions["+ti+"].items["+ii+"].backTargetCastIds["+j+"]"}));
-  }));
-  return refs;
+  return GMS_JSON.closingChecksum(payload);
 }
 function validateGmsClosingPayload(payload){
-  const errors=[];
-  const validIso=v=>typeof v==="string"&&!Number.isNaN(Date.parse(v));
-  if(!payload||typeof payload!=="object")return["JSONデータを作成できませんでした"];
-  if(payload.schema!=="club-genesis-pos-closing")errors.push("schema が不正です");
-  if(payload.schemaVersion!==2)errors.push("schemaVersion は 2 である必要があります");
-  if(!payload.submissionId)errors.push("submissionId が空です");
-  if(!validIso(payload.generatedAt))errors.push("generatedAt がISO 8601形式ではありません");
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(payload.businessDate||""))errors.push("businessDate がYYYY-MM-DD形式ではありません");
-  ["sales","customers","nominations","rosterSnapshot"].forEach(k=>{if(!payload[k]||typeof payload[k]!=="object"||Array.isArray(payload[k]))errors.push(k+" が不正です");});
-  ["transactions","castSales","castWork","enteredCasts","exitedCasts","trialCasts","lifecycleEvents"].forEach(k=>{if(!Array.isArray(payload[k]))errors.push(k+" は配列である必要があります");});
-  (payload.castSales||[]).forEach((r,i)=>{if(!r.castId)errors.push("castSales["+i+"].castId が空です");});
-  (payload.castWork||[]).forEach((r,i)=>{if(!r.castId)errors.push("castWork["+i+"].castId が空です");});
-  ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>(payload[key]||[]).forEach((r,i)=>{if(!r.castId)errors.push(key+"["+i+"].castId が空です");}));
-  (payload.transactions||[]).forEach((t,ti)=>(t.items||[]).forEach((it,ii)=>{
-    const path="transactions["+ti+"].items["+ii+"]";
-    if((it.isHonShimei||it.isBanaiShimei||it.category==="castDrink")&&!it.castId)errors.push(path+".castId が空です");
-    (it.banaiExtCastIds||[]).forEach((id,j)=>{if(!id)errors.push(path+".banaiExtCastIds["+j+"] が空です");});
-    (it.backTargetCastIds||[]).forEach((id,j)=>{if(!id)errors.push(path+".backTargetCastIds["+j+"] が空です");});
-  }));
-  if(payload.rosterSnapshot){
-    if(typeof payload.rosterSnapshot.complete!=="boolean")errors.push("rosterSnapshot.complete はbooleanである必要があります");
-    if(!validIso(payload.rosterSnapshot.capturedAt))errors.push("rosterSnapshot.capturedAt がISO 8601形式ではありません");
-    if(!Array.isArray(payload.rosterSnapshot.casts))errors.push("rosterSnapshot.casts は配列である必要があります");
-    (payload.rosterSnapshot.casts||[]).forEach((c,i)=>{if(!c.castId)errors.push("rosterSnapshot.casts["+i+"].castId が空です");});
-  }
-  const eventIds=new Set();
-  (payload.lifecycleEvents||[]).forEach((ev,i)=>{
-    if(!ev.eventId)errors.push("lifecycleEvents["+i+"].eventId が空です");
-    if(eventIds.has(ev.eventId))errors.push("lifecycleEvents["+i+"].eventId が重複しています");
-    eventIds.add(ev.eventId);
-    if(!["entered","departed","trial"].includes(ev.eventType))errors.push("lifecycleEvents["+i+"].eventType が不正です");
-    if(!ev.castId)errors.push("lifecycleEvents["+i+"].castId が空です");
-    if(!validIso(ev.eventAt))errors.push("lifecycleEvents["+i+"].eventAt がISO 8601形式ではありません");
-  });
-  const idName=new Map();
-  gmsReferencedCastIds(payload).forEach(ref=>{
-    if(!ref.id)return;
-    const name=String(ref.name||"").trim();
-    if(name&&idName.has(ref.id)&&idName.get(ref.id)&&idName.get(ref.id)!==name)errors.push(ref.path+" のcastIdと名前の組み合わせが他の配列と矛盾しています");
-    if(name&&!idName.has(ref.id))idName.set(ref.id,name);
-  });
-  gmsValidateFiniteNumbers(payload,"payload",errors);
-  const expected=gmsChecksum(payload);
-  if(payload.checksum!==expected)errors.push("checksum が再計算結果と一致しません");
-  return errors;
+  return GMS_JSON.validatePayload(payload);
 }
 function gmsClosingBasePayload(dayId){
   const day=S.bizDays[dayId];if(!day)return null;
@@ -1632,52 +1580,25 @@ function gmsClosingBasePayload(dayId){
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
     transactions,castSales,castSalesSummary:gmsCastSalesSummary(castSales),castWork:gmsCastWork(day),staffWork:[],
     expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(businessDate,"entered"),exitedCasts:gmsLifecycleRows(businessDate,"exited"),trialCasts:gmsLifecycleRows(businessDate,"trial"),
-    rosterSnapshot:gmsRosterSnapshot(capturedAt),lifecycleEvents:gmsLifecycleEvents(businessDate,day),
+    rosterSnapshot:gmsRosterSnapshot(capturedAt,day),lifecycleEvents:gmsLifecycleEvents(businessDate,day),
     cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
-    source:{posVersion:APP_VERSION,exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+    source:{exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
   };
 }
 function gmsClosingPayload(dayId,opts={}){
   const base=gmsClosingBasePayload(dayId);if(!base)return null;
-  const contentBase=JSON.parse(JSON.stringify(base));
-  if(contentBase.source)delete contentBase.source.posVersion;
-  const contentText=JSON.stringify(contentBase);
-  const contentHash=gmsStableHash(contentText,2166136261)+gmsStableHash(contentText,2166136261^0x9e3779b9);
-  const businessDate=base.businessDate;
-  const prev=gmsGetExportMeta(businessDate)||{};
-  const isCorrection=!!opts.correction;
-  if(!isCorrection&&prev.contentHash===contentHash&&prev.payload){
-    const payload=JSON.parse(JSON.stringify(prev.payload));
-    payload._gmsMeta={contentHash,isCorrection:false,previous:prev,reused:true};
-    return payload;
-  }
-  const submissionId=isCorrection?gmsStableId("pos",["correction",businessDate,contentHash,prev.submissionId||"",Date.now()]):gmsStableId("pos",[businessDate,contentHash]);
-  const generatedAt=(!isCorrection&&prev.contentHash===contentHash&&prev.generatedAt)?prev.generatedAt:gmsIso(base.source.businessEndedAt||Date.now());
-  const payload={...base,submissionId,generatedAt};
-  payload.source={...payload.source,submissionId};
-  if(isCorrection&&prev.submissionId)payload.supersedesSubmissionId=prev.submissionId;
-  payload.checksum=gmsChecksum(payload);
-  payload._gmsMeta={contentHash,isCorrection,previous:prev};
+  const prev=gmsGetExportMeta(base.businessDate)||{};
+  const prepared=GMS_JSON.prepareSubmission(base,prev,{
+    correction:!!opts.correction,
+    generatedAt:gmsIso(base.source.businessEndedAt||Date.now()),
+    nonce:Date.now()
+  });
+  if(prepared.error)return{_gmsError:prepared.error,_gmsMeta:{previous:prev}};
+  const payload=prepared.payload;
+  payload._gmsMeta=prepared.meta;
   return payload;
 }
-async function exportGmsClosingJSON(dayId,correction){
-  const payload=gmsClosingPayload(dayId,{correction});
-  if(!payload){alert("\u51fa\u529b\u5bfe\u8c61\u306e\u55b6\u696d\u65e5\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093");return;}
-  if(!payload.transactions.length){alert("\u3053\u306e\u55b6\u696d\u65e5\u306e\u4f1a\u8a08\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u305b\u3093");return;}
-  const meta=payload._gmsMeta||{};delete payload._gmsMeta;
-  const prev=meta.previous||{};
-  if(!correction&&prev.submissionId&&prev.contentHash&&prev.contentHash!==meta.contentHash){
-    const ok=confirm("\u524d\u56de\u51fa\u529b\u6642\u304b\u3089\u55b6\u696d\u7de0\u3081\u30c7\u30fc\u30bf\u304c\u5909\u66f4\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n\u540c\u3058submissionId\u3067\u7570\u306a\u308b\u5185\u5bb9\u306f\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n\u8a02\u6b63\u7248\u3068\u3057\u3066\u65b0\u3057\u3044submissionId\u3092\u767a\u884c\u3057\u307e\u3059\u304b\uff1f");
-    if(!ok)return;
-    return exportGmsClosingJSON(dayId,true);
-  }
-  if(correction){
-    const ok=confirm("\u8a02\u6b63\u7248JSON\u3092\u51fa\u529b\u3057\u307e\u3059\u3002\n\u55b6\u696d\u65e5: "+payload.businessDate+"\n\u5143submissionId: "+(payload.supersedesSubmissionId||"\u306a\u3057")+"\n\u65b0submissionId: "+payload.submissionId+"\n\n\u3088\u308d\u3057\u3044\u3067\u3059\u304b\uff1f");
-    if(!ok)return;
-  }
-  const errors=validateGmsClosingPayload(payload);
-  if(errors.length){alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n"+errors.slice(0,12).join("\n"));return;}
-  await gmsSaveExportMeta(payload.businessDate,{schemaVersion:2,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),updatedAt:gmsIso(Date.now())});
+function gmsDownloadPayload(payload){
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:"application/json;charset=utf-8"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");
@@ -1685,7 +1606,71 @@ async function exportGmsClosingJSON(dayId,correction){
   a.download=("club-genesis-pos-closing_"+payload.businessDate+"_"+payload.submissionId.slice(-8)+".json").replace(/[\\/:*?"<>|]/g,"");
   a.click();
   URL.revokeObjectURL(url);
-  alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3057\u307e\u3057\u305f\u3002\n\u55b6\u696d\u65e5: "+payload.businessDate+"\nsubmissionId: "+payload.submissionId+"\ngeneratedAt: "+payload.generatedAt+"\nchecksum: "+payload.checksum);
+  alert("GMS取込JSONを出力しました。\n営業日: "+payload.businessDate+"\nsubmissionId: "+payload.submissionId+"\ngeneratedAt: "+payload.generatedAt+"\nchecksum: "+payload.checksum);
+}
+async function redownloadGmsClosingJSON(dayId){
+  const day=S.bizDays[dayId];if(!day){alert("出力対象の営業日が見つかりません");return;}
+  const prev=gmsGetExportMeta(day.date||dayId)||{};
+  if(!prev.payload||!prev.submissionId){return exportGmsClosingJSON(dayId,false);}
+  const payload=JSON.parse(JSON.stringify(prev.payload));
+  const errors=validateGmsClosingPayload(payload);
+  if(errors.length){alert("保存済みJSONを再出力できませんでした。\n\n"+errors.slice(0,12).join("\n"));return;}
+  try{
+    const refreshed={...prev,payload,updatedAt:gmsIso(Date.now())};
+    await gmsSaveExportMeta(payload.businessDate,refreshed);
+  }catch(e){
+    console.warn("gms export meta resave failed",e);
+    alert("保存済みJSONを再出力できませんでした。\n\n提出履歴をPOS Firebaseへ確認保存できませんでした。\n接続状態を確認して、もう一度実行してください。");
+    return;
+  }
+  gmsDownloadPayload(payload);
+}
+async function exportGmsClosingJSON(dayId,correction){
+  const payload=gmsClosingPayload(dayId,{correction});
+  if(!payload){alert("\u51fa\u529b\u5bfe\u8c61\u306e\u55b6\u696d\u65e5\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093");return;}
+  if(payload._gmsError){alert(payload._gmsError);return;}
+  if(!payload.transactions.length){alert("\u3053\u306e\u55b6\u696d\u65e5\u306e\u4f1a\u8a08\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u305b\u3093");return;}
+  const meta=payload._gmsMeta||{};delete payload._gmsMeta;
+  const prev=meta.previous||{};
+  if(correction&&!prev.submissionId){
+    alert("訂正元の提出履歴がありません。\n先に通常版のGMS取込JSONを出力してください。");
+    return;
+  }
+  if(!correction&&prev.submissionId&&prev.contentHash&&prev.contentHash!==meta.contentHash){
+    const ok=confirm("\u524d\u56de\u51fa\u529b\u6642\u304b\u3089\u55b6\u696d\u7de0\u3081\u30c7\u30fc\u30bf\u304c\u5909\u66f4\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n\u540c\u3058submissionId\u3067\u7570\u306a\u308b\u5185\u5bb9\u306f\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n\u8a02\u6b63\u7248\u3068\u3057\u3066\u65b0\u3057\u3044submissionId\u3092\u767a\u884c\u3057\u307e\u3059\u304b\uff1f");
+    if(!ok)return;
+    return exportGmsClosingJSON(dayId,true);
+  }
+  if(correction&&meta.reused){
+    alert("前回出力時から内容が変わっていないため、新しい訂正版は作成しません。\n同じsubmissionId・checksumのJSONを再ダウンロードします。");
+  }else if(correction){
+    const ok=confirm("訂正版JSONを新しく作成します。\n\n営業日: "+payload.businessDate+"\nGMSに取込済みの訂正元: "+(payload.supersedesSubmissionId||"なし")+"\n新submissionId: "+payload.submissionId+"\n\n表示された訂正元が実際にGMSへ取込済みであることを確認してください。\n正しい場合のみ「OK」を押してください。");
+    if(!ok)return;
+    const confirmationCode=String(payload.supersedesSubmissionId||"").slice(-8);
+    const entered=prompt("誤った訂正チェーンを防ぐため、GMSに取込済みの訂正元submissionIdの末尾8文字を入力してください。\n\n末尾8文字: "+confirmationCode,"");
+    if(String(entered||"").trim()!==confirmationCode){
+      alert("訂正元submissionIdを確認できなかったため、訂正版の出力を中止しました。");
+      return;
+    }
+  }
+  const errors=validateGmsClosingPayload(payload);
+  if(errors.length){alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n"+errors.slice(0,12).join("\n"));return;}
+  const history=Array.isArray(prev.history)?[...prev.history]:[];
+  if(prev.submissionId&&!history.some(row=>row.submissionId===prev.submissionId)){
+    history.push({submissionId:prev.submissionId,checksum:prev.checksum||"",generatedAt:prev.generatedAt||"",supersedesSubmissionId:prev.supersedesSubmissionId||null});
+  }
+  if(!history.some(row=>row.submissionId===payload.submissionId)){
+    history.push({submissionId:payload.submissionId,checksum:payload.checksum,generatedAt:payload.generatedAt,supersedesSubmissionId:payload.supersedesSubmissionId||null});
+  }
+  const exportMeta={schemaVersion:2,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),history:history.slice(-20),updatedAt:gmsIso(Date.now())};
+  try{
+    await gmsSaveExportMeta(payload.businessDate,exportMeta);
+  }catch(e){
+    console.warn("gms export meta save failed",e);
+    alert("GMS取込JSONを出力できませんでした。\n\n提出履歴をPOS Firebaseへ安全に保存できませんでした。\n接続状態を確認して、もう一度実行してください。\n\n"+(e?.message||"保存エラー"));
+    return;
+  }
+  gmsDownloadPayload(payload);
 }
 
 async function loadBizDayForReEdit(dayId){
@@ -1758,6 +1743,10 @@ async function endBizDay(){
   day.history=[...S.history];
   day.shifts={...S.shifts};
   day.assignments={...S.assignments};
+  if(!day.rosterSnapshot||!Array.isArray(day.rosterSnapshot.casts)){
+    // 新規営業日は営業終了時点の完全名簿を固定する。旧営業日の再編集では完全性を推測しない。
+    day.rosterSnapshot=GMS_JSON.createRosterSnapshot(allCasts(),gmsIso(day.endedAt),!wasReEdit);
+  }
   delete day.isReEdit;
   let castsChanged=false;
   S.casts=normalizeCasts(S.casts).filter(c=>{
@@ -1778,6 +1767,7 @@ const daySnap={
   shifts:JSON.parse(JSON.stringify(S.shifts||{})),
   assignments:JSON.parse(JSON.stringify(S.assignments||{})),
   castLifecycleLogs:JSON.parse(JSON.stringify((S.castLifecycleLogs||{})[day.date]||emptyLifecycle())),
+  rosterSnapshot:JSON.parse(JSON.stringify(day.rosterSnapshot||null)),
   startedAt:day.startedAt||Date.now(),
   endedAt:day.endedAt
 };
@@ -3210,6 +3200,7 @@ function restoreFromBackupDay(bkKey){
   S.bizDays[date].history=bk.history||[];
   S.bizDays[date].shifts=bk.shifts||{};
   S.bizDays[date].assignments=bk.assignments||{};
+  if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
   if(bk.castLifecycleLogs)S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};
   if(window._db){
 const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date]};
@@ -3273,6 +3264,7 @@ if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt
 S.bizDays[date].history=bk.history||[];
 S.bizDays[date].shifts=bk.shifts||{};
 S.bizDays[date].assignments=bk.assignments||{};
+if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
 if(bk.castLifecycleLogs){S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;}
 updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
   }
@@ -3298,6 +3290,7 @@ history:JSON.parse(JSON.stringify(S.history||[])),
 shifts:JSON.parse(JSON.stringify(S.shifts||{})),
 assignments:JSON.parse(JSON.stringify(S.assignments||{})),
 castLifecycleLogs:JSON.parse(JSON.stringify((S.castLifecycleLogs||{})[date]||emptyLifecycle())),
+rosterSnapshot:JSON.parse(JSON.stringify(S.bizDays[date]?.rosterSnapshot||null)),
 startedAt:S.bizDays[date]?.startedAt||Date.now(),
 endedAt:null
   };
