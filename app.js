@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.103";
+const APP_VERSION="6.106";
 const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -108,6 +108,7 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
+let checkoutBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -822,12 +823,14 @@ function addHonShimeiToSession(cid){
 }
 async function checkout(){
   if(!at||!S.sessions[at])return;
+  if(checkoutBusy)return;
+  checkoutBusy=true;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
 if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
   const s=S.sessions[at];
   try{await ensureSessionCurrent(at,s);}
-  catch(e){return;}
+  catch(e){checkoutBusy=false;return;}
   const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
@@ -846,6 +849,10 @@ payMethod,
 splits:splits||null,
 ...totals
   };
+  const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
+  if(shouldPrintStoreCopy){
+eposPrint({...rec,isGuest:false},false);
+  }
   const newSessions={...S.sessions};
   delete newSessions[checkoutTableId];
 
@@ -883,6 +890,7 @@ guardedSessionUpdate(checkoutTableId,s,_cu).then(()=>sbs(true,"同期済み ✓"
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
+  checkoutBusy=false;
 }
 async function tableChange(newId){
   if(!at||!newId||newId===at)return;
@@ -2588,6 +2596,9 @@ function rHist(){
   html+='<div style="margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;display:flex;justify-content:space-between;align-items:center;">';
   html+='<span style="font-size:10px;color:#888;">稼働時間</span>';
   html+='<span style="font-size:15px;font-weight:700;color:#38bdf8;">'+workHStr+'<span style="font-size:11px;font-weight:400;color:#888;">時間</span></span>';
+  html+='</div>';
+  html+='<div style="margin-top:10px;display:flex;justify-content:flex-end;">';
+  html+='<button class="btn" onclick="exportDrinkDataXLSX()" style="padding:9px 14px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:6px;font-size:12px;font-weight:700;">ドリンクデータ出力</button>';
   html+='</div>';
   html+='</div>';
 
@@ -4297,6 +4308,121 @@ function _dlCSV(csvStr,filename){
   const blob=new Blob([csvStr],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
+}
+function _xlsxEscape(v){
+  return String(v??"").replace(/[<>&"]/g,ch=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[ch]));
+}
+function _xlsxCol(n){
+  let s="";
+  while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26);}
+  return s;
+}
+function _xlsxSheet(rows){
+  const body=rows.map((row,rIdx)=>'<row r="'+(rIdx+1)+'">'+row.map((v,cIdx)=>{
+    const ref=_xlsxCol(cIdx+1)+(rIdx+1);
+    return '<c r="'+ref+'" t="inlineStr"><is><t>'+_xlsxEscape(v)+'</t></is></c>';
+  }).join("")+'</row>').join("");
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+    +'<sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="18"/>'
+    +'<cols><col min="1" max="1" width="18" customWidth="1"/><col min="2" max="4" width="16" customWidth="1"/></cols>'
+    +'<sheetData>'+body+'</sheetData></worksheet>';
+}
+function _crc32(bytes){
+  let crc=~0;
+  for(let i=0;i<bytes.length;i++){
+    crc^=bytes[i];
+    for(let j=0;j<8;j++)crc=(crc>>>1)^(0xEDB88320&-(crc&1));
+  }
+  return ~crc>>>0;
+}
+function _u16(arr,v){arr.push(v&255,(v>>>8)&255);}
+function _u32(arr,v){arr.push(v&255,(v>>>8)&255,(v>>>16)&255,(v>>>24)&255);}
+function _dosDateTime(){
+  const d=new Date();
+  return{time:(d.getHours()<<11)|(d.getMinutes()<<5)|Math.floor(d.getSeconds()/2),date:((d.getFullYear()-1980)<<9)|((d.getMonth()+1)<<5)|d.getDate()};
+}
+function _zipStore(files){
+  const enc=new TextEncoder();
+  const out=[],central=[];
+  let offset=0;
+  const dt=_dosDateTime();
+  files.forEach(file=>{
+    const name=enc.encode(file.name);
+    const data=typeof file.data==="string"?enc.encode(file.data):file.data;
+    const crc=_crc32(data);
+    const local=[];
+    _u32(local,0x04034b50);_u16(local,20);_u16(local,0);_u16(local,0);_u16(local,dt.time);_u16(local,dt.date);
+    _u32(local,crc);_u32(local,data.length);_u32(local,data.length);_u16(local,name.length);_u16(local,0);
+    out.push(...local,...name,...data);
+    const cent=[];
+    _u32(cent,0x02014b50);_u16(cent,20);_u16(cent,20);_u16(cent,0);_u16(cent,0);_u16(cent,dt.time);_u16(cent,dt.date);
+    _u32(cent,crc);_u32(cent,data.length);_u32(cent,data.length);_u16(cent,name.length);_u16(cent,0);_u16(cent,0);_u16(cent,0);_u16(cent,0);_u32(cent,0);_u32(cent,offset);
+    central.push(...cent,...name);
+    offset=out.length;
+  });
+  const centralOffset=out.length;
+  out.push(...central);
+  const end=[];
+  _u32(end,0x06054b50);_u16(end,0);_u16(end,0);_u16(end,files.length);_u16(end,files.length);_u32(end,central.length);_u32(end,centralOffset);_u16(end,0);
+  out.push(...end);
+  return new Uint8Array(out);
+}
+function _downloadXLSX(rows,filename){
+  const files=[
+    {name:"[Content_Types].xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'},
+    {name:"_rels/.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
+    {name:"xl/workbook.xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Drink" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+    {name:"xl/_rels/workbook.xml.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'},
+    {name:"xl/worksheets/sheet1.xml",data:_xlsxSheet(rows)}
+  ];
+  const blob=new Blob([_zipStore(files)],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
+}
+function _castDrinkRowsFromHist(hist){
+  const map={};
+  const totals={p2000:0,p3000:0,other:{},all:0};
+  (hist||[]).forEach(h=>(h.items||[]).forEach(item=>{
+    const isDrink=item?.category==="castDrink"||(item?.id&&String(item.id).startsWith("cd_"));
+    if(!isDrink)return;
+    const name=String(item.castName||itemCastName(item)||"\u4e0d\u660e");
+    const key=String(item.castId||"name:"+name);
+    if(!map[key])map[key]={name,p2000:0,p3000:0,other:{}};
+    if(map[key].name==="\u4e0d\u660e"&&name!=="\u4e0d\u660e")map[key].name=name;
+    const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+    const price=Math.max(0,Number(item.price)||0);
+    totals.all+=qty;
+    if(price===2000){
+      map[key].p2000+=qty;
+      totals.p2000+=qty;
+    }else if(price===3000){
+      map[key].p3000+=qty;
+      totals.p3000+=qty;
+    }else{
+      map[key].other[price]=(map[key].other[price]||0)+qty;
+      totals.other[price]=(totals.other[price]||0)+qty;
+    }
+  }));
+  const rows=[["\u30ad\u30e3\u30b9\u30c8\u540d","2000\u5186","3000\u5186","\u305d\u306e\u4ed6\u91d1\u984d","\u5408\u8a08\u676f\u6570"]];
+  Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,"ja-JP")).forEach(row=>{
+    const otherKeys=Object.keys(row.other).sort((a,b)=>Number(a)-Number(b));
+    const otherCount=otherKeys.reduce((sum,price)=>sum+row.other[price],0);
+    const other=otherKeys.length?otherKeys.map(price=>(Number(price)?String(Number(price))+"\u5186":"\u305d\u306e\u4ed6")+"("+row.other[price]+"\u676f)").join(" / "):"0\u676f";
+    rows.push([row.name,row.p2000+"\u676f",row.p3000+"\u676f",other,(row.p2000+row.p3000+otherCount)+"\u676f"]);
+  });
+  if(rows.length>1){
+    const totalOtherKeys=Object.keys(totals.other).sort((a,b)=>Number(a)-Number(b));
+    const totalOther=totalOtherKeys.length?totalOtherKeys.map(price=>(Number(price)?String(Number(price))+"\u5186":"\u305d\u306e\u4ed6")+"("+totals.other[price]+"\u676f)").join(" / "):"0\u676f";
+    rows.push(["\u5168\u30ad\u30e3\u30b9\u30c8\u5408\u8a08",totals.p2000+"\u676f",totals.p3000+"\u676f",totalOther,totals.all+"\u676f"]);
+  }
+  return rows;
+}
+function exportDrinkDataXLSX(){
+  const rows=_castDrinkRowsFromHist(S.history||[]);
+  if(rows.length<=1){alert("出力するキャストDrinkデータがありません");return;}
+  const date=S.activeBizDay||getBizDate();
+  _downloadXLSX(rows,"drink_data_"+date+".xlsx");
 }
 
 // ===== RECEIPT PRINT END =====
