@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.105";
+const APP_VERSION="6.106";
 const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -4382,25 +4382,40 @@ function _downloadXLSX(rows,filename){
 }
 function _castDrinkRowsFromHist(hist){
   const map={};
+  const totals={p2000:0,p3000:0,other:{},all:0};
   (hist||[]).forEach(h=>(h.items||[]).forEach(item=>{
     const isDrink=item?.category==="castDrink"||(item?.id&&String(item.id).startsWith("cd_"));
     if(!isDrink)return;
-    const name=String(item.castName||itemCastName(item)||"不明");
+    const name=String(item.castName||itemCastName(item)||"\u4e0d\u660e");
     const key=String(item.castId||"name:"+name);
     if(!map[key])map[key]={name,p2000:0,p3000:0,other:{}};
-    if(map[key].name==="不明"&&name!=="不明")map[key].name=name;
+    if(map[key].name==="\u4e0d\u660e"&&name!=="\u4e0d\u660e")map[key].name=name;
     const qty=Math.max(1,Number(item.qty||item.quantity)||1);
     const price=Math.max(0,Number(item.price)||0);
-    if(price===2000)map[key].p2000+=qty;
-    else if(price===3000)map[key].p3000+=qty;
-    else map[key].other[price]=(map[key].other[price]||0)+qty;
+    totals.all+=qty;
+    if(price===2000){
+      map[key].p2000+=qty;
+      totals.p2000+=qty;
+    }else if(price===3000){
+      map[key].p3000+=qty;
+      totals.p3000+=qty;
+    }else{
+      map[key].other[price]=(map[key].other[price]||0)+qty;
+      totals.other[price]=(totals.other[price]||0)+qty;
+    }
   }));
-  const rows=[["キャスト名","2000円","3000円","その他金額"]];
+  const rows=[["\u30ad\u30e3\u30b9\u30c8\u540d","2000\u5186","3000\u5186","\u305d\u306e\u4ed6\u91d1\u984d","\u5408\u8a08\u676f\u6570"]];
   Object.values(map).sort((a,b)=>a.name.localeCompare(b.name,"ja-JP")).forEach(row=>{
     const otherKeys=Object.keys(row.other).sort((a,b)=>Number(a)-Number(b));
-    const other=otherKeys.length?otherKeys.map(price=>(Number(price)?String(Number(price))+"円":"その他")+"("+row.other[price]+"杯)").join(" / "):"0杯";
-    rows.push([row.name,row.p2000+"杯",row.p3000+"杯",other]);
+    const otherCount=otherKeys.reduce((sum,price)=>sum+row.other[price],0);
+    const other=otherKeys.length?otherKeys.map(price=>(Number(price)?String(Number(price))+"\u5186":"\u305d\u306e\u4ed6")+"("+row.other[price]+"\u676f)").join(" / "):"0\u676f";
+    rows.push([row.name,row.p2000+"\u676f",row.p3000+"\u676f",other,(row.p2000+row.p3000+otherCount)+"\u676f"]);
   });
+  if(rows.length>1){
+    const totalOtherKeys=Object.keys(totals.other).sort((a,b)=>Number(a)-Number(b));
+    const totalOther=totalOtherKeys.length?totalOtherKeys.map(price=>(Number(price)?String(Number(price))+"\u5186":"\u305d\u306e\u4ed6")+"("+totals.other[price]+"\u676f)").join(" / "):"0\u676f";
+    rows.push(["\u5168\u30ad\u30e3\u30b9\u30c8\u5408\u8a08",totals.p2000+"\u676f",totals.p3000+"\u676f",totalOther,totals.all+"\u676f"]);
+  }
   return rows;
 }
 function exportDrinkDataXLSX(){
