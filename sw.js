@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.104-no-login';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.104', './printer-loader.js?v=6.104', './firebase-init.js?v=6.104', './gms-json-core.js?v=6.104', './app.js?v=6.104', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.105-no-login';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.105', './printer-loader.js?v=6.105', './firebase-init.js?v=6.105', './gms-json-core.js?v=6.105', './app.js?v=6.105', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
