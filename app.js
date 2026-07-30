@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.103";
+const APP_VERSION="6.104";
 const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -108,6 +108,7 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
+let checkoutBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -822,12 +823,14 @@ function addHonShimeiToSession(cid){
 }
 async function checkout(){
   if(!at||!S.sessions[at])return;
+  if(checkoutBusy)return;
+  checkoutBusy=true;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
 if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
   const s=S.sessions[at];
   try{await ensureSessionCurrent(at,s);}
-  catch(e){return;}
+  catch(e){checkoutBusy=false;return;}
   const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
@@ -846,6 +849,10 @@ payMethod,
 splits:splits||null,
 ...totals
   };
+  const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
+  if(shouldPrintStoreCopy){
+eposPrint({...rec,isGuest:false},false);
+  }
   const newSessions={...S.sessions};
   delete newSessions[checkoutTableId];
 
@@ -883,6 +890,7 @@ guardedSessionUpdate(checkoutTableId,s,_cu).then(()=>sbs(true,"同期済み ✓"
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
+  checkoutBusy=false;
 }
 async function tableChange(newId){
   if(!at||!newId||newId===at)return;
