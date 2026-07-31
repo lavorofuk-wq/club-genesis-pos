@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.107";
+const APP_VERSION="6.108";
 const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -229,6 +229,7 @@ function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.sty
 const sessionSaveQueues={};
 const sessionSaveStates={};
 const sessionSaveLastOwn={};
+let sessionNodeTransactionsSupported=null;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
   if(!tableId)return;
@@ -271,7 +272,9 @@ function queueSessionUpdate(tableId,makeUpdates,options={}){
     const session=prepareQueuedSession(tableId,desiredSession);
     if(!session&&!options.allowMissing)throw new Error("session is missing");
     const updates=typeof makeUpdates==="function"?makeUpdates(session):makeUpdates;
-    const res=await guardedSessionUpdate(tableId,session,updates,options);
+    const res=options.sessionOnly
+      ?await guardedQueuedSessionSave(tableId,session,options)
+      :await guardedSessionUpdate(tableId,session,updates,options);
     const saved=getPathValue(res,"sessions/"+tableId);
     if(saved)sessionSaveLastOwn[tableId]={sessionId:saved.sessionId,startTime:saved.startTime,rev:Number(saved._rev||0)};
     setSessionSaveState(tableId,"saved","\u4fdd\u5b58\u5b8c\u4e86");
@@ -285,7 +288,7 @@ function queueSessionUpdate(tableId,makeUpdates,options={}){
   return run;
 }
 function queueSessionSave(tableId,session,options={}){
-  return queueSessionUpdate(tableId,session=>({[FB_ROOT+"/sessions/"+tableId]:session}),{...options,session});
+  return queueSessionUpdate(tableId,session=>({[FB_ROOT+"/sessions/"+tableId]:session}),{...options,session,sessionOnly:true});
 }
 function iso(i){const id=String(i?.id||"");const label=String(i?.label||"");if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(id==="dh"||label.includes("\u540c\u4f34"))return 3;if(isFreeDrinkItem(i))return 4;if(label.includes("\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8"))return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(id.startsWith("cd_"))return 9;return 8;}
 function itemCastName(i){
@@ -583,6 +586,11 @@ function sameSession(remote,expected){
   const sameId=remote.sessionId&&expected.sessionId?String(remote.sessionId)===String(expected.sessionId):Number(remote.startTime||0)===sessionGuardStart(expected);
   return sameId&&Number(remote._rev||0)===sessionGuardRev(expected);
 }
+function isFirebasePermissionDenied(error){
+  const code=String(error?.code||"").toUpperCase();
+  const message=String(error?.message||"").toUpperCase();
+  return code.includes("PERMISSION_DENIED")||message.includes("PERMISSION_DENIED")||message.includes("PERMISSION DENIED");
+}
 function syncRemoteSession(tableId,remote){
   if(!tableId)return;
   if(remote){S.sessions[tableId]=markSessionGuard(remote);}
@@ -639,6 +647,57 @@ async function guardedSessionSet(tableId,session,options={}){
   const res=await guardedSessionUpdate(tableId,session,{[FB_ROOT+"/sessions/"+tableId]:session},options);
   markSessionGuard(session);
   return res;
+}
+async function guardedSessionNodeTransaction(tableId,session,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for session write");
+  ensureSessionId(session);
+  let conflict=null;
+  const writeNonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const ref=window._db.ref(FB_ROOT+"/sessions/"+tableId);
+  const res=await ref.transaction(remote=>{
+    conflict=null;
+    if(options.expectEmpty||options.expectCreate){
+      if(remote){conflict={remote,message:"このテーブルは他端末で使用中です。最新状態を確認してください。"};return;}
+    }else{
+      if(!remote){conflict={remote:null,message:"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。"};return;}
+      if(!sameSession(remote,session)){conflict={remote,message:"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"};return;}
+    }
+    return ensureSessionId({
+      ...cloneData(session),
+      _rev:remote?Number(remote._rev||0)+1:1,
+      _nodeWriteVersion:_verNum(APP_VERSION),
+      _nodeWriteNonce:writeNonce
+    });
+  },null,false);
+  if(!res.committed){
+    if(conflict){
+      syncRemoteSession(tableId,conflict.remote);
+      showSessionConflict(conflict.message);
+    }
+    const err=new Error(conflict?"session conflict":"session transaction aborted");
+    if(conflict)err.userMessage=conflict.message;
+    throw err;
+  }
+  const saved=res.snapshot.val();
+  if(saved){
+    session._rev=saved._rev;
+    syncRemoteSession(tableId,saved);
+  }
+  markSessionGuard(session);
+  return{sessions:{[tableId]:saved}};
+}
+async function guardedQueuedSessionSave(tableId,session,options={}){
+  const updates={[FB_ROOT+"/sessions/"+tableId]:session};
+  if(sessionNodeTransactionsSupported===false)return guardedSessionUpdate(tableId,session,updates,options);
+  try{
+    const res=await guardedSessionNodeTransaction(tableId,session,options);
+    sessionNodeTransactionsSupported=true;
+    return res;
+  }catch(e){
+    if(!isFirebasePermissionDenied(e))throw e;
+    sessionNodeTransactionsSupported=false;
+    return guardedSessionUpdate(tableId,session,updates,options);
+  }
 }
 async function guardedSessionUpdate(tableId,session,updates,options={}){
   ensureSessionId(session);
