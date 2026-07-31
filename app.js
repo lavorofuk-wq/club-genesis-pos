@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.106";
+const APP_VERSION="6.107";
 const GMS_JSON=window.GmsJsonCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -226,6 +226,67 @@ function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return allCasts().filter(isVisibleCast);}
 function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
+const sessionSaveQueues={};
+const sessionSaveStates={};
+const sessionSaveLastOwn={};
+function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
+function setSessionSaveState(tableId,status,message){
+  if(!tableId)return;
+  sessionSaveStates[tableId]={status,message:message||"",updatedAt:Date.now()};
+  if(status==="saving")sbs(false,"\u4fdd\u5b58\u4e2d...");
+  else if(status==="saved")sbs(true,"\u540c\u671f\u6e08\u307f \u2713");
+  else if(status==="error")sbs(false,"\u4fdd\u5b58\u30a8\u30e9\u30fc");
+  refreshFloorModal();
+  if(status==="saved"){
+    setTimeout(()=>{
+      if(sessionSaveStates[tableId]?.status==="saved"){
+        delete sessionSaveStates[tableId];
+        refreshFloorModal();
+      }
+    },1200);
+  }
+}
+function waitForSessionSaveQueue(tableId){return sessionSaveQueues[tableId]||Promise.resolve();}
+function sameSessionIdOnly(a,b){
+  if(!a||!b)return false;
+  if(a.sessionId&&b.sessionId)return String(a.sessionId)===String(b.sessionId);
+  return Number(a.startTime||0)===Number(b.startTime||0);
+}
+function prepareQueuedSession(tableId,desiredSession){
+  if(!desiredSession)return null;
+  const session=markSessionGuard(cloneData(desiredSession));
+  const latest=S.sessions[tableId];
+  const lastOwn=sessionSaveLastOwn[tableId];
+  if(latest&&lastOwn&&sameSessionIdOnly(session,latest)&&sameSessionIdOnly(lastOwn,latest)&&sessionGuardRev(session)!==sessionGuardRev(latest)&&Number(lastOwn.rev||0)===sessionGuardRev(latest)){
+    session._rev=Number(latest._rev||0);
+    markSessionGuard(session);
+  }
+  return session;
+}
+function queueSessionUpdate(tableId,makeUpdates,options={}){
+  const desiredSession=options.session?cloneData(options.session):(S.sessions[tableId]?cloneData(S.sessions[tableId]):null);
+  const previous=sessionSaveQueues[tableId]||Promise.resolve();
+  const run=previous.catch(()=>{}).then(async()=>{
+    setSessionSaveState(tableId,"saving","\u4fdd\u5b58\u4e2d...");
+    const session=prepareQueuedSession(tableId,desiredSession);
+    if(!session&&!options.allowMissing)throw new Error("session is missing");
+    const updates=typeof makeUpdates==="function"?makeUpdates(session):makeUpdates;
+    const res=await guardedSessionUpdate(tableId,session,updates,options);
+    const saved=getPathValue(res,"sessions/"+tableId);
+    if(saved)sessionSaveLastOwn[tableId]={sessionId:saved.sessionId,startTime:saved.startTime,rev:Number(saved._rev||0)};
+    setSessionSaveState(tableId,"saved","\u4fdd\u5b58\u5b8c\u4e86");
+    return res;
+  }).catch(e=>{
+    const msg=e.userMessage||"\u4fdd\u5b58\u3067\u304d\u306a\u304b\u3063\u305f\u30aa\u30fc\u30c0\u30fc\u304c\u3042\u308a\u307e\u3059\u3002\u6700\u65b0\u72b6\u614b\u3092\u78ba\u8a8d\u3057\u3066\u304f\u3060\u3055\u3044\u3002";
+    setSessionSaveState(tableId,"error",msg);
+    throw e;
+  });
+  sessionSaveQueues[tableId]=run.catch(()=>{});
+  return run;
+}
+function queueSessionSave(tableId,session,options={}){
+  return queueSessionUpdate(tableId,session=>({[FB_ROOT+"/sessions/"+tableId]:session}),{...options,session});
+}
 function iso(i){const id=String(i?.id||"");const label=String(i?.label||"");if(i.isSet)return 0;if(i.isHonShimei)return 1;if(i.isBanaiShimei)return 2;if(id==="dh"||label.includes("\u540c\u4f34"))return 3;if(isFreeDrinkItem(i))return 4;if(label.includes("\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8"))return 5;if(i.isVipCharge)return 6;if(i.isExtension)return 7;if(i.isDiscount)return 11;if(id.startsWith("cd_"))return 9;return 8;}
 function itemCastName(i){
   if(!i)return"";
@@ -355,7 +416,7 @@ async function save(path,val){
   if(!requireFirebaseReady())return;
   try{
     if(path.startsWith("sessions/")&&val){
-      await guardedSessionSet(path.split("/")[1],val);
+      await queueSessionSave(path.split("/")[1],val);
     }else if(shouldGuardWholeValue(path)){
       await guardedSetIfUnchanged(path,val);
     }else{
@@ -605,7 +666,10 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
     throw new Error("session conflict");
   }
   const saved=getPathValue(res,"sessions/"+tableId);
-  if(saved)syncRemoteSession(tableId,saved);
+  if(saved){
+    if(session&&typeof session==="object")session._rev=saved._rev;
+    syncRemoteSession(tableId,saved);
+  }
   markSessionGuard(session);
   return res;
 }
@@ -662,7 +726,7 @@ function addBanai(cid){
 const _cu={};
 _cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];
 if(freeA)_cu[FB_ROOT+"/assignments/"+freeA.id]=freeA;
-guardedSessionUpdate(at,S.sessions[at],_cu)
+queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session}))
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();
@@ -702,7 +766,7 @@ s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
 const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
 if(banaiA){
   banaiA.type="free";
-  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;guardedSessionUpdate(at,S.sessions[at],_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
+  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session})).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
   _savedInline=true;
 }
   }else{
@@ -826,9 +890,11 @@ async function checkout(){
   if(checkoutBusy)return;
   checkoutBusy=true;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
-if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
+  if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
   const s=S.sessions[at];
+  try{await waitForSessionSaveQueue(at);}
+  catch(e){checkoutBusy=false;return;}
   try{await ensureSessionCurrent(at,s);}
   catch(e){checkoutBusy=false;return;}
   const totals=ct(s);
@@ -886,7 +952,8 @@ Object.values(S.assignments||{}).forEach(a=>{
     if(_sh&&!_chkShiftIds.has(_sh.id)){_chkShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
   }
 });
-guardedSessionUpdate(checkoutTableId,s,_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+try{await queueSessionUpdate(checkoutTableId,()=>_cu,{session:s});}
+catch(e){checkoutBusy=false;return;}
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
@@ -898,6 +965,7 @@ async function tableChange(newId){
   const oldTid=at;
   const oldSession=S.sessions[oldTid];
   try{
+    await waitForSessionSaveQueue(oldTid);
     await ensureSessionCurrent(oldTid,oldSession);
     await ensureSessionCurrent(newId,null,{expectEmpty:true});
   }catch(e){return;}
@@ -919,7 +987,7 @@ _cu[FB_ROOT+"/sessions/"+newId]=S.sessions[newId];
 _cu[FB_ROOT+"/sessions/"+oldTid]=null;
 _movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
 	ensureSessionCurrent(newId,null,{expectEmpty:true})
-	  .then(()=>guardedSessionUpdate(oldTid,oldSession,_cu))
+	  .then(()=>queueSessionUpdate(oldTid,()=>_cu,{session:oldSession}))
 	  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   closeM();render();refreshFloorModal();
@@ -1076,7 +1144,10 @@ return '<div style="height:'+colH+';overflow-y:auto;margin-bottom:6px;">'+inner+
   const setItems=(s.items||[]).filter(isSetCatItem);
   const guestItems=(s.items||[]).filter(isGuestCatItem);
   const castItems=(s.items||[]).filter(isCastCatItem);
-  let html='<div style="display:flex;flex-direction:column;height:100%;min-height:0;">'
+  const saveState=sessionSaveStates[at]||null;
+  const saveWarn=saveState?.status==="error"?'<div style="flex-shrink:0;margin-bottom:8px;padding:8px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.35);color:#ffb4b4;border-radius:6px;font-size:'+fInfo+';line-height:1.5;font-weight:700;">'+saveState.message+'</div>':"";
+  const saveOverlay=saveState?.status==="saving"?'<div style="position:absolute;inset:0;z-index:20;background:rgba(10,10,12,.58);backdrop-filter:blur(1px);display:flex;align-items:center;justify-content:center;pointer-events:auto;"><div style="padding:12px 18px;background:rgba(0,0,0,.72);border:1px solid rgba(212,160,23,.45);border-radius:8px;color:#d4a017;font-size:'+fInfo+';font-weight:900;letter-spacing:.04em;">\u4fdd\u5b58\u4e2d...</div></div>':"";
+  let html='<div style="position:relative;display:flex;flex-direction:column;height:100%;min-height:0;">'
 // HEADER
 +'<div style="flex-shrink:0;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,.07);margin-bottom:8px;">'
 +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
@@ -1099,6 +1170,7 @@ return '<div style="height:'+colH+';overflow-y:auto;margin-bottom:6px;">'+inner+
 +'<input type="text" class="ip" placeholder="備考（タップして編集）" maxlength="40" value="'+(s.note||'')+'" oninput="S.sessions[at]&&(S.sessions[at].note=this.value)" onblur="saveNoteInline(this.value)" style="font-size:'+fMeta+';color:#ffa500;height:28px;padding:2px 10px;border-color:rgba(255,165,0,.2);background:rgba(255,165,0,.04);">'
 +(bn.length?'<div style="margin-top:5px;display:flex;gap:4px;flex-wrap:wrap;">'+bn.map(n=>'<span style="font-size:'+fColH+';color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);border-radius:3px;padding:1px 6px;">場 '+n+'</span>').join('')+'</div>':"")
 +'</div>'
++saveWarn
 // CENTER 3-COLUMN — 注文済みアイテム + 詳細ボタン
 +'<div style="flex:1;overflow:hidden;margin-bottom:8px;min-height:0;">'
 +'<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;height:100%;">'
@@ -1131,6 +1203,7 @@ html+='<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding
 +'<button class="btn" onclick="om(\'disc\')" style="padding:'+bPad+';background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">割引</button>'
 +(_isAdmin?'<button class="btn" onclick="om(\'deleteSession\')" style="padding:'+bPad+';background:rgba(255,30,30,.12);border:1px solid rgba(255,30,30,.35);color:#ff4444;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">削除</button>':'')
 +'</div>'
++saveOverlay
 +'</div>'
 return html;
 }
@@ -2486,7 +2559,7 @@ async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
   const deletedTableId=at;
   const deletedSession=S.sessions[deletedTableId];
-  try{await ensureSessionCurrent(deletedTableId,deletedSession);}
+  try{await waitForSessionSaveQueue(deletedTableId);await ensureSessionCurrent(deletedTableId,deletedSession);}
   catch(e){return;}
   const _cu={};
   _cu[FB_ROOT+"/sessions/"+deletedTableId]=null;
@@ -2504,7 +2577,7 @@ if(a.tableId===deletedTableId&&!a.endTime){
   });
   delete S.sessions[deletedTableId];
   if(window._db){
-guardedSessionUpdate(deletedTableId,deletedSession,_cu)
+queueSessionUpdate(deletedTableId,()=>_cu,{session:deletedSession})
   .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
