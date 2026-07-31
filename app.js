@@ -4,8 +4,9 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.108";
+const APP_VERSION="6.109";
 const GMS_JSON=window.GmsJsonCore;
+const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
@@ -495,6 +496,118 @@ function rememberRemoteHashes(d){
 }
 function cloneData(v){return v==null?null:JSON.parse(JSON.stringify(v));}
 function stripRootPath(path){path=String(path||"");return path.indexOf(FB_ROOT+"/")===0?path.slice(FB_ROOT.length+1):path;}
+const VERSIONED_RECORD_COLLECTIONS=new Set(["shifts","assignments"]);
+const recordNodeTransactionsSupported={shifts:null,assignments:null};
+const dataOperationLocks=new Set();
+function versionedRecordPathInfo(path){
+  const relative=stripRootPath(path);
+  const parts=relative.split("/").filter(Boolean);
+  if(parts.length!==2||!VERSIONED_RECORD_COLLECTIONS.has(parts[0]))return null;
+  return{collection:parts[0],id:parts[1],relative};
+}
+function recordConflictMessage(collection){
+  return collection==="shifts"
+    ?"出退勤情報が他端末で更新されています。最新状態を確認してください。"
+    :"付け回し情報が他端末で更新されています。最新状態を確認してください。";
+}
+function prepareVersionedRecordUpdates(root,updates,options={}){
+  const prepared={...updates};
+  Object.entries(updates||{}).forEach(([path,desired])=>{
+    const info=versionedRecordPathInfo(path);
+    if(!info)return;
+    const remote=getPathValue(root,info.relative)||null;
+    if(desired===null){
+      const expected=options.expectedRecords?.[info.relative];
+      if(!expected||!POS_SYNC.sameRecord(remote,expected)){
+        throw Object.assign(new Error("record changed"),{userMessage:recordConflictMessage(info.collection)});
+      }
+      prepared[path]=null;
+      return;
+    }
+    const explicitExpected=options.expectedRecords?.[info.relative];
+    const expectCreate=(options.createRecords||[]).includes(info.relative);
+    if(remote){
+      if(expectCreate||!POS_SYNC.sameRecord(remote,explicitExpected||desired)){
+        throw Object.assign(new Error("record changed"),{userMessage:recordConflictMessage(info.collection)});
+      }
+    }else if(explicitExpected||!POS_SYNC.canCreate(remote,desired)){
+      throw Object.assign(new Error("record create conflict"),{userMessage:recordConflictMessage(info.collection)});
+    }
+    prepared[path]=POS_SYNC.nextRecord(
+      remote,
+      cloneData(desired),
+      _verNum(APP_VERSION),
+      Date.now()+"_"+Math.random().toString(36).slice(2)
+    );
+  });
+  return prepared;
+}
+function syncVersionedRecordsFromRoot(root,updates){
+  Object.keys(updates||{}).forEach(path=>{
+    const info=versionedRecordPathInfo(path);
+    if(!info)return;
+    const saved=getPathValue(root,info.relative);
+    if(saved)S[info.collection][info.id]=saved;
+    else delete S[info.collection][info.id];
+  });
+}
+async function guardedRecordNodeTransaction(collection,id,expected,desired,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for record write");
+  if(!desired)throw new Error("record deletion requires root transaction");
+  let conflict=false;
+  let conflictRemote=null;
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const ref=window._db.ref(FB_ROOT+"/"+collection+"/"+id);
+  const result=await ref.transaction(remote=>{
+    conflict=false;
+    conflictRemote=null;
+    if(remote){
+      if(!POS_SYNC.sameRecord(remote,expected)){conflict=true;conflictRemote=remote;return;}
+    }else if(!options.expectCreate){
+      conflict=true;return;
+    }else if(!POS_SYNC.canCreate(remote,desired)){
+      conflict=true;return;
+    }
+    return POS_SYNC.nextRecord(remote,cloneData(desired),_verNum(APP_VERSION),nonce);
+  },null,false);
+  if(!result.committed){
+    if(conflict){
+      if(conflictRemote)S[collection][id]=conflictRemote;else delete S[collection][id];
+    }
+    const err=new Error("record conflict");
+    err.userMessage=recordConflictMessage(collection);
+    throw err;
+  }
+  const saved=result.snapshot.val();
+  if(saved)S[collection][id]=saved;
+  return saved;
+}
+async function guardedRecordSet(collection,id,expected,desired,options={}){
+  const path=FB_ROOT+"/"+collection+"/"+id;
+  if(desired&&recordNodeTransactionsSupported[collection]!==false){
+    try{
+      const saved=await guardedRecordNodeTransaction(collection,id,expected,desired,options);
+      recordNodeTransactionsSupported[collection]=true;
+      return saved;
+    }catch(e){
+      if(!isFirebasePermissionDenied(e))throw e;
+      recordNodeTransactionsSupported[collection]=false;
+    }
+  }
+  const updateOptions={...options,expectedRecords:{...(options.expectedRecords||{}),[collection+"/"+id]:expected}};
+  const result=await guardedCheckedUpdate({[path]:desired},options.checker,updateOptions);
+  return getPathValue(result,collection+"/"+id)||null;
+}
+async function withDataOperation(key,operation){
+  if(dataOperationLocks.has(key)){
+    sbs(false,"保存中...");
+    return false;
+  }
+  dataOperationLocks.add(key);
+  sbs(false,"保存中...");
+  try{return await operation();}
+  finally{dataOperationLocks.delete(key);}
+}
 function getPathValue(obj,path){
   const parts=stripRootPath(path).split("/").filter(Boolean);
   let cur=obj;
@@ -540,11 +653,13 @@ async function guardedRootTransaction(mutator,options={}){
   return res.snapshot.val();
 }
 async function guardedCheckedUpdate(updates,checker,options={}){
-  return guardedRootTransaction(root=>{
+  const result=await guardedRootTransaction(root=>{
     const ok=checker?checker(root):{ok:true};
     if(ok===false||ok?.ok===false){throw Object.assign(new Error(ok?.message||"conflict"),{_txConflict:true,userMessage:ok?.message});}
-    return applyRootUpdates(root,updates);
+    return applyRootUpdates(root,prepareVersionedRecordUpdates(root,updates,options));
   },options);
+  syncVersionedRecordsFromRoot(result,updates);
+  return result;
 }
 async function guardedSetIfUnchanged(path,val,options={}){
   const base=window._remoteValueHashes?.[path];
@@ -712,11 +827,22 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
       if(!remote){conflict={remote:null,message:"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。"};return null;}
       if(!sameSession(remote,session)){conflict={remote,message:"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"};return null;}
     }
-    const nextUpdates={...updates};
+    const checked=options.checker?options.checker(root):{ok:true};
+    if(checked===false||checked?.ok===false){
+      throw Object.assign(new Error(checked?.message||"session update conflict"),{userMessage:checked?.message});
+    }
+    let nextUpdates={...updates};
     const sessionPath=FB_ROOT+"/sessions/"+tableId;
     if(nextUpdates[sessionPath]){
       nextUpdates[sessionPath]=ensureSessionId({...nextUpdates[sessionPath],_rev:remote?Number(remote._rev||0)+1:1});
     }
+    Object.keys(nextUpdates).forEach(path=>{
+      const relative=stripRootPath(path);
+      if(!relative.startsWith("sessions/")||path===sessionPath||!nextUpdates[path])return;
+      const targetRemote=getPathValue(root,relative)||null;
+      nextUpdates[path]=ensureSessionId({...nextUpdates[path],_rev:targetRemote?Number(targetRemote._rev||0)+1:1});
+    });
+    nextUpdates=prepareVersionedRecordUpdates(root,nextUpdates,options);
     return applyRootUpdates(root,nextUpdates);
   });
   if(conflict){
@@ -725,11 +851,15 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
     throw new Error("session conflict");
   }
   const saved=getPathValue(res,"sessions/"+tableId);
-  if(saved){
-    if(session&&typeof session==="object")session._rev=saved._rev;
-    syncRemoteSession(tableId,saved);
-  }
+  if(saved&&session&&typeof session==="object")session._rev=saved._rev;
+  Object.keys(updates||{}).forEach(path=>{
+    const relative=stripRootPath(path);
+    if(!relative.startsWith("sessions/"))return;
+    const targetId=relative.split("/")[1];
+    syncRemoteSession(targetId,getPathValue(res,relative)||null);
+  });
   markSessionGuard(session);
+  syncVersionedRecordsFromRoot(res,updates);
   return res;
 }
 
@@ -771,22 +901,32 @@ function addVip(vip){
   else if(vip.id==="v30")s.vipEndTime=(s.vipEndTime||Date.now())+vip.minutes*60000;
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function addBanai(cid){
+async function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
-  const s=S.sessions[at];
-  if((s?.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
-  if((s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===cid))return;
-  s.items=[...s.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isBanaiShimei:true}];
-  s.banaiShimeis=[...(s.banaiShimeis||[]),cid];
+  const current=S.sessions[at];if(!current)return;
+  if((current.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
+  if((current.items||[]).some(i=>i.isBanaiShimei&&i.castId===cid))return;
+  const desiredSession=cloneData(current);
+  desiredSession.items=[...desiredSession.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isBanaiShimei:true}];
+  desiredSession.banaiShimeis=[...(desiredSession.banaiShimeis||[]),cid];
   const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
-  if(freeA){freeA.type="banai";}
+  const desiredAssignment=freeA?{...cloneData(freeA),type:"banai"}:null;
   // sessionsとassignmentsをレコード単位でアトミック保存
   if(window._db){
 const _cu={};
-_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];
-if(freeA)_cu[FB_ROOT+"/assignments/"+freeA.id]=freeA;
-queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session}))
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+_cu[FB_ROOT+"/sessions/"+at]=desiredSession;
+if(desiredAssignment)_cu[FB_ROOT+"/assignments/"+freeA.id]=desiredAssignment;
+try{
+  await queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session}),{
+    session:desiredSession,
+    expectedRecords:freeA?{["assignments/"+freeA.id]:cloneData(freeA)}:{}
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"場内指名の保存に失敗しました。最新状態を確認してください。");
+  return;
+}
   }
   closeM();
   setTimeout(()=>{render();refreshFloorModal();},50);
@@ -801,38 +941,58 @@ function applyET(){
   save("sessions/"+at,S.sessions[at]);closeM();
   if(vw==="floor")render();else renderOrderPartial();
 }
-function remItem(id){
-  const s=S.sessions[at];const t=s.items.find(i=>i.id===id);if(!t)return;
-  let _savedInline=false;
+async function remItem(id){
+  const current=S.sessions[at];const t=current?.items?.find(i=>i.id===id);if(!t)return;
+  const desired=cloneData(current);
+  let assignmentExpected=null;
+  let assignmentDesired=null;
   if(t.isExtension&&t.groupId){
-const ei=s.items.find(i=>i.groupId===t.groupId&&i.extMinutes);
+const ei=desired.items.find(i=>i.groupId===t.groupId&&i.extMinutes);
 const mn=ei?ei.extMinutes:0;
-s.items=(s?.items||[]).filter(i=>i.groupId!==t.groupId);
-if(s.setEndTime&&mn>0)s.setEndTime-=mn*60000;
+desired.items=(desired.items||[]).filter(i=>i.groupId!==t.groupId);
+if(desired.setEndTime&&mn>0)desired.setEndTime-=mn*60000;
   }else if(t.isSet){
 const n=t.addedGuests||0;
-s.items=(s?.items||[]).filter(i=>i.id!==id);
-if(n>0)s.guests=Math.max(1,s.guests-n);
-const hasSet=(s?.items||[]).some(i=>i.isSet);
-if(!hasSet)s.setEndTime=null;
+desired.items=(desired.items||[]).filter(i=>i.id!==id);
+if(n>0)desired.guests=Math.max(1,desired.guests-n);
+const hasSet=(desired.items||[]).some(i=>i.isSet);
+if(!hasSet)desired.setEndTime=null;
   }else if(t.isHonShimei){
-s.items=(s?.items||[]).filter(i=>i.id!==id);
-s.honShimeis=(s.honShimeis||[]).filter(cid=>cid!==t.castId);
+desired.items=(desired.items||[]).filter(i=>i.id!==id);
+desired.honShimeis=(desired.honShimeis||[]).filter(cid=>cid!==t.castId);
   }else if(t.isBanaiShimei){
-s.items=(s?.items||[]).filter(i=>i.id!==id);
-s.banaiShimeis=(s.banaiShimeis||[]).filter(cid=>cid!==t.castId);
+desired.items=(desired.items||[]).filter(i=>i.id!==id);
+desired.banaiShimeis=(desired.banaiShimeis||[]).filter(cid=>cid!==t.castId);
 // リストタブ: banaiアサインをfreeに戻す。sessionsと同一書き込みで競合を防ぐ
 const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
 if(banaiA){
-  banaiA.type="free";
-  if(window._db){const _cu={};_cu[FB_ROOT+"/sessions/"+at]=S.sessions[at];_cu[FB_ROOT+"/assignments/"+banaiA.id]=banaiA;queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session})).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
-  _savedInline=true;
+  assignmentExpected=cloneData(banaiA);
+  assignmentDesired={...cloneData(banaiA),type:"free"};
 }
   }else{
-s.items=(s?.items||[]).filter(i=>i.id!==id);
+desired.items=(desired.items||[]).filter(i=>i.id!==id);
   }
-  if(!_savedInline)save("sessions/"+at,S.sessions[at]);
+  try{
+    if(assignmentDesired){
+      const updates={
+        [FB_ROOT+"/sessions/"+at]:desired,
+        [FB_ROOT+"/assignments/"+assignmentDesired.id]:assignmentDesired
+      };
+      await queueSessionUpdate(at,session=>({...updates,[FB_ROOT+"/sessions/"+at]:session}),{
+        session:desired,
+        expectedRecords:{["assignments/"+assignmentDesired.id]:assignmentExpected}
+      });
+    }else{
+      await queueSessionSave(at,desired);
+    }
+    sbs(true,"同期済み ✓");
+  }catch(e){
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"明細削除に失敗しました。最新状態を確認してください。");
+    return false;
+  }
   if(t.isSet)render();else renderOrderPartial();
+  return true;
 }
 // qty モーダル: DOM再構築なしで表示を更新（iPad キーボード維持用）
 function updateQtyDisplay(v){
@@ -975,45 +1135,34 @@ splits:splits||null,
 ...totals
   };
   const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
-  if(shouldPrintStoreCopy){
-eposPrint({...rec,isGuest:false},false);
-  }
-  const newSessions={...S.sessions};
-  delete newSessions[checkoutTableId];
-
-  // アサイン自動終了＋待機移行（atリセット前）
-  Object.values(S.assignments||{}).forEach(a=>{
-if(a.tableId===checkoutTableId&&!a.endTime){
-  a.endTime=now_co;
-  const sh=getShiftByCastId(a.castId);
-  if(sh){
-    if(!sh.statusLog)sh.statusLog=[];
-    const last=sh.statusLog.slice(-1)[0];
-    if(last&&!last.endTime)last.endTime=now_co;
-    sh.statusLog.push({status:"waiting",startTime:now_co,endTime:null});
-    sh.status="waiting";
-  }
-}
-  });
-
   // 全データをアトミックに保存（history/assignment/shiftはレコード単位書き込みで同時会計の上書き競合を防ぐ）
-  S.sessions=newSessions;
-  S.history=[rec,...S.history];
   if(window._db){
 const _cu={};
+const expectedRecords={};
 _cu[FB_ROOT+"/history/"+rec.id]=rec;
 _cu[FB_ROOT+"/sessions/"+checkoutTableId]=null;
 const _chkShiftIds=new Set();
 Object.values(S.assignments||{}).forEach(a=>{
-  if(a.tableId===checkoutTableId&&a.endTime===now_co){
-    _cu[FB_ROOT+"/assignments/"+a.id]=a;
-    const _sh=getShiftByCastId(a.castId);
-    if(_sh&&!_chkShiftIds.has(_sh.id)){_chkShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
+  if(a.tableId===checkoutTableId&&!a.endTime){
+    _cu[FB_ROOT+"/assignments/"+a.id]={...cloneData(a),endTime:now_co};
+    expectedRecords["assignments/"+a.id]=cloneData(a);
+    const shift=getShiftByCastId(a.castId);
+    if(shift&&!_chkShiftIds.has(shift.id)){
+      _chkShiftIds.add(shift.id);
+      _cu[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"waiting",now_co);
+      expectedRecords["shifts/"+shift.id]=cloneData(shift);
+    }
   }
 });
-try{await queueSessionUpdate(checkoutTableId,()=>_cu,{session:s});}
-catch(e){checkoutBusy=false;return;}
+try{await queueSessionUpdate(checkoutTableId,()=>_cu,{session:s,expectedRecords});}
+catch(e){
+  checkoutBusy=false;
+  alert(e.userMessage||"会計保存に失敗しました。テーブルは閉じていません。最新状態を確認してください。");
+  return;
+}
   }
+  S.history=[rec,...S.history.filter(h=>String(h.id)!==String(rec.id))];
+  if(shouldPrintStoreCopy)eposPrint({...rec,isGuest:false},false);
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
   checkoutBusy=false;
@@ -1021,35 +1170,51 @@ catch(e){checkoutBusy=false;return;}
 async function tableChange(newId){
   if(!at||!newId||newId===at)return;
   if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
+  return withDataOperation("table:"+at,async()=>{
   const oldTid=at;
-  const oldSession=S.sessions[oldTid];
+  const oldSession=cloneData(S.sessions[oldTid]);
   try{
     await waitForSessionSaveQueue(oldTid);
     await ensureSessionCurrent(oldTid,oldSession);
     await ensureSessionCurrent(newId,null,{expectEmpty:true});
   }catch(e){return;}
-  const tcSessionId=S.sessions[oldTid]?.startTime||null;
-  S.sessions[newId]={...S.sessions[oldTid],tableId:newId};
-  delete S.sessions[oldTid];
+  const tcSessionId=oldSession.startTime||null;
+  const movedSession={...cloneData(oldSession),tableId:newId};
   // アクティブなアサイン＋同セッションの終了済みアサイン（付け回し履歴）のtableIdも移動先に更新
-  const _movedAids=[];
+  const movedAssignments=[];
   Object.values(S.assignments||{}).forEach(a=>{
 if(a.tableId===oldTid&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId))){
-  a.tableId=newId;_movedAids.push(a.id);
+  movedAssignments.push({expected:cloneData(a),desired:{...cloneData(a),tableId:newId}});
 }
   });
-  at=newId;
   // レコード単位書き込みで他端末のアサインを上書きしない
   if(window._db){
 const _cu={};
-_cu[FB_ROOT+"/sessions/"+newId]=S.sessions[newId];
+const expectedRecords={};
+_cu[FB_ROOT+"/sessions/"+newId]=movedSession;
 _cu[FB_ROOT+"/sessions/"+oldTid]=null;
-_movedAids.forEach(aid=>{_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];});
-	ensureSessionCurrent(newId,null,{expectEmpty:true})
-	  .then(()=>queueSessionUpdate(oldTid,()=>_cu,{session:oldSession}))
-	  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+movedAssignments.forEach(({expected,desired})=>{
+  _cu[FB_ROOT+"/assignments/"+expected.id]=desired;
+  expectedRecords["assignments/"+expected.id]=expected;
+});
+try{
+  await queueSessionUpdate(oldTid,()=>_cu,{
+    session:oldSession,
+    expectedRecords,
+    checker:root=>(root.sessions||{})[newId]
+      ?{ok:false,message:"移動先テーブルは他端末で使用中になりました。"}
+      :{ok:true}
+  });
+  sbs(true,"同期済み ✓");
+}catch(e){
+  sbs(false,"保存エラー");
+  alert(e.userMessage||"テーブル移動に失敗しました。最新状態を確認してください。");
+  return;
+}
   }
+  at=newId;
   closeM();render();refreshFloorModal();
+  });
 }
 
 // ===== RENDER ENGINE =====
@@ -2569,17 +2734,36 @@ function openAssignActionModal(aid){window._editAid=aid;md="assignAction";rModal
 function openEditAssignTime(aid){
   window._editAid=aid;md="editAssignTime";rModal();
 }
-function saveAssignTimeEdit(){
-  const a=S.assignments[window._editAid];if(!a)return;
+async function saveAssignTimeEdit(){
+  const aid=window._editAid;
+  const current=S.assignments[aid];if(!current)return;
+  const expected=cloneData(current);
+  const desired=cloneData(current);
   const sEl=document.getElementById("eat-start");
   const eEl=document.getElementById("eat-end");
   if(sEl&&sEl.value){
-a.startTime=hhmm2ts(sEl.value);
-a.attachedAt=a.startTime; // カウントアップ基準も同期
+desired.startTime=hhmm2ts(sEl.value);
+desired.attachedAt=desired.startTime; // カウントアップ基準も同期
   }
-  if(eEl&&eEl.value){a.endTime=hhmm2ts(eEl.value);if(a.startTime&&a.endTime<=a.startTime)a.endTime+=86400000;}
-  else if(eEl&&eEl.value==="")a.endTime=null;
-  save("assignments/"+window._editAid,a);closeM();render();
+  if(eEl&&eEl.value){desired.endTime=hhmm2ts(eEl.value);if(desired.startTime&&desired.endTime<=desired.startTime)desired.endTime+=86400000;}
+  else if(eEl&&eEl.value==="")desired.endTime=null;
+  if(desired.endTime&&desired.endTime-desired.startTime>86400000){alert("付け回し時間は24時間以内にしてください。");return;}
+  await withDataOperation("assignment:"+aid,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/assignments/"+aid]:desired},
+        root=>{
+          if(!desired.endTime&&remoteActiveAssign(root,desired.castId,[aid]))return{ok:false,message:"このキャストは他端末ですでに別のテーブルへ付け回されています。"};
+          return{ok:true};
+        },
+        {expectedRecords:{["assignments/"+aid]:expected}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"付け回し時刻の保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 
 // ===== CHECKIN =====
@@ -2613,34 +2797,41 @@ function isBanaiExtensionBackItem(i){
   const inMenu=(key)=>(S.menus?.[key]||[]).some(d=>id===String(d.id)||id.startsWith(String(d.id)+"_"));
   return inMenu("champagne")||inMenu("keepBottles");
 }
-function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;remItem(id);if(prev){md=prev;rModal();}else closeM();}
+async function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;const saved=await remItem(id);if(!saved)return;if(prev){md=prev;rModal();}else closeM();}
 async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
   const deletedTableId=at;
-  const deletedSession=S.sessions[deletedTableId];
+  return withDataOperation("table:"+deletedTableId,async()=>{
+  const deletedSession=cloneData(S.sessions[deletedTableId]);
   try{await waitForSessionSaveQueue(deletedTableId);await ensureSessionCurrent(deletedTableId,deletedSession);}
   catch(e){return;}
   const _cu={};
   _cu[FB_ROOT+"/sessions/"+deletedTableId]=null;
   const _delShiftIds=new Set();
-  // アクティブなアサインを個別削除し、変更したシフトレコードのみ書き込む
-  Object.keys(S.assignments||{}).forEach(aid=>{
-const a=S.assignments[aid];
-if(a.tableId===deletedTableId&&!a.endTime){
-  setCastStatus(a.castId,"waiting");
-  delete S.assignments[aid];
-  _cu[FB_ROOT+"/assignments/"+aid]=null;
-  const _sh=getShiftByCastId(a.castId);
-  if(_sh&&!_delShiftIds.has(_sh.id)){_delShiftIds.add(_sh.id);_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
-}
+  const expectedRecords={};
+  // アクティブなアサインを削除し、変更したシフトだけを同じトランザクションで待機へ戻す
+  Object.values(S.assignments||{}).forEach(a=>{
+    if(a.tableId!==deletedTableId||a.endTime)return;
+    _cu[FB_ROOT+"/assignments/"+a.id]=null;
+    expectedRecords["assignments/"+a.id]=cloneData(a);
+    const shift=getShiftByCastId(a.castId);
+    if(shift&&!_delShiftIds.has(shift.id)){
+      _delShiftIds.add(shift.id);
+      _cu[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"waiting",Date.now());
+      expectedRecords["shifts/"+shift.id]=cloneData(shift);
+    }
   });
-  delete S.sessions[deletedTableId];
-  if(window._db){
-queueSessionUpdate(deletedTableId,()=>_cu,{session:deletedSession})
-  .then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
+  try{
+    await queueSessionUpdate(deletedTableId,()=>_cu,{session:deletedSession,expectedRecords});
+    sbs(true,"同期済み ✓");
+  }catch(e){
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"テーブル削除に失敗しました。最新状態を確認してください。");
+    return;
   }
   const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
   at=null;md=null;vw="floor";render();
+  });
 }
 
 // ===== ラストオーダー機能 =====
@@ -6170,63 +6361,95 @@ async function clockIn(castId,time){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c)return;
   const t=hhmm2ts(time||nowHHMM());
-  const sid="sh_"+Date.now();
+  const sid="sh_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
   // statusLogは待機・休憩の開始/終了を記録する配列
-  S.shifts[sid]={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
-  try{
-    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+sid]:S.shifts[sid]},root=>{
-      if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
-      return{ok:true};
-    });
-    sbs(true,"同期済み ✓");closeM();render();
-  }catch(e){
-    delete S.shifts[sid];
-    sbs(false,"保存エラー");
-    alert(e.userMessage||"出勤保存に失敗しました。最新状態を確認してください。");
-  }
+  const desired={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
+  await withDataOperation("cast:"+castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+sid]:desired},
+        root=>{
+          if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
+          return{ok:true};
+        },
+        {createRecords:["shifts/"+sid]}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"出勤保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
-function setCastStatus(castId,newStatus){
-  const sh=getShiftByCastId(castId);if(!sh)return;
-  const now2=Date.now();
+function shiftWithStatus(shift,newStatus,changedAt=Date.now()){
+  if(!shift)return null;
+  const sh=cloneData(shift);
   // 現在のstatusLogの最後のエントリを閉じる
   if(!sh.statusLog)sh.statusLog=[];
   const last=sh.statusLog[sh.statusLog.length-1];
-  if(last&&!last.endTime)last.endTime=now2;
+  if(last&&!last.endTime)last.endTime=changedAt;
   // 新しいステータスを追加（activeはログ不要）
   if(newStatus==="waiting"||newStatus==="break"){
-sh.statusLog.push({status:newStatus,startTime:now2,endTime:null});
+sh.statusLog.push({status:newStatus,startTime:changedAt,endTime:null});
   }
   sh.status=newStatus;
+  return sh;
 }
 async function clockOut(shiftId,time){
-  const sh=S.shifts[shiftId];if(!sh)return;
-  const prev=cloneData(sh);
-  sh.clockOut=hhmm2ts(time||nowHHMM());
+  const current=S.shifts[shiftId];if(!current)return;
+  const expected=cloneData(current);
+  const desired=cloneData(current);
+  desired.clockOut=hhmm2ts(time||nowHHMM());
   // 退勤が出勤より前なら翌日扱い
-  if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
-  try{
-    await guardedCheckedUpdate({[FB_ROOT+"/shifts/"+shiftId]:sh},root=>{
-      const remote=(root.shifts||{})[shiftId];
-      if(!remote)return{ok:false,message:"この出勤データは他端末で削除されています。最新状態を確認してください。"};
-      if(remote.clockOut)return{ok:false,message:"このキャストは他端末で既に退勤済みです。最新状態を確認してください。"};
-      return{ok:true};
-    });
-    sbs(true,"同期済み ✓");closeM();render();
-  }catch(e){
-    S.shifts[shiftId]=prev;
-    sbs(false,"保存エラー");
-    alert(e.userMessage||"退勤保存に失敗しました。最新状態を確認してください。");
-  }
+  if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
+  if(desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+shiftId]:desired},
+        root=>{
+          const remote=(root.shifts||{})[shiftId];
+          if(!remote)return{ok:false,message:"この出勤データは他端末で削除されています。最新状態を確認してください。"};
+          if(remote.clockOut)return{ok:false,message:"このキャストは他端末で既に退勤済みです。最新状態を確認してください。"};
+          if(remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤できません。先に付け回しを終了してください。"};
+          return{ok:true};
+        },
+        {expectedRecords:{["shifts/"+shiftId]:expected}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"退勤保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 function saveLocalBackup(){/* localStorageバックアップは廃止、Firebase backup/bizDaysを使用 */}
 
-function cancelClockOut(shiftId){
+async function cancelClockOut(shiftId){
   if(!confirm("退勤をキャンセルして出勤状態に戻します。よろしいですか？"))return;
-  const sh=S.shifts[shiftId];if(!sh)return;
-  delete sh.clockOut;
+  const current=S.shifts[shiftId];if(!current)return;
+  const expected=cloneData(current);
+  const desired=cloneData(current);
+  delete desired.clockOut;
   // statusをwaitingに戻す
-  sh.status="waiting";
-  save("shifts/"+shiftId,sh);closeM();render();
+  desired.status="waiting";
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+shiftId]:desired},
+        root=>{
+          const other=Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(current.castId)&&String(sh.id)!==String(shiftId)&&!sh.clockOut);
+          if(other)return{ok:false,message:"このキャストは別の出勤記録ですでに出勤中です。"};
+          return{ok:true};
+        },
+        {expectedRecords:{["shifts/"+shiftId]:expected}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"退勤キャンセルの保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 function confirmShiftTime(){
   const el=document.getElementById("shift-time");
@@ -6244,19 +6467,58 @@ function openShiftMd(mode){
 function editShift(sid){
   shiftMd.step="edit";shiftMd.shiftId=sid;md="shift";rModal();
 }
-function saveShiftEdit(){
-  const sh=S.shifts[shiftMd.shiftId];if(!sh)return;
+async function saveShiftEdit(){
+  const shiftId=shiftMd.shiftId;
+  const current=S.shifts[shiftId];if(!current)return;
+  const expected=cloneData(current);
+  const desired=cloneData(current);
   const inEl=document.getElementById("se-in");
   const outEl=document.getElementById("se-out");
-  if(inEl&&inEl.value)sh.clockIn=hhmm2ts(inEl.value);
+  if(inEl&&inEl.value)desired.clockIn=hhmm2ts(inEl.value);
   if(outEl&&outEl.value){
-sh.clockOut=hhmm2ts(outEl.value);
-if(sh.clockOut<=sh.clockIn)sh.clockOut+=86400000;
-  }else{sh.clockOut=null;}
-  save("shifts/"+shiftMd.shiftId,sh);closeM();render();
+desired.clockOut=hhmm2ts(outEl.value);
+if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
+  }else{desired.clockOut=null;}
+  if(desired.clockOut&&desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+shiftId]:desired},
+        root=>{
+          const other=Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(current.castId)&&String(sh.id)!==String(shiftId)&&!sh.clockOut);
+          if(!desired.clockOut&&other)return{ok:false,message:"このキャストは別の出勤記録ですでに出勤中です。"};
+          if(!current.clockOut&&desired.clockOut&&remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤時刻を設定できません。先に付け回しを終了してください。"};
+          return{ok:true};
+        },
+        {expectedRecords:{["shifts/"+shiftId]:expected}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"出退勤時刻の保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
-function deleteShift(sid){
-  delete S.shifts[sid];save("shifts/"+sid,null);closeM();render();
+async function deleteShift(sid){
+  const current=S.shifts[sid];if(!current)return;
+  if(!confirm("この出退勤記録を削除します。よろしいですか？"))return;
+  const expected=cloneData(current);
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+sid]:null},
+        root=>{
+          if(!current.clockOut&&remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中の出退勤記録は削除できません。"};
+          return{ok:true};
+        },
+        {expectedRecords:{["shifts/"+sid]:expected}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"出退勤記録の削除に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 function exportShiftCSV(){
   const data=Object.values(S.shifts||{});
@@ -6294,165 +6556,176 @@ startAssign(tsukeMd.castId,tableId,tsukeMd.type,t,prevAssignId);
   tsukeMd={step:"cast",castId:null,type:null,tableId:null,time:"",useNow:true,prevAssignId:null};
 }
 async function startAssignNow(castId,tableId,type,prevAssignId=null){
-  // Nowモード：確定した瞬間のtimestampをstartTime・attachedAt両方に使う
-  const c=S.casts.find(c=>String(c.id)===String(castId));
-  if(!c){alert("キャストが見つかりません");return;}
-  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!prevAssignId);
-  if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
-  const now_sa=Date.now();
-  const aid="a_"+now_sa;
-  const sessionId=S.sessions[tableId]?.startTime||null;
-  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:now_sa,attachedAt:now_sa,endTime:null,sessionId};
-  const closingAssignments=prevAssignId?Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(castId)&&!a.endTime&&a.id!==aid):[];
-  closingAssignments.forEach(a=>{a.endTime=now_sa;});
-  const sh=getShiftByCastId(castId);
-  if(sh)setCastStatus(castId,"active");
-  closeM();render();
-  if(window._db){
-const _cu={};
-closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
-_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
-const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-try{
-  await guardedCheckedUpdate(_cu,root=>{
-    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
-    return{ok:true};
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
-  location.reload();return;
-}
-  }
+  return startAssignAt(castId,tableId,type,Date.now(),prevAssignId);
 }
 async function startAssign(castId,tableId,type,time,prevAssignId=null){
+  return startAssignAt(castId,tableId,type,hhmm2ts(time||nowHHMM()),prevAssignId);
+}
+async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
-  // 既にテーブルについている（active）は付けられない
-  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!prevAssignId);
+  const localSession=S.sessions[tableId];
+  if(!localSession){alert("このテーブルは会計済み、または空席です。");return;}
+  const shift=getShiftByCastId(castId);
+  if(!shift){alert("出勤していないキャストは付け回しできません。");return;}
+  const existing=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&String(a.id)!==String(prevAssignId||""));
   if(existing){alert(c.name+"は既に"+(S.tables.find(t=>t.id===existing.tableId)?.label||"他テーブル")+"についています");return;}
-  const aid="a_"+Date.now();
-  // sessionId = そのテーブルの現在セッション開始時刻（会計単位でグループ化に使う）
-  const sessionId=S.sessions[tableId]?.startTime||null;
-  // attachedAt = 実際に付けた瞬間のtimestamp（カウントアップ基準）
-  // startTime = 入力された開始時刻（記録・表示用）
-  // 時刻指定モード: attachedAt = startTime（指定時刻からカウントアップ開始）
-  const startTs=hhmm2ts(time||nowHHMM());
-  const attachedAt=startTs;
-  S.assignments[aid]={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt,endTime:null,sessionId};
-  const closingAssignments=prevAssignId?Object.values(S.assignments||{}).filter(a=>String(a.castId)===String(castId)&&!a.endTime&&a.id!==aid):[];
-  closingAssignments.forEach(a=>{a.endTime=startTs;});
-  const sh=getShiftByCastId(castId);
-  if(sh)setCastStatus(castId,"active"); // 休憩中でも付けるとactiveへ
-  closeM();render();
-  if(window._db){
-const _cu={};
-closingAssignments.forEach(a=>{_cu[FB_ROOT+"/assignments/"+a.id]=a;});
-_cu[FB_ROOT+"/assignments/"+aid]=S.assignments[aid];
-const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-try{
-  await guardedCheckedUpdate(_cu,root=>{
-    if(remoteActiveAssign(root,castId,[prevAssignId,aid].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。最新状態を確認してください。"};
-    return{ok:true};
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
-  location.reload();return;
-}
+  const previous=prevAssignId?S.assignments[prevAssignId]:null;
+  if(prevAssignId&&(!previous||previous.endTime||String(previous.castId)!==String(castId))){alert("移動元の付け回し情報が最新ではありません。");return;}
+  const aid="a_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
+  const desiredAssignment={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt:startTs,endTime:null,sessionId:localSession.startTime};
+  const desiredShift=shiftWithStatus(shift,"active",Date.now());
+  const desiredPrevious=previous?{...cloneData(previous),endTime:startTs}:null;
+  const updates={
+    [FB_ROOT+"/assignments/"+aid]:desiredAssignment,
+    [FB_ROOT+"/shifts/"+shift.id]:desiredShift
+  };
+  const expectedRecords={["shifts/"+shift.id]:cloneData(shift)};
+  if(desiredPrevious){
+    updates[FB_ROOT+"/assignments/"+previous.id]=desiredPrevious;
+    expectedRecords["assignments/"+previous.id]=cloneData(previous);
   }
+  await withDataOperation("cast:"+castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        updates,
+        root=>{
+          const remoteSession=(root.sessions||{})[tableId];
+          if(!remoteSession||Number(remoteSession.startTime||0)!==Number(localSession.startTime||0))return{ok:false,message:"対象テーブルは他端末で会計または変更されています。"};
+          const remoteShift=(root.shifts||{})[shift.id];
+          if(!remoteShift||remoteShift.clockOut)return{ok:false,message:"このキャストは他端末で退勤済みです。"};
+          if(remoteActiveAssign(root,castId,[prevAssignId].filter(Boolean)))return{ok:false,message:"このキャストは他端末で既に付け回し中です。"};
+          if(prevAssignId){
+            const remotePrevious=(root.assignments||{})[prevAssignId];
+            if(!remotePrevious||remotePrevious.endTime)return{ok:false,message:"移動元の付け回しは他端末ですでに終了しています。"};
+          }
+          return{ok:true};
+        },
+        {expectedRecords,createRecords:["assignments/"+aid]}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"付け回し保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
-function changeAssignType(aid,newType){
-  const a=S.assignments[aid];if(!a)return;
-  a.type=newType;
-  save("assignments/"+aid,a);closeM();render();
+async function changeAssignType(aid,newType){
+  const current=S.assignments[aid];if(!current)return;
+  const expected=cloneData(current);
+  const desired={...cloneData(current),type:newType};
+  await withDataOperation("assignment:"+aid,async()=>{
+    try{
+      await guardedRecordSet("assignments",aid,expected,desired);
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"付け回し種別の保存に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
 async function endAssign(aid){
-  const a=S.assignments[aid];if(!a)return;
+  const current=S.assignments[aid];if(!current)return;
+  const expected=cloneData(current);
   const now2=Date.now();
-  a.endTime=now2;
-  setCastStatus(a.castId,"waiting"); // statusLogに新エントリを追加
-  closeM();render();
-  if(window._db){
-const _cu={};
-_cu[FB_ROOT+"/assignments/"+aid]=a;
-const _sh=getShiftByCastId(a.castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-try{
-  await guardedCheckedUpdate(_cu,root=>{
-    const remote=(root.assignments||{})[aid];
-    if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
-    if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
-    return{ok:true};
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"付け回し終了に失敗しました。最新状態を確認してください。");
-  location.reload();return;
-}
+  const desired={...cloneData(current),endTime:now2};
+  const shift=getShiftByCastId(current.castId);
+  const desiredShift=shift?shiftWithStatus(shift,"waiting",now2):null;
+  const updates={[FB_ROOT+"/assignments/"+aid]:desired};
+  const expectedRecords={["assignments/"+aid]:expected};
+  if(desiredShift){
+    updates[FB_ROOT+"/shifts/"+shift.id]=desiredShift;
+    expectedRecords["shifts/"+shift.id]=cloneData(shift);
   }
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(updates,root=>{
+        const remote=(root.assignments||{})[aid];
+        if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
+        if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
+        return{ok:true};
+      },{expectedRecords});
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"付け回し終了に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 async function moveToBreak(castId){
   const now2=Date.now();
-  const a=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
-  if(a)a.endTime=now2;
-  setCastStatus(castId,"break"); // statusLogに新エントリを追加
-  closeM();render();
-  if(window._db){
-const _cu={};
-if(a)_cu[FB_ROOT+"/assignments/"+a.id]=a;
-const _sh=getShiftByCastId(castId);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;
-try{
-  await guardedCheckedUpdate(_cu,root=>{
-    if(a){
-      const remote=(root.assignments||{})[a.id];
-      if(!remote||remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了しています。最新状態を確認してください。"};
+  const assignment=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
+  const shift=getShiftByCastId(castId);
+  if(!shift){alert("出勤情報が見つかりません。最新状態を確認してください。");return;}
+  const desiredShift=shiftWithStatus(shift,"break",now2);
+  const updates={[FB_ROOT+"/shifts/"+shift.id]:desiredShift};
+  const expectedRecords={["shifts/"+shift.id]:cloneData(shift)};
+  if(assignment){
+    updates[FB_ROOT+"/assignments/"+assignment.id]={...cloneData(assignment),endTime:now2};
+    expectedRecords["assignments/"+assignment.id]=cloneData(assignment);
+  }
+  await withDataOperation("cast:"+castId,async()=>{
+    try{
+      await guardedCheckedUpdate(updates,root=>{
+        const remoteAssignment=remoteActiveAssign(root,castId);
+        if(assignment&&(!remoteAssignment||String(remoteAssignment.id)!==String(assignment.id)))return{ok:false,message:"付け回し状態が他端末で変更されています。"};
+        if(!assignment&&remoteAssignment)return{ok:false,message:"このキャストは他端末で付け回し中です。"};
+        return{ok:true};
+      },{expectedRecords});
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"休憩への変更に失敗しました。最新状態を確認してください。");
     }
-    return{ok:true};
   });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"休憩への変更に失敗しました。最新状態を確認してください。");
-  location.reload();return;
 }
-  }
-}
-function moveToWaiting(castId){
-  setCastStatus(castId,"waiting"); // statusLogに新エントリを追加
-  if(window._db){
-const _sh=getShiftByCastId(castId);
-if(_sh){const _cu={};_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;guardedUpdate(_cu).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));}
-  }
-  render();
+async function moveToWaiting(castId){
+  const shift=getShiftByCastId(castId);
+  if(!shift){alert("出勤情報が見つかりません。最新状態を確認してください。");return;}
+  const desiredShift=shiftWithStatus(shift,"waiting",Date.now());
+  await withDataOperation("cast:"+castId,async()=>{
+    try{
+      await guardedCheckedUpdate(
+        {[FB_ROOT+"/shifts/"+shift.id]:desiredShift},
+        root=>remoteActiveAssign(root,castId)
+          ?{ok:false,message:"付け回し中のため待機へ変更できません。先に付け回しを終了してください。"}
+          :{ok:true},
+        {expectedRecords:{["shifts/"+shift.id]:cloneData(shift)}}
+      );
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"待機への変更に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 async function deleteAssign(aid){
-  const a=S.assignments[aid];if(!a)return;
-  const _wasActive=!a.endTime;const _cid=a.castId;
-  if(_wasActive){setCastStatus(_cid,"waiting");}
-  delete S.assignments[aid];
-  closeM();render();
-  if(window._db){
-const _cu={};
-_cu[FB_ROOT+"/assignments/"+aid]=null;
-if(_wasActive){const _sh=getShiftByCastId(_cid);if(_sh)_cu[FB_ROOT+"/shifts/"+_sh.id]=_sh;}
-try{
-  await guardedCheckedUpdate(_cu,root=>{
-    const remote=(root.assignments||{})[aid];
-    if(!remote)return{ok:false,message:"この付け回しは他端末で既に削除されています。最新状態を確認してください。"};
-    return{ok:true};
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"付け回し削除に失敗しました。最新状態を確認してください。");
-  location.reload();return;
-}
+  const current=S.assignments[aid];if(!current)return;
+  if(!confirm("この付け回し履歴を削除します。よろしいですか？"))return;
+  const expected=cloneData(current);
+  const wasActive=!current.endTime;
+  const shift=wasActive?getShiftByCastId(current.castId):null;
+  const updates={[FB_ROOT+"/assignments/"+aid]:null};
+  const expectedRecords={["assignments/"+aid]:expected};
+  if(shift){
+    updates[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"waiting",Date.now());
+    expectedRecords["shifts/"+shift.id]=cloneData(shift);
   }
+  await withDataOperation("cast:"+current.castId,async()=>{
+    try{
+      await guardedCheckedUpdate(updates,root=>{
+        const remote=(root.assignments||{})[aid];
+        if(!remote)return{ok:false,message:"この付け回しは他端末で既に削除されています。最新状態を確認してください。"};
+        return{ok:true};
+      },{expectedRecords});
+      sbs(true,"同期済み ✓");closeM();render();
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"付け回し削除に失敗しました。最新状態を確認してください。");
+    }
+  });
 }
 
 // ===== 出勤画面 =====
