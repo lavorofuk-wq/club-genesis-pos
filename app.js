@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.110";
+const APP_VERSION="6.111";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -3786,7 +3786,13 @@ function eposServiceUrls(ip,port){
 async function postEposSoap(url,soap){
   const res=await fetch(url,{method:"POST",headers:{"Content-Type":"text/xml; charset=utf-8","SOAPAction":""},body:soap});
   if(!res.ok)throw new Error("HTTP "+res.status);
-  return res;
+  const body=await res.text();
+  const failed=body.match(/<response\b[^>]*\bsuccess=["']false["'][^>]*>/i);
+  if(failed){
+    const code=failed[0].match(/\bcode=["']([^"']*)["']/i);
+    throw new Error("Epson印刷エラー"+(code?.[1]?": "+code[1]:""));
+  }
+  return body;
 }
 
 async function testPrintXML(ip,port){
@@ -3915,36 +3921,12 @@ ${!isGuest&&noteText?`<hr class="rcp-divider"><div class="rcp-meta" style="word-
 }
 
 // ===== ePOS PRINT =====
-// ePOS SDK → ePOS-Print XML API → ブラウザprint の順でフォールバック
+// ePOS-Print XML APIで印刷し、失敗時は通常印刷を選択できる。
 function eposPrint(data, isEstimate){
   const ip=S.config.printerIP||'192.168.150.76';
   const port=S.config.printerPort||8008;
-  if(!ip){alert("プリンターIPアドレスが設定されていません。\n管理タブ→プリンター設定から設定してください。");return;}
-  if(typeof window.epson!=="undefined"&&!window._eposFailed){
-eposPrintSDK(ip,port,data,isEstimate);
-  }else{
-// SDK未ロード → ePOS-Print XML API直接送信
-eposPrintXML(ip,data,isEstimate);
-  }
-}
-
-// ePOS SDK方式（epos-2.27.0.jsが読み込まれている場合）
-function eposPrintSDK(ip,port,data,isEstimate){
-  const ePosDev=new window.epson.ePOSDevice();
-  ePosDev.connect(ip,port,(result)=>{
-if(result!=="OK"&&result!=="SSL_CONNECT_OK"){
-  alert("プリンター接続エラー: "+result+"\nIP: "+ip+"\n\nXML方式で再試行します...");
+  if(!ip){showEposPrintError("未設定",port,new Error("プリンターIPアドレスが設定されていません"),data,isEstimate);return;}
   eposPrintXML(ip,data,isEstimate);
-  return;
-}
-ePosDev.createDevice("local_printer",ePosDev.DEVICE_TYPE_PRINTER,{crypto:false,buffer:false},(prn,retcode)=>{
-  if(retcode!=="OK"){alert("デバイス取得エラー: "+retcode);ePosDev.disconnect();return;}
-  buildEposCommands(prn,data,isEstimate);
-  prn.send();
-  prn.onreceive=function(res){ePosDev.deleteDevice(prn,()=>ePosDev.disconnect());if(res.success)sbs(true,"印刷完了 ✓");};
-  prn.onerror=function(err){console.error("ePOS error:",err);ePosDev.disconnect();showEposPrintError(ip,port,err);};
-});
-  });
 }
 
 // ePOS-Print XML API方式（SDK不要・直接HTTPS POST）
@@ -3962,7 +3944,7 @@ if(lastError)throw lastError;
 sbs(true,"印刷しました ✓");
   }catch(e){
 console.warn("ePOS-Print XML送信失敗:",e.message);
-showEposPrintError(ip,port,e);
+showEposPrintError(ip,port,e,data,isEstimate);
   }
 }
 
@@ -4036,70 +4018,6 @@ if(dItems.length){x+='<feed line="1"/>'; ln("--- 割引 ---"); dItems.forEach(pr
   return x;
 }
 
-function buildEposCommands(prn,data,isEstimate){
-  const{tableLabel,guests,items,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,payMethod,splits,startTime,note,isGuest}=data;
-  const W=42;
-  const sw=(s)=>[...String(s)].reduce((n,c)=>n+(c.charCodeAt(0)>127?2:1),0);
-  const row=(label,amt,w=W)=>{const sp=Math.max(1,w-sw(label)-sw(amt));return label+" ".repeat(sp)+amt;};
-  const cleanLbl=(lbl)=>String(lbl).replace(/\s*[\d,]+円$/, "");
-  const printItem=(i)=>{
-if(!isGuest&&i.isDiscount)return;
-const lb=i.isDiscount?(isGuest?"割引":cleanLbl(i.label)):(i.qty>1?cleanLbl(i.label)+" ×"+i.qty:cleanLbl(i.label));
-const amt=(i.isDiscount?"-":"")+"¥"+fmt(Math.abs(i.price*(i.qty||1)));
-prn.addText(row(lb,amt)+"\n");
-  };
-
-  prn.addFeedLine(1);
-  prn.addTextAlign(prn.ALIGN_CENTER);
-  prn.addTextStyle(false,false,true,prn.COLOR_1);
-  prn.addTextSize(2,2); prn.addText("CLUB  GENESIS\n");
-  prn.addTextSize(1,1); prn.addTextStyle(false,false,false,prn.COLOR_1);
-  if(!isGuest)prn.addText("店 舗 控 え\n");
-  prn.addFeedLine(1);
-  prn.addTextAlign(prn.ALIGN_LEFT);
-  prn.addText("-".repeat(W)+"\n");
-  prn.addText("テーブル: "+tableLabel+"　"+guests+"名様\n");
-  if(startTime){const st=new Date(startTime);prn.addText("入店: "+st.toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+"\n");}
-  const honNames=(items||[]).filter(i=>i.isHonShimei).map(i=>i.label.replace("本指名料 (","").replace(")","").replace("本指名料","").trim()).filter(Boolean);
-  if(honNames.length)prn.addText("本指名 "+honNames.map(n=>"（"+n+"）").join("")+"\n");
-  if(!isGuest){const _bn=[...new Set((items||[]).filter(i=>i.isBanaiExtension).flatMap(i=>i.banaiExtCastNames||[i.banaiExtCastName].filter(Boolean)))];if(_bn.length)prn.addText("場内延長 "+_bn.map(n=>"（"+n+"）").join("")+"\n");}
-  if(payMethod){const pm=payMethod==="card"?"カード":"現金";prn.addText("お支払い: "+pm+"\n");}
-  if(splits&&splits.length>1)splits.forEach(sp=>{const m=sp.method==="card"?"カード":"現金";prn.addText("  "+m+": ¥"+fmt(sp.amount)+"\n");});
-  prn.addText("-".repeat(W)+"\n");
-  if(isGuest){
-const sItems=(items||[]).filter(isSetCatItem);
-const gItems=(items||[]).filter(isGuestCatItem);
-const cItems=(items||[]).filter(isCastCatItem);
-const dItems=(items||[]).filter(i=>i.isDiscount);
-prn.addText("--- SET ---\n"); sItems.forEach(printItem); if(!sItems.length)prn.addText("  なし\n");
-prn.addFeedLine(1); prn.addText("--- GUEST ---\n"); gItems.forEach(printItem); if(!gItems.length)prn.addText("  なし\n");
-prn.addFeedLine(1); prn.addText("--- CAST ---\n"); cItems.forEach(printItem); if(!cItems.length)prn.addText("  なし\n");
-if(dItems.length){prn.addFeedLine(1); prn.addText("--- 割引 ---\n"); dItems.forEach(printItem);}
-  }else{
-(items||[]).forEach(printItem);
-  }
-  prn.addText("-".repeat(W)+"\n");
-  prn.addText(row("小計","¥"+fmt(subtotal))+"\n");
-  if((subDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))+"\n");
-  prn.addText(row("税・SC ("+Math.round((rate||TAX_RATE)*100)+"%)", "¥"+fmt(tax))+"\n");
-  if((totalDiscAmt||0)>0)prn.addText(row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))+"\n");
-  prn.addText("=".repeat(W)+"\n");
-  prn.addFeedLine(1);
-  prn.addTextStyle(false,false,true,prn.COLOR_1); prn.addTextSize(2,2);
-  prn.addText(row("合 計","¥"+fmt(total),Math.floor(W/2))+"\n");
-  prn.addTextSize(1,1); prn.addTextStyle(false,false,false,prn.COLOR_1);
-  prn.addFeedLine(1);
-  prn.addText("=".repeat(W)+"\n");
-  if(!isGuest&&note){prn.addText("-".repeat(W)+"\n");prn.addText("備考: "+note+"\n");}
-  prn.addFeedLine(2);
-  prn.addTextAlign(prn.ALIGN_CENTER);
-  prn.addText("ご来店ありがとうございました\n");
-  prn.addText("またのご来店をお待ちしております\n");
-  prn.addFeedLine(1);
-  prn.addText("CLUB GENESIS\n");
-  prn.addFeedLine(4); prn.addCut(prn.CUT_FEED);
-}
-
 function printReceiptFallback(data,isEstimate){
   const el=document.getElementById("receipt-print-area");
   if(!el)return;
@@ -4108,9 +4026,10 @@ function printReceiptFallback(data,isEstimate){
   setTimeout(()=>{window.print();setTimeout(()=>{el.style.display="none";},500);},150);
 }
 
-function showEposPrintError(ip,port,e){
+function showEposPrintError(ip,port,e,data,isEstimate){
   sbs(false,"Epson接続エラー");
-  alert("Epsonプリンターに接続できないため、レシート印刷を中止しました。\n\n通常印刷には切り替えません。\n\n設定IP: "+ip+"\n設定ポート: "+port+"\nエラー: "+(e?.message||e||"接続失敗")+"\n\n確認してください:\n・POS端末とプリンターが同じWi-Fiか\n・プリンターIPが現在のネットワークと一致しているか\n・プリンターの電源とLAN/Wi-Fi接続\n・管理 > プリンター設定のIP/ポート");
+  const useNormalPrint=confirm("Epsonレシートプリンターに接続できませんでした。\n通常印刷に切り替えますか？\n\n設定IP: "+ip+"\n設定ポート: "+port+"\nエラー: "+(e?.message||e||"接続失敗"));
+  if(useNormalPrint)printReceiptFallback(data,isEstimate);
 }
 
 function printReceipt(data, isEstimate){
