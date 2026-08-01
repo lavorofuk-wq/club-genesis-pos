@@ -48,7 +48,6 @@ body.in-order .order-left{overflow-y:auto;-webkit-overflow-scrolling:touch;paddi
 .disc-chip:hover{background:rgba(255,80,80,.2);}
 
 /* ===== RECEIPT PRINT ===== */
-#receipt-frame{display:none;}
 @media print{
   *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   body>*{display:none!important;}
