@@ -25,4 +25,11 @@ const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("asy
 assert.match(checkout,/expectedRecords/);
 assert.ok(checkout.indexOf("queueSessionUpdate")<checkout.indexOf("eposPrint"));
 
+const checkin=app.slice(app.indexOf("async function startSession"),app.indexOf("function addExt"));
+assert.match(checkin,/checkinBusy/);
+assert.match(checkin,/await queueSessionSave\(tableId,desired,\{expectCreate:true\}\)/);
+assert.doesNotMatch(checkin,/S\.sessions\[at\]\s*=/);
+assert.ok(checkin.indexOf("await queueSessionSave")<checkin.indexOf("openFloorDetail"));
+assert.match(app,/function cancelCheckin\(\)\{if\(checkinBusy\)return;/);
+
 console.log("pos-sync integration guards passed");

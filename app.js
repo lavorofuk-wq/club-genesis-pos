@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.109";
+const APP_VERSION="6.110";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -110,6 +110,7 @@ let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
 let checkoutBusy=false;
+let checkinBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
@@ -864,9 +865,11 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
 }
 
 // ===== SESSIONS =====
-function startSession(){
+async function startSession(){
+  if(checkinBusy||!at)return;
   const{guests,setMenu,honShimeis,douhan,freedrink,single}=ci;
   if(!setMenu)return;
+  const tableId=at;
   const items=[];
   const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===setMenu);
   if(sm)items.push({id:sm.id,label:sm.label,price:sm.price,qty:guests,minutes:sm.minutes,isSet:true});
@@ -877,10 +880,24 @@ function startSession(){
   let st=Date.now();
   if(etv)st=hhmm2ts(etv);
   const si=items.find(i=>i.isSet);
-  S.sessions[at]=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId:at,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
-  guardedSessionSet(at,S.sessions[at],{expectCreate:true}).then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
-  vw="floor";md=null;ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);
-  render();openFloorDetail(at);
+  const desired=markSessionGuard({sessionId:"ses_"+st+"_"+Math.random().toString(36).slice(2,8),tableId,startTime:st,guests,items,setEndTime:si?st+si.minutes*60000:null,honShimeis,banaiShimeis:[],note:ci.note||""});
+  checkinBusy=true;
+  rModal();
+  try{
+    // Firebaseでテーブル作成が確定するまで、オーダー操作を開始させない。
+    await queueSessionSave(tableId,desired,{expectCreate:true});
+    sbs(true,"同期済み ✓");
+    at=tableId;vw="floor";md=null;resetCheckinState();
+    render();openFloorDetail(tableId);
+  }catch(e){
+    sbs(false,"保存エラー");
+    if(md&&String(md).indexOf("ci-")===0){
+      alert(e.userMessage||"チェックインを保存できませんでした。入力内容を保持したまま再試行してください。");
+    }
+  }finally{
+    checkinBusy=false;
+    if(md&&String(md).indexOf("ci-")===0)rModal();
+  }
 }
 function addExt(ext,wsc){
   const gid="eg_"+Date.now();const s=S.sessions[at];
@@ -2769,7 +2786,7 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
 // ===== CHECKIN =====
 function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);}
 function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
-function cancelCheckin(){resetCheckinState();at=null;closeM();render();}
+function cancelCheckin(){if(checkinBusy)return;resetCheckinState();at=null;closeM();render();}
 function ciGo(step){md=step;rModal();}
 function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set-type");}}
 function ciSelectSetType(type){ci.setType=type;ci.setMenu=null;ciGo("ci-set");}
@@ -5365,7 +5382,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const tl=S.tables.find(t=>t.id===at)?.label||"";
 const titleColor="#d4a017";
 const head='<div class="mo" onclick="cancelCheckin()"><div class="mb" onclick="event.stopPropagation()" style="max-width:520px;"><h3 style="font-size:17px;color:'+titleColor+';margin-bottom:4px;">'+tl+' &#12481;&#12455;&#12483;&#12463;&#12452;&#12531;</h3>';
-const foot='<button class="btn" onclick="cancelCheckin()" style="margin-top:12px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">&#12461;&#12515;&#12531;&#12475;&#12523;</button></div></div>';
+const foot='<button class="btn" '+(checkinBusy?'disabled':'onclick="cancelCheckin()"')+' style="margin-top:12px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;'+(checkinBusy?'opacity:.45;':'')+'">&#12461;&#12515;&#12531;&#12475;&#12523;</button></div></div>';
 if(md==="ci-guests"){
   let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20154;&#25968;&#12434;&#36984;&#25246;</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:8px;">';
   [1,2,3,4,5,6,7,8,9,10,11,12].forEach(n=>{body+='<button class="btn" onclick="ciSetGuests('+n+')" style="height:48px;border-radius:8px;font-size:17px;font-weight:900;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;touch-action:manipulation;">'+n+'</button>';});
@@ -5416,7 +5433,7 @@ if(md==="ci-guests"){
   h=head+body+foot;
 }else if(md==="ci-note"){
   let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#20633;&#32771;&#65288;&#20219;&#24847;&#65289;</div><input id="ci-note-input" class="ip" maxlength="40" value="'+(ci.note||'')+'" placeholder="&#20363;: VIP&#24076;&#26395;&#12394;&#12393;" oninput="ci.note=this.value" style="font-size:15px;margin-bottom:12px;">';
-  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><button class="btn" onclick="ciGo(\''+(ci.guests===1?'ci-single':(ci.honShimeis.length?'ci-douhan':'ci-hon'))+'\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="startSession()" style="padding:10px;font-weight:900;border-radius:4px;">&#20837;&#24215;&#12473;&#12479;&#12540;&#12488;</button></div>';
+  body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;"><button class="btn" '+(checkinBusy?'disabled':'onclick="ciGo(\''+(ci.guests===1?'ci-single':(ci.honShimeis.length?'ci-douhan':'ci-hon'))+'\')"')+' style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;'+(checkinBusy?'opacity:.45;':'')+'">&#25147;&#12427;</button><button id="ci-start-btn" class="btn gbg" '+(checkinBusy?'disabled':'onclick="startSession()"')+' style="padding:10px;font-weight:900;border-radius:4px;'+(checkinBusy?'opacity:.55;cursor:not-allowed;':'')+'">'+(checkinBusy?'&#20445;&#23384;&#20013;...':'&#20837;&#24215;&#12473;&#12479;&#12540;&#12488;')+'</button></div>';
   h=head+body+foot;
 }
   }
