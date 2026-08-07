@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.112";
+const APP_VERSION="6.113";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -358,6 +358,9 @@ if(["admin","backupDetail"].includes(vw))render();
   });
 
   db.ref(FB_ROOT).on("value",(snap)=>{
+const __fbPerfOp=perfActiveOp();
+const __fbPerfStart=perfNow();
+perfMark(__fbPerfOp,"firebaseOnValue");
 const d=snap.val();
 if(!d){
   sbs(true,"同期済み ✓");
@@ -414,7 +417,8 @@ if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts"
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-window._fbRenderTimer=setTimeout(()=>{scheduleRender();refreshFloorModal();},80);
+perfMark(__fbPerfOp,"firebaseScheduleRender",{delayMs:80,elapsedMs:perfMs(perfNow()-__fbPerfStart)});
+window._fbRenderTimer=setTimeout(()=>{perfMark(__fbPerfOp,"firebaseRenderTimer",{elapsedMs:perfMs(perfNow()-__fbPerfStart)});scheduleRender();refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
@@ -632,6 +636,50 @@ function applyRootUpdates(root,updates){
   Object.entries(updates||{}).forEach(([path,val])=>setPathValue(root,path,cloneData(val)));
   return root;
 }
+let perfSeq=0;
+function perfEnabled(){return typeof window!=="undefined"&&window.POS_PERF===true;}
+function perfNow(){return(typeof performance!=="undefined"&&performance.now)?performance.now():Date.now();}
+function perfMs(v){return Math.round((Number(v)||0)*10)/10;}
+function perfStore(){
+  if(typeof window==="undefined")return null;
+  if(!window._posPerfOps)window._posPerfOps={};
+  return window._posPerfOps;
+}
+function perfActiveOp(){return typeof window==="undefined"?null:(window._posPerfActiveOpId||null);}
+function perfSetActiveOp(opId){if(typeof window!=="undefined"&&opId)window._posPerfActiveOpId=opId;}
+function perfClearActiveOp(opId){if(typeof window!=="undefined"&&(!opId||window._posPerfActiveOpId===opId))window._posPerfActiveOpId=null;}
+function perfPathSummary(updates){
+  const paths=Object.keys(updates||{}).map(stripRootPath);
+  return{pathCount:paths.length,paths:paths.map(p=>p.split("/").slice(0,2).join("/"))};
+}
+function perfStart(action,meta={}){
+  if(!perfEnabled())return null;
+  const opId=meta.opId||action+"_"+Date.now()+"_"+(++perfSeq);
+  const store=perfStore();
+  store[opId]={opId,action,start:perfNow(),renderCount:0,rListCount:0,meta};
+  console.log("[POS_PERF]",{opId,action,phase:"start",...meta});
+  return opId;
+}
+function perfMark(opId,phase,meta={}){
+  if(!perfEnabled()||!opId)return;
+  const store=perfStore();
+  const op=store&&store[opId];
+  const now=perfNow();
+  const row={opId,phase,elapsedMs:op?perfMs(now-op.start):0,...meta};
+  console.log("[POS_PERF]",row);
+}
+function perfEnd(opId,phase="end",meta={}){
+  if(!perfEnabled()||!opId)return;
+  perfMark(opId,phase,meta);
+}
+function perfBump(opId,key){
+  if(!perfEnabled()||!opId)return 0;
+  const store=perfStore();
+  const op=store&&store[opId];
+  if(!op)return 0;
+  op[key]=(op[key]||0)+1;
+  return op[key];
+}
 const optimisticRootPaths=new Set();
 function optimisticRelativePaths(updates){
   return Object.keys(updates||{}).map(stripRootPath);
@@ -673,23 +721,35 @@ function refreshAfterOptimisticUpdate(){
   refreshFloorModal();
 }
 async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
+  const opId=options.perfOpId||perfActiveOp();
+  const t0=perfNow();
+  perfMark(opId,"optimisticStart",perfPathSummary(updates));
   const snap=snapshotLocalRootPaths(updates);
   markOptimisticPaths(updates);
   applyLocalRootUpdates(updates);
   refreshAfterOptimisticUpdate();
+  perfMark(opId,"optimisticPaint",{durationMs:perfMs(perfNow()-t0)});
   try{
+    perfMark(opId,"firebaseSaveStart",perfPathSummary(updates));
     const result=await guardedCheckedUpdate(updates,checker,options);
     unmarkOptimisticPaths(updates);
+    perfMark(opId,"firebaseSaveDone",{durationMs:perfMs(perfNow()-t0)});
+    perfClearActiveOp(opId);
     return result;
   }catch(e){
     restoreLocalRootSnapshot(snap);
     unmarkOptimisticPaths(updates);
     refreshAfterOptimisticUpdate();
+    perfMark(opId,"firebaseSaveError",{durationMs:perfMs(perfNow()-t0),message:e.userMessage||e.message||"error"});
+    perfClearActiveOp(opId);
     throw e;
   }
 }
 async function guardedRootTransaction(mutator,options={}){
   if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
+  const opId=options.perfOpId||perfActiveOp();
+  const txStart=perfNow();
+  perfMark(opId,"txStart");
   let blocked=null;
   const ref=window._db.ref(FB_ROOT);
   const res=await ref.transaction(current=>{
@@ -703,10 +763,12 @@ async function guardedRootTransaction(mutator,options={}){
     return next;
   },null,false);
   if(!res.committed){
+    perfMark(opId,"txAbort",{durationMs:perfMs(perfNow()-txStart),message:(blocked&&blocked.message)||"transaction aborted"});
     const err=new Error((blocked&&blocked.message)||"transaction aborted");
     err.userMessage=(blocked&&blocked.message)||"他端末で更新されています。最新データに更新してから再実行してください。";
     throw err;
   }
+  perfMark(opId,"txDone",{durationMs:perfMs(perfNow()-txStart)});
   return res.snapshot.val();
 }
 async function guardedCheckedUpdate(updates,checker,options={}){
@@ -1327,6 +1389,10 @@ el.className="nb"+((v==="floor"&&vw==="floor")||(v==="list"&&["list","tableDetai
   if(header){header.style.borderBottom=isAdmin?"2px solid rgba(212,160,23,.5)":"";header.style.background=isAdmin?"rgba(212,160,23,.04)":"";}
 }
 function render(){
+  const __perfOp=perfActiveOp();
+  const __perfStart=perfNow();
+  const __perfView=vw;
+  const __renderCount=perfBump(__perfOp,"renderCount");
   updateNav();
   const m=document.getElementById("m");if(!m)return;
   try{
@@ -1348,6 +1414,7 @@ m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エ�
   }
   syncLegacyFloorCardSizes();
   if(!md)document.getElementById("md").innerHTML="";
+  perfMark(__perfOp,"render",{view:__perfView,durationMs:perfMs(perfNow()-__perfStart),renderCount:__renderCount});
 }
 let _renderPending=false;
 function scheduleRender(){
@@ -2245,6 +2312,9 @@ html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ 
 let _dnd={dragging:false,castId:null,castName:null,fromTable:null,assignId:null,ghost:null};
 
 function rList(){
+  const __perfOp=perfActiveOp();
+  const __perfStart=perfNow();
+  const __rListCount=perfBump(__perfOp,"rListCount");
   const waiting=getWaitingCasts();
   const brk=getBreakCasts();
   const activeSessions=S.tables.filter(t=>S.sessions[t.id]);
@@ -2418,6 +2488,7 @@ html+='</div>';
   html+='</div>';
 
   html+='</div>';
+  perfMark(__perfOp,"rList",{durationMs:perfMs(perfNow()-__perfStart),rListCount:__rListCount,waiting:waiting.length,break:brk.length,activeAssignments:activeAssignments.length,activeSessions:activeSessions.length});
   return html;
 }
 
@@ -2545,21 +2616,28 @@ if(t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom)
 
 // ===== DnD実行処理 =====
 function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
+  const opId=perfStart("castMove",{castId,assignId,fromZone,toZone,tableId});
+  perfSetActiveOp(opId);
+  if(isPendingCastMove(castId,assignId)){perfEnd(opId,"blockedPending");perfClearActiveOp(opId);sbs(false,"保存中...");return;}
   if(isPendingCastMove(castId,assignId)){sbs(false,"保存中...");return;}
   // 待機→待機、休憩→休憩は無視
-  if(fromZone===toZone&&toZone!=="tbl")return;
+  if(fromZone===toZone&&toZone!=="tbl"){perfEnd(opId,"ignoredSameZone");perfClearActiveOp(opId);return;}
   // テーブル上のchip(zone="active")→同じテーブルは無視、別テーブルは許可
-  if(fromZone==="active"&&toZone==="tbl"&&S.assignments[assignId]?.tableId===tableId)return;
+  if(fromZone==="active"&&toZone==="tbl"&&S.assignments[assignId]?.tableId===tableId){perfEnd(opId,"ignoredSameTable");perfClearActiveOp(opId);return;}
   if(toZone==="waiting"){
+perfMark(opId,"routeWaiting");
 // テーブル or 休憩 → 待機
 if(assignId)endAssign(assignId);
 else if(fromZone==="break")moveToWaiting(castId);
   } else if(toZone==="break"){
+perfMark(opId,"routeBreak");
 // テーブル or 待機 → 休憩（アサイン終了とstatus="break"を1回のFirebase writeにまとめる）
 moveToBreak(castId);
   } else if(toZone==="tbl"&&tableId){
+perfMark(opId,"routeTable");
 // 待機 or 休憩 or テーブル → テーブル
 const tblSession=S.sessions[tableId];
+if(!tblSession){perfEnd(opId,"ignoredEmptyTable");perfClearActiveOp(opId);return;}
 if(!tblSession)return; // 空席は不可
 const prevAid=(assignId&&(fromZone==="active"||fromZone==="tbl"))?assignId:null;
 openTsukeAuto(castId,castName,tableId,prevAid);
@@ -2576,13 +2654,16 @@ function getAutoType(castId,tableId){
   return{autoType:null,limitedTypes:["free","help"]};
 }
 function openTsukeAuto(castId,castName,tableId,prevAssignId){
+  const opId=perfActiveOp();
   const{autoType,limitedTypes}=getAutoType(castId,tableId);
+  perfMark(opId,"openTsukeAuto",{autoType,limitedTypes,prevAssignId});
   if(autoType){
 tsukeMd={step:"time",castId,castName,type:autoType,tableId,time:"",useNow:true,limitedTypes:null,prevAssignId:prevAssignId||null};
   }else{
 tsukeMd={step:"type",castId,castName,type:null,tableId,time:"",useNow:true,limitedTypes,prevAssignId:prevAssignId||null};
   }
   md="tsuke";rModal();
+  perfMark(opId,"modalOpen",{modal:md,step:tsukeMd.step});
 }
 function execMoveToTable(tableId){
   openTsukeAuto(window._moveCastId,window._moveCastName,tableId,window._moveFromAid);
@@ -3910,7 +3991,14 @@ function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert(
 
 // ===== MODAL =====
 function om(name){md=name;rModal();}
-function closeM(){md=null;document.getElementById("md").innerHTML="";}
+function closeM(){
+  if(md==="tsuke"&&perfActiveOp()&&dataOperationLocks.size===0){
+    const opId=perfActiveOp();
+    perfEnd(opId,"modalClosed");
+    perfClearActiveOp(opId);
+  }
+  md=null;document.getElementById("md").innerHTML="";
+}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -6541,6 +6629,9 @@ return[sh.castName,inT,outT,dur].join(",");
 // ===== 付け回し =====
 function confirmTsuke(){
   const tableId=tsukeMd.tableId||at;
+  let opId=perfActiveOp();
+  if(!opId){opId=perfStart("tsukeConfirm",{castId:tsukeMd.castId,type:tsukeMd.type,tableId,prevAssignId:tsukeMd.prevAssignId||null});perfSetActiveOp(opId);}
+  perfMark(opId,"confirmTsuke",{castId:tsukeMd.castId,type:tsukeMd.type,tableId,useNow:tsukeMd.useNow!==false,prevAssignId:tsukeMd.prevAssignId||null});
   if(!tableId){alert("テーブルを選択してください");return;}
   if(!tsukeMd.castId){alert("キャストを選択してください");return;}
   if(!tsukeMd.type){alert("種別を選択してください");return;}
@@ -6562,6 +6653,9 @@ async function startAssign(castId,tableId,type,time,prevAssignId=null){
   return startAssignAt(castId,tableId,type,hhmm2ts(time||nowHHMM()),prevAssignId);
 }
 async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
+  const opId=perfActiveOp();
+  const localStart=perfNow();
+  perfMark(opId,"startAssignAt",{castId,tableId,type,prevAssignId});
   if(isPendingCastMove(castId,prevAssignId)){sbs(false,"保存中...");return;}
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
@@ -6586,6 +6680,7 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
     updates[FB_ROOT+"/assignments/"+previous.id]=desiredPrevious;
     expectedRecords["assignments/"+previous.id]=cloneData(previous);
   }
+  perfMark(opId,"localValidated",{durationMs:perfMs(perfNow()-localStart),...perfPathSummary(updates)});
   await withDataOperation("cast:"+castId,async()=>{
     try{
       closeM();
@@ -6603,8 +6698,9 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
           }
           return{ok:true};
         },
-        {expectedRecords,createRecords:["assignments/"+aid]}
+        {expectedRecords,createRecords:["assignments/"+aid],perfOpId:opId}
       );
+      perfEnd(opId,"startAssignDone");perfClearActiveOp(opId);
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
