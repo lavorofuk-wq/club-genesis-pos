@@ -632,6 +632,62 @@ function applyRootUpdates(root,updates){
   Object.entries(updates||{}).forEach(([path,val])=>setPathValue(root,path,cloneData(val)));
   return root;
 }
+const optimisticRootPaths=new Set();
+function optimisticRelativePaths(updates){
+  return Object.keys(updates||{}).map(stripRootPath);
+}
+function markOptimisticPaths(updates){
+  optimisticRelativePaths(updates).forEach(path=>optimisticRootPaths.add(path));
+}
+function unmarkOptimisticPaths(updates){
+  optimisticRelativePaths(updates).forEach(path=>optimisticRootPaths.delete(path));
+}
+function isOptimisticPath(path){
+  return optimisticRootPaths.has(stripRootPath(path));
+}
+function isPendingAssignment(aid){
+  return !!aid&&isOptimisticPath("assignments/"+aid);
+}
+function isPendingCastShift(castId){
+  const sh=getShiftByCastId(castId);
+  return !!sh&&isOptimisticPath("shifts/"+sh.id);
+}
+function isPendingCastMove(castId,assignId){
+  return isPendingAssignment(assignId)||isPendingCastShift(castId);
+}
+function snapshotLocalRootPaths(updates){
+  const snap={};
+  optimisticRelativePaths(updates).forEach(relative=>{
+    snap[relative]=cloneData(getPathValue(S,relative));
+  });
+  return snap;
+}
+function restoreLocalRootSnapshot(snap){
+  Object.entries(snap||{}).forEach(([path,val])=>setPathValue(S,path,val));
+}
+function applyLocalRootUpdates(updates){
+  Object.entries(updates||{}).forEach(([path,val])=>setPathValue(S,stripRootPath(path),cloneData(val)));
+}
+function refreshAfterOptimisticUpdate(){
+  render();
+  refreshFloorModal();
+}
+async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
+  const snap=snapshotLocalRootPaths(updates);
+  markOptimisticPaths(updates);
+  applyLocalRootUpdates(updates);
+  refreshAfterOptimisticUpdate();
+  try{
+    const result=await guardedCheckedUpdate(updates,checker,options);
+    unmarkOptimisticPaths(updates);
+    return result;
+  }catch(e){
+    restoreLocalRootSnapshot(snap);
+    unmarkOptimisticPaths(updates);
+    refreshAfterOptimisticUpdate();
+    throw e;
+  }
+}
 async function guardedRootTransaction(mutator,options={}){
   if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
   let blocked=null;
@@ -2244,7 +2300,7 @@ function rList(){
 const logs=sh.statusLog||[];
 const lastLog=logs.filter(l=>l.status==="waiting"&&!l.endTime).pop();
 const el=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
-html+=castChip(sh.castId,sh.castName,"waiting",null,el,(lastLog?lastLog.startTime:sh.clockIn));
+      html+=castChip(sh.castId,sh.castName,"waiting",null,el,(lastLog?lastLog.startTime:sh.clockIn),isOptimisticPath("shifts/"+sh.id));
   });
   html+='</div>';
   // 休憩ゾーン
@@ -2255,7 +2311,7 @@ html+=castChip(sh.castId,sh.castName,"waiting",null,el,(lastLog?lastLog.startTim
 const logs=sh.statusLog||[];
 const lastLog=logs.filter(l=>l.status==="break"&&!l.endTime).pop();
 const el=lastLog?(Date.now()-lastLog.startTime):(Date.now()-sh.clockIn);
-html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:sh.clockIn));
+html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:sh.clockIn),isOptimisticPath("shifts/"+sh.id));
   });
   html+='</div>';
   html+='</div>';
@@ -2342,7 +2398,7 @@ if(isActive&&s){
     html+='<div style="margin-top:6px;display:flex;flex-direction:column;gap:4px;">';
     ac.forEach(a=>{
       const el=Date.now()-(a.attachedAt||a.startTime);
-      html+=castChip(a.castId,a.castName,"active",a,el,(a.attachedAt||a.startTime));
+      html+=castChip(a.castId,a.castName,"active",a,el,(a.attachedAt||a.startTime),isOptimisticPath("assignments/"+a.id));
     });
     html+='</div>';
   } else {
@@ -2366,24 +2422,28 @@ html+='</div>';
 }
 
 // キャストチップ（ドラッグ可能なカード）
-function castChip(castId,castName,zone,assign,elapsed,timerBase){
+function castChip(castId,castName,zone,assign,elapsed,timerBase,pending=false){
   const isActive=zone==="active";
   const isWaiting=zone==="waiting";
   const isBreak=zone==="break";
   const col=isActive?(ASSIGN_TYPES[assign?.type]?.col||"#888"):isWaiting?"#4ade80":"#ffa500";
   const sfx=isActive?(TYPE_SFX[assign?.type]||"?"):"";
   const aid=assign?.id||"";
-  return '<div class="list-cast-chip list-cast-'+zone+(isActive?' list-cast-type-'+(assign?.type||'unknown'):'')+'" draggable="true" '
+  const dragAttrs=pending?'draggable="false" ':'draggable="true" ';
+  const eventAttrs=pending
+    ?'onclick="event.stopPropagation()" '
+    :'onclick="event.stopPropagation();chipTap(\''+castId+'\',\''+zone+'\',\''+aid+'\')" '
+      +'ondragstart="chipDragStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
+      +'ondragend="chipDragEnd(event)" '
+      +'ontouchstart="chipTouchStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
+      +'ontouchmove="chipTouchMove(event)" '
+      +'ontouchend="chipTouchEnd(event)" ';
+  return '<div class="list-cast-chip list-cast-'+zone+(isActive?' list-cast-type-'+(assign?.type||'unknown'):'')+'" '
 +'data-cast-id="'+castId+'" data-cast-name="'+castName+'" data-zone="'+zone+'" data-assign-id="'+aid+'" '
-+'onclick="event.stopPropagation();chipTap(\''+castId+'\',\''+zone+'\',\''+aid+'\')" '
-+'ondragstart="chipDragStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
-+'ondragend="chipDragEnd(event)" '
-+'ontouchstart="chipTouchStart(event,\''+castId+'\',\''+castName+'\',\''+zone+'\',\''+aid+'\')" '
-+'ontouchmove="chipTouchMove(event)" '
-+'ontouchend="chipTouchEnd(event)" '
-+'style="--list-cast-color:'+col+';display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:grab;user-select:none;touch-action:none;'
++dragAttrs+eventAttrs
++'style="--list-cast-color:'+col+';display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border-radius:7px;margin-bottom:4px;cursor:'+(pending?"wait":"grab")+';user-select:none;touch-action:none;'
 +'background:'+(isActive?"rgba(0,0,0,.3)":isWaiting?"rgba(74,222,128,.08)":"rgba(255,165,0,.08)")+';'
-+'border:1px solid '+col+'44;">'
++'border:1px solid '+col+'44;'+(pending?'opacity:.58;filter:saturate(.7);':'')+'">'
 +'<div class="list-cast-main" style="display:flex;align-items:center;gap:6px;min-width:0;">'
 +(isActive?'<span class="list-cast-type-badge" style="flex-shrink:0;font-size:9px;padding:1px 5px;border:1px solid '+col+';color:'+col+';border-radius:3px;font-weight:700;">'+sfx+'</span>':'')
 +'<span class="list-cast-name" style="font-size:13px;font-weight:700;color:#e8dcc8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+castName+'</span>'
@@ -2394,6 +2454,7 @@ function castChip(castId,castName,zone,assign,elapsed,timerBase){
 
 // チップタップ（クリック）時の処理
 function chipTap(castId,zone,assignId){
+  if(isPendingCastMove(castId,assignId)){sbs(false,"保存中...");return;}
   if(zone==="active"&&assignId){openAssignActionModal(assignId);}
   else{openCastStatusModal(castId);}
 }
@@ -2484,6 +2545,7 @@ if(t.clientX>=r.left&&t.clientX<=r.right&&t.clientY>=r.top&&t.clientY<=r.bottom)
 
 // ===== DnD実行処理 =====
 function _dndExecute(castId,castName,fromZone,assignId,toZone,tableId){
+  if(isPendingCastMove(castId,assignId)){sbs(false,"保存中...");return;}
   // 待機→待機、休憩→休憩は無視
   if(fromZone===toZone&&toZone!=="tbl")return;
   // テーブル上のchip(zone="active")→同じテーブルは無視、別テーブルは許可
@@ -2746,13 +2808,15 @@ html+='</div>';
   return html;
 }
 
-function openAssignActionModal(aid){window._editAid=aid;md="assignAction";rModal();}
+function openAssignActionModal(aid){if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}window._editAid=aid;md="assignAction";rModal();}
 
 function openEditAssignTime(aid){
+  if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   window._editAid=aid;md="editAssignTime";rModal();
 }
 async function saveAssignTimeEdit(){
   const aid=window._editAid;
+  if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   const current=S.assignments[aid];if(!current)return;
   const expected=cloneData(current);
   const desired=cloneData(current);
@@ -6498,6 +6562,7 @@ async function startAssign(castId,tableId,type,time,prevAssignId=null){
   return startAssignAt(castId,tableId,type,hhmm2ts(time||nowHHMM()),prevAssignId);
 }
 async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
+  if(isPendingCastMove(castId,prevAssignId)){sbs(false,"保存中...");return;}
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c){alert("キャストが見つかりません");return;}
   const localSession=S.sessions[tableId];
@@ -6523,7 +6588,8 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
   }
   await withDataOperation("cast:"+castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      closeM();
+      await guardedCheckedUpdateOptimistic(
         updates,
         root=>{
           const remoteSession=(root.sessions||{})[tableId];
@@ -6547,6 +6613,7 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
   });
 }
 async function changeAssignType(aid,newType){
+  if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   const current=S.assignments[aid];if(!current)return;
   const expected=cloneData(current);
   const desired={...cloneData(current),type:newType};
@@ -6560,9 +6627,10 @@ async function changeAssignType(aid,newType){
     }
   });
 }
-function openChangeType(aid){window._editAid=aid;md="changeType";rModal();}
+function openChangeType(aid){if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}window._editAid=aid;md="changeType";rModal();}
 function openCastStatusModal(castId){window._statusCastId=castId;md="castStatus";rModal();}
 async function endAssign(aid){
+  if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   const current=S.assignments[aid];if(!current)return;
   const expected=cloneData(current);
   const now2=Date.now();
@@ -6577,7 +6645,8 @@ async function endAssign(aid){
   }
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(updates,root=>{
+      closeM();
+      await guardedCheckedUpdateOptimistic(updates,root=>{
         const remote=(root.assignments||{})[aid];
         if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
         if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
@@ -6591,6 +6660,7 @@ async function endAssign(aid){
   });
 }
 async function moveToBreak(castId){
+  if(isPendingCastMove(castId,null)){sbs(false,"保存中...");return;}
   const now2=Date.now();
   const assignment=Object.values(S.assignments||{}).find(x=>String(x.castId)===String(castId)&&!x.endTime);
   const shift=getShiftByCastId(castId);
@@ -6604,7 +6674,8 @@ async function moveToBreak(castId){
   }
   await withDataOperation("cast:"+castId,async()=>{
     try{
-      await guardedCheckedUpdate(updates,root=>{
+      closeM();
+      await guardedCheckedUpdateOptimistic(updates,root=>{
         const remoteAssignment=remoteActiveAssign(root,castId);
         if(assignment&&(!remoteAssignment||String(remoteAssignment.id)!==String(assignment.id)))return{ok:false,message:"付け回し状態が他端末で変更されています。"};
         if(!assignment&&remoteAssignment)return{ok:false,message:"このキャストは他端末で付け回し中です。"};
@@ -6618,12 +6689,14 @@ async function moveToBreak(castId){
   });
 }
 async function moveToWaiting(castId){
+  if(isPendingCastMove(castId,null)){sbs(false,"保存中...");return;}
   const shift=getShiftByCastId(castId);
   if(!shift){alert("出勤情報が見つかりません。最新状態を確認してください。");return;}
   const desiredShift=shiftWithStatus(shift,"waiting",Date.now());
   await withDataOperation("cast:"+castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      closeM();
+      await guardedCheckedUpdateOptimistic(
         {[FB_ROOT+"/shifts/"+shift.id]:desiredShift},
         root=>remoteActiveAssign(root,castId)
           ?{ok:false,message:"付け回し中のため待機へ変更できません。先に付け回しを終了してください。"}
@@ -6638,6 +6711,7 @@ async function moveToWaiting(castId){
   });
 }
 async function deleteAssign(aid){
+  if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   const current=S.assignments[aid];if(!current)return;
   if(!confirm("この付け回し履歴を削除します。よろしいですか？"))return;
   const expected=cloneData(current);
@@ -6651,7 +6725,8 @@ async function deleteAssign(aid){
   }
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(updates,root=>{
+      closeM();
+      await guardedCheckedUpdateOptimistic(updates,root=>{
         const remote=(root.assignments||{})[aid];
         if(!remote)return{ok:false,message:"この付け回しは他端末で既に削除されています。最新状態を確認してください。"};
         return{ok:true};
