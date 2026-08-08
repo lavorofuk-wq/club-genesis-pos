@@ -3073,8 +3073,12 @@ function rHist(){
   html+='<span style="font-size:10px;color:#888;">稼働時間</span>';
   html+='<span style="font-size:15px;font-weight:700;color:#38bdf8;">'+workHStr+'<span style="font-size:11px;font-weight:400;color:#888;">時間</span></span>';
   html+='</div>';
-  html+='<div style="margin-top:10px;display:flex;justify-content:flex-end;">';
-  html+='<button class="btn" onclick="exportDrinkDataXLSX()" style="padding:9px 14px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:6px;font-size:12px;font-weight:700;">ドリンクデータ出力</button>';
+  const paySummary=_paymentBreakdownFromHist(S.history||[]);
+  const salesSummary=_salesDataTotalsFromHist(S.history||[]);
+  html+='<div style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px;">';
+  html+='<div style="padding:10px;background:rgba(184,150,12,.06);border:1px solid rgba(184,150,12,.18);border-radius:6px;"><div style="font-size:11px;color:#d4a017;font-weight:700;margin-bottom:6px;">会計データ</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><div><div style="font-size:10px;color:#888;">現金会計</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(paySummary.cashTotal)+'</div></div><div><div style="font-size:10px;color:#888;">カード会計</div><div style="font-size:14px;font-weight:700;color:#38bdf8;">'+pAmt(paySummary.cardTotal)+'</div></div></div><button class="btn" onclick="exportAccountingDataXLSX()" style="width:100%;padding:8px;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;border-radius:6px;font-size:12px;font-weight:700;">会計データ出力</button></div>';
+  html+='<div style="padding:10px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;"><div style="font-size:11px;color:#4ade80;font-weight:700;margin-bottom:6px;">売上データ</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;"><div><div style="font-size:10px;color:#888;">本指名売上</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(salesSummary.honShimeiSales)+'</div></div><div><div style="font-size:10px;color:#888;">場内延長売上</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(salesSummary.banaiExtensionSales)+'</div></div><div><div style="font-size:10px;color:#888;">指名本数</div><div style="font-size:13px;font-weight:700;color:#ff4444;">'+salesSummary.honCount+'本</div></div><div><div style="font-size:10px;color:#888;">場内指名本数</div><div style="font-size:13px;font-weight:700;color:#4ade80;">'+salesSummary.banaiCount+'本</div></div><div><div style="font-size:10px;color:#888;">同伴本数</div><div style="font-size:13px;font-weight:700;color:#e8dcc8;">'+salesSummary.dohanCount+'本</div></div></div><button class="btn" onclick="exportSalesDataXLSX()" style="width:100%;padding:8px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:6px;font-size:12px;font-weight:700;">売上データ出力</button></div>';
+  html+='<div style="padding:10px;background:rgba(56,189,248,.05);border:1px solid rgba(56,189,248,.16);border-radius:6px;"><div style="font-size:11px;color:#38bdf8;font-weight:700;margin-bottom:6px;">ドリンクデータ</div><div style="font-size:10px;color:#888;margin-bottom:8px;">キャスト別ドリンク本数</div><button class="btn" onclick="exportDrinkDataXLSX()" style="width:100%;padding:8px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:6px;font-size:12px;font-weight:700;">ドリンクデータ出力</button></div>';
   html+='</div>';
   html+='</div>';
 
@@ -4713,6 +4717,8 @@ function _xlsxCol(n){
   return s;
 }
 function _xlsxSheet(rows){
+  const maxCols=Math.max(1,...(rows||[]).map(r=>(r||[]).length));
+  const cols='<cols><col min="1" max="1" width="18" customWidth="1"/>'+(maxCols>1?'<col min="2" max="'+maxCols+'" width="16" customWidth="1"/>':'')+'</cols>';
   const body=rows.map((row,rIdx)=>'<row r="'+(rIdx+1)+'">'+row.map((v,cIdx)=>{
     const ref=_xlsxCol(cIdx+1)+(rIdx+1);
     return '<c r="'+ref+'" t="inlineStr"><is><t>'+_xlsxEscape(v)+'</t></is></c>';
@@ -4720,7 +4726,7 @@ function _xlsxSheet(rows){
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     +'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
     +'<sheetViews><sheetView workbookViewId="0"/></sheetViews><sheetFormatPr defaultRowHeight="18"/>'
-    +'<cols><col min="1" max="1" width="18" customWidth="1"/><col min="2" max="4" width="16" customWidth="1"/></cols>'
+    +cols
     +'<sheetData>'+body+'</sheetData></worksheet>';
 }
 function _crc32(bytes){
@@ -4763,17 +4769,114 @@ function _zipStore(files){
   out.push(...end);
   return new Uint8Array(out);
 }
-function _downloadXLSX(rows,filename){
+function _xlsxSheetName(name){
+  return _xlsxEscape(String(name||"Data").replace(/[\[\]\*\/\\\?:]/g,"").slice(0,31)||"Data");
+}
+function _downloadXLSX(rows,filename,sheetName){
+  const safeSheet=_xlsxSheetName(sheetName);
   const files=[
     {name:"[Content_Types].xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'},
     {name:"_rels/.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
-    {name:"xl/workbook.xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Drink" sheetId="1" r:id="rId1"/></sheets></workbook>'},
+    {name:"xl/workbook.xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+safeSheet+'" sheetId="1" r:id="rId1"/></sheets></workbook>'},
     {name:"xl/_rels/workbook.xml.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'},
     {name:"xl/worksheets/sheet1.xml",data:_xlsxSheet(rows)}
   ];
   const blob=new Blob([_zipStore(files)],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url);
+}
+function _paymentBreakdownFromHist(hist){
+  const out={cashTotal:0,cardTotal:0,cashRows:[],cardRows:[]};
+  (hist||[]).forEach(h=>{
+    const parts=(h.splits&&h.splits.length)?h.splits:[{method:h.payMethod==="card"?"card":"cash",amount:h.total}];
+    parts.forEach(sp=>{
+      const method=sp.method==="card"?"card":"cash";
+      const amount=Math.max(0,Number(sp.amount)||0);
+      const row=[
+        new Date(h.startTime||h.endTime||Date.now()).toLocaleString("ja-JP"),
+        h.tableLabel||"",
+        (h.guests||0)+"名",
+        Math.round(amount),
+        Math.round(Number(h.total)||0),
+        h.note||""
+      ];
+      if(method==="card"){out.cardTotal+=amount;out.cardRows.push(row);}
+      else{out.cashTotal+=amount;out.cashRows.push(row);}
+    });
+  });
+  out.cashTotal=Math.round(out.cashTotal);
+  out.cardTotal=Math.round(out.cardTotal);
+  return out;
+}
+function _accountingRowsFromHist(hist){
+  const data=_paymentBreakdownFromHist(hist);
+  const header=["日時","テーブル","人数","会計金額","伝票合計","備考"];
+  return [
+    ["会計データ"],
+    ["現金会計 合計",data.cashTotal],
+    ["カード会計 合計",data.cardTotal],
+    [],
+    ["現金会計履歴"],
+    header,
+    ...(data.cashRows.length?data.cashRows:[["履歴なし"]]),
+    [],
+    ["カード会計履歴"],
+    header,
+    ...(data.cardRows.length?data.cardRows:[["履歴なし"]])
+  ];
+}
+function _salesDataStatsFromHist(hist){
+  const map={};
+  const ensure=(id,name)=>{
+    const key=String(id||("name:"+name)||"unknown");
+    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0};
+    if((!map[key].castName||map[key].castName==="不明")&&name)map[key].castName=name;
+    return map[key];
+  };
+  (hist||[]).forEach(h=>{
+    const items=h.items||[];
+    const honItems=items.filter(i=>i&&i.isHonShimei);
+    const uniqueHon=[...new Map(honItems.map(i=>[String(i.castId||itemCastName(i)),i])).values()];
+    if(uniqueHon.length){
+      const share=Math.floor((Number(h.subtotal||h.total)||0)/uniqueHon.length);
+      uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honShimeiSales+=share;});
+      honItems.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honCount+=Math.max(1,Number(i.qty)||1);});
+      if(items.some(i=>i&&(i.id==="dh"||i.label==="\u540c\u4f34\u6599"))){
+        uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).dohanCount+=1;});
+      }
+    }
+    items.filter(i=>i&&i.isBanaiShimei).forEach(i=>{
+      ensure(i.castId,itemCastName(i)||i.castName).banaiCount+=Math.max(1,Number(i.qty)||1);
+    });
+    if(!honItems.length){
+      banaiExtensionSalesPhases(items).forEach(phase=>{
+        const share=Math.floor((phase.total||0)/Math.max(1,phase.ids.length));
+        phase.ids.forEach(id=>{ensure(id,gmsCastName(id,"")).banaiExtensionSales+=share;});
+      });
+    }
+  });
+  return Object.values(map)
+    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount)
+    .sort((a,b)=>String(a.castName).localeCompare(String(b.castName),"ja-JP"));
+}
+function _salesDataTotalsFromHist(hist){
+  return _salesDataStatsFromHist(hist).reduce((sum,row)=>({
+    honShimeiSales:sum.honShimeiSales+Math.round(row.honShimeiSales||0),
+    banaiExtensionSales:sum.banaiExtensionSales+Math.round(row.banaiExtensionSales||0),
+    honCount:sum.honCount+Math.round(row.honCount||0),
+    banaiCount:sum.banaiCount+Math.round(row.banaiCount||0),
+    dohanCount:sum.dohanCount+Math.round(row.dohanCount||0)
+  }),{honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0});
+}
+function _salesDataRowsFromHist(hist){
+  const stats=_salesDataStatsFromHist(hist);
+  const totals=_salesDataTotalsFromHist(hist);
+  const rows=[
+    ["キャスト名","本指名売上","場内延長売上","指名本数","場内指名本数","同伴本数"],
+    ...stats.map(r=>[r.castName,Math.round(r.honShimeiSales),Math.round(r.banaiExtensionSales),Math.round(r.honCount),Math.round(r.banaiCount),Math.round(r.dohanCount)])
+  ];
+  if(stats.length)rows.push(["全キャスト合計",totals.honShimeiSales,totals.banaiExtensionSales,totals.honCount,totals.banaiCount,totals.dohanCount]);
+  return rows;
 }
 function _castDrinkRowsFromHist(hist){
   const map={};
@@ -4817,7 +4920,19 @@ function exportDrinkDataXLSX(){
   const rows=_castDrinkRowsFromHist(S.history||[]);
   if(rows.length<=1){alert("出力するキャストDrinkデータがありません");return;}
   const date=S.activeBizDay||getBizDate();
-  _downloadXLSX(rows,"drink_data_"+date+".xlsx");
+  _downloadXLSX(rows,"drink_data_"+date+".xlsx","Drink");
+}
+function exportAccountingDataXLSX(){
+  const hist=S.history||[];
+  if(!hist.length){alert("出力する会計データがありません");return;}
+  const date=S.activeBizDay||getBizDate();
+  _downloadXLSX(_accountingRowsFromHist(hist),"accounting_data_"+date+".xlsx","Accounting");
+}
+function exportSalesDataXLSX(){
+  const rows=_salesDataRowsFromHist(S.history||[]);
+  if(rows.length<=1){alert("出力する売上データがありません");return;}
+  const date=S.activeBizDay||getBizDate();
+  _downloadXLSX(rows,"sales_data_"+date+".xlsx","Sales");
 }
 
 // ===== RECEIPT PRINT END =====
