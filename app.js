@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.115";
+const APP_VERSION="6.116";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -385,8 +385,8 @@ S.sessions=d.sessions||{};
 markSessionGuards(S.sessions);
 // historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
 S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
-S.shifts=d.shifts||{};
-S.assignments=d.assignments||{};
+S.shifts=mergeRemoteVersionedCollection("shifts",d.shifts);
+S.assignments=mergeRemoteVersionedCollection("assignments",d.assignments);
 S.bizDays=d.bizDays||{};
 S.gmsExportMeta=d.gmsExportMeta||{};
 S.activeBizDay=d.activeBizDay||null;
@@ -689,6 +689,24 @@ function unmarkOptimisticPaths(updates){
 function isOptimisticPath(path){
   return optimisticRootPaths.has(stripRootPath(path));
 }
+function mergeRemoteVersionedCollection(collection,remote){
+  const merged={...(remote||{})};
+  optimisticRootPaths.forEach(path=>{
+    const info=versionedRecordPathInfo(path);
+    if(!info||info.collection!==collection)return;
+    const local=getPathValue(S,info.relative);
+    if(local==null)delete merged[info.id];
+    else merged[info.id]=cloneData(local);
+  });
+  return merged;
+}
+function shouldFallbackNodeUpdate(error){
+  const message=String(error?.message||"");
+  return isFirebasePermissionDenied(error)
+    ||message==="record conflict"
+    ||message==="record changed"
+    ||message==="record create conflict";
+}
 function isPendingAssignment(aid){
   return !!aid&&isOptimisticPath("assignments/"+aid);
 }
@@ -727,7 +745,7 @@ async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
       try{
         result=await guardedCheckedNodeUpdate(updates,checker,options.nodeUpdate);
       }catch(e){
-        if(!isFirebasePermissionDenied(e)&&String(e.message||"")!=="record conflict")throw e;
+        if(!shouldFallbackNodeUpdate(e))throw e;
         result=await guardedCheckedUpdate(updates,checker,options);
       }
     }else{

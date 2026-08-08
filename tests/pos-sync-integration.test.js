@@ -24,6 +24,11 @@ assert.match(assignmentOps,/async function endAssign[\s\S]*nodeUpdate:\{expected
 assert.match(assignmentOps,/async function moveToBreak[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
 assert.match(assignmentOps,/async function moveToWaiting[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
 
+assert.match(app,/function mergeRemoteVersionedCollection\(collection,remote\)/);
+assert.match(app,/S\.shifts=mergeRemoteVersionedCollection\("shifts",d\.shifts\)/);
+assert.match(app,/S\.assignments=mergeRemoteVersionedCollection\("assignments",d\.assignments\)/);
+assert.match(app,/function shouldFallbackNodeUpdate\(error\)[\s\S]*message==="record changed"[\s\S]*message==="record create conflict"/);
+
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
 assert.ok(checkout.indexOf("queueSessionUpdate")<checkout.indexOf("eposPrint"));
