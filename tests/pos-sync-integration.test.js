@@ -20,6 +20,9 @@ assert.doesNotMatch(startAssign,/location\.reload\s*\(\s*\)/);
 
 const assignmentOps=app.slice(app.indexOf("async function endAssign"),app.indexOf("// ===== 出勤画面"));
 assert.doesNotMatch(assignmentOps,/location\.reload\s*\(\s*\)/);
+assert.match(assignmentOps,/async function endAssign[\s\S]*nodeUpdate:\{expectedRecords\}/);
+assert.match(assignmentOps,/async function moveToBreak[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
+assert.match(assignmentOps,/async function moveToWaiting[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
 
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);

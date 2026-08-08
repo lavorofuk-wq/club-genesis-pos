@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.114";
+const APP_VERSION="6.115";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -6705,7 +6705,7 @@ async function endAssign(aid){
         if(!remote)return{ok:false,message:"この付け回しは他端末で削除されています。最新状態を確認してください。"};
         if(remote.endTime)return{ok:false,message:"この付け回しは他端末で既に終了済みです。最新状態を確認してください。"};
         return{ok:true};
-      },{expectedRecords});
+      },{expectedRecords,nodeUpdate:{expectedRecords}});
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -6734,7 +6734,7 @@ async function moveToBreak(castId){
         if(assignment&&(!remoteAssignment||String(remoteAssignment.id)!==String(assignment.id)))return{ok:false,message:"付け回し状態が他端末で変更されています。"};
         if(!assignment&&remoteAssignment)return{ok:false,message:"このキャストは他端末で付け回し中です。"};
         return{ok:true};
-      },{expectedRecords});
+      },{expectedRecords,nodeUpdate:{expectedRecords,readCollections:["assignments"]}});
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -6747,6 +6747,7 @@ async function moveToWaiting(castId){
   const shift=getShiftByCastId(castId);
   if(!shift){alert("出勤情報が見つかりません。最新状態を確認してください。");return;}
   const desiredShift=shiftWithStatus(shift,"waiting",Date.now());
+  const expectedRecords={["shifts/"+shift.id]:cloneData(shift)};
   await withDataOperation("cast:"+castId,async()=>{
     try{
       closeM();
@@ -6755,7 +6756,7 @@ async function moveToWaiting(castId){
         root=>remoteActiveAssign(root,castId)
           ?{ok:false,message:"付け回し中のため待機へ変更できません。先に付け回しを終了してください。"}
           :{ok:true},
-        {expectedRecords:{["shifts/"+shift.id]:cloneData(shift)}}
+        {expectedRecords,nodeUpdate:{expectedRecords,readCollections:["assignments"]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
