@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.118";
+const APP_VERSION="6.119";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -652,6 +652,16 @@ async function readRemoteActiveAssignmentsForCast(castId){
   }
   return found;
 }
+async function readRemoteActiveShiftsForCast(castId){
+  const found={};
+  for(const value of castIdQueryValues(castId)){
+    const snap=await window._db.ref(FB_ROOT+"/shifts").orderByChild("castId").equalTo(value).once("value");
+    Object.entries(snap.val()||{}).forEach(([id,sh])=>{
+      if(sh&&String(sh.castId)===String(castId)&&!sh.clockOut)found[id]=sh;
+    });
+  }
+  return found;
+}
 function syncVersionedRecordsFromPrepared(prepared){
   Object.entries(prepared||{}).forEach(([path,val])=>{
     const info=versionedRecordPathInfo(path);
@@ -676,6 +686,9 @@ async function guardedCheckedNodeUpdate(updates,checker,options={}){
   }
   for(const castId of (options.readActiveAssignCasts||[])){
     root.assignments={...(root.assignments||{}),...(await readRemoteActiveAssignmentsForCast(castId))};
+  }
+  for(const castId of (options.readActiveShiftCasts||[])){
+    root.shifts={...(root.shifts||{}),...(await readRemoteActiveShiftsForCast(castId))};
   }
   const ok=checker?checker(root):{ok:true};
   if(ok===false||ok?.ok===false){
@@ -6572,13 +6585,13 @@ async function clockIn(castId,time){
   const desired={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
   await withDataOperation("cast:"+castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      await guardedCheckedUpdateOptimistic(
         {[FB_ROOT+"/shifts/"+sid]:desired},
         root=>{
           if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
           return{ok:true};
         },
-        {createRecords:["shifts/"+sid]}
+        {createRecords:["shifts/"+sid],nodeUpdate:{createRecords:["shifts/"+sid],readActiveShiftCasts:[castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
@@ -6611,7 +6624,7 @@ async function clockOut(shiftId,time){
   if(desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      await guardedCheckedUpdateOptimistic(
         {[FB_ROOT+"/shifts/"+shiftId]:desired},
         root=>{
           const remote=(root.shifts||{})[shiftId];
@@ -6620,7 +6633,7 @@ async function clockOut(shiftId,time){
           if(remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤できません。先に付け回しを終了してください。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected}}
+        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveAssignCasts:[current.castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
@@ -6641,14 +6654,14 @@ async function cancelClockOut(shiftId){
   desired.status="waiting";
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      await guardedCheckedUpdateOptimistic(
         {[FB_ROOT+"/shifts/"+shiftId]:desired},
         root=>{
           const other=Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(current.castId)&&String(sh.id)!==String(shiftId)&&!sh.clockOut);
           if(other)return{ok:false,message:"このキャストは別の出勤記録ですでに出勤中です。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected}}
+        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
@@ -6688,7 +6701,7 @@ if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
   if(desired.clockOut&&desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(
+      await guardedCheckedUpdateOptimistic(
         {[FB_ROOT+"/shifts/"+shiftId]:desired},
         root=>{
           const other=Object.values(root.shifts||{}).find(sh=>String(sh.castId)===String(current.castId)&&String(sh.id)!==String(shiftId)&&!sh.clockOut);
@@ -6696,7 +6709,7 @@ if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
           if(!current.clockOut&&desired.clockOut&&remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤時刻を設定できません。先に付け回しを終了してください。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected}}
+        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId],readActiveAssignCasts:[current.castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){

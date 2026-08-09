@@ -10,6 +10,15 @@ assert.doesNotMatch(app,/setCastStatus\s*\(/);
 const clockOut=app.slice(app.indexOf("async function clockOut"),app.indexOf("function saveLocalBackup"));
 assert.match(clockOut,/remoteActiveAssign/);
 assert.match(clockOut,/expectedRecords/);
+assert.match(clockOut,/guardedCheckedUpdateOptimistic/);
+assert.match(clockOut,/readActiveAssignCasts:\[current\.castId\]/);
+
+const shiftOps=app.slice(app.indexOf("async function clockIn"),app.indexOf("async function deleteShift"));
+assert.match(app,/function readRemoteActiveShiftsForCast\(castId\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
+assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readActiveShiftCasts:\[castId\]/);
+assert.match(shiftOps,/async function cancelClockOut[\s\S]*readActiveShiftCasts:\[current\.castId\]/);
+assert.match(shiftOps,/async function saveShiftEdit[\s\S]*readActiveShiftCasts:\[current\.castId\][\s\S]*readActiveAssignCasts:\[current\.castId\]/);
 
 const startAssign=app.slice(app.indexOf("async function startAssignAt"),app.indexOf("async function changeAssignType"));
 assert.match(startAssign,/remoteSession/);
