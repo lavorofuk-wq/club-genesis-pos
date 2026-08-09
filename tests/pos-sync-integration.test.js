@@ -16,18 +16,24 @@ assert.match(startAssign,/remoteSession/);
 assert.match(startAssign,/remoteShift/);
 assert.match(startAssign,/remoteActiveAssign/);
 assert.match(startAssign,/createRecords/);
+assert.match(startAssign,/readActiveAssignCasts:\[castId\]/);
+assert.doesNotMatch(startAssign,/readCollections:\["assignments"\]/);
 assert.doesNotMatch(startAssign,/location\.reload\s*\(\s*\)/);
 
 const assignmentOps=app.slice(app.indexOf("async function endAssign"),app.indexOf("// ===== 出勤画面"));
 assert.doesNotMatch(assignmentOps,/location\.reload\s*\(\s*\)/);
 assert.match(assignmentOps,/async function endAssign[\s\S]*nodeUpdate:\{expectedRecords\}/);
-assert.match(assignmentOps,/async function moveToBreak[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
-assert.match(assignmentOps,/async function moveToWaiting[\s\S]*nodeUpdate:\{expectedRecords,readCollections:\["assignments"\]\}/);
+assert.match(assignmentOps,/async function moveToBreak[\s\S]*nodeUpdate:\{expectedRecords,readActiveAssignCasts:\[castId\]\}/);
+assert.match(assignmentOps,/async function moveToWaiting[\s\S]*nodeUpdate:\{expectedRecords,readActiveAssignCasts:\[castId\]\}/);
+assert.doesNotMatch(assignmentOps,/readCollections:\["assignments"\]/);
 
 assert.match(app,/function mergeRemoteVersionedCollection\(collection,remote\)/);
 assert.match(app,/S\.shifts=mergeRemoteVersionedCollection\("shifts",d\.shifts\)/);
 assert.match(app,/S\.assignments=mergeRemoteVersionedCollection\("assignments",d\.assignments\)/);
 assert.match(app,/function shouldFallbackNodeUpdate\(error\)[\s\S]*message==="record changed"[\s\S]*message==="record create conflict"/);
+assert.match(app,/function readRemoteActiveAssignmentsForCast\(castId\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
+assert.match(app,/window\._db\.ref\("\/"\)\.update\(withWriteGate\(prepared\)\)/);
 
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);

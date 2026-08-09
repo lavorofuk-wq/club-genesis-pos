@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.117";
+const APP_VERSION="6.118";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -636,6 +636,22 @@ async function readRemoteRelative(path){
   const snap=await window._db.ref(FB_ROOT+"/"+stripRootPath(path)).once("value");
   return snap.val();
 }
+function castIdQueryValues(castId){
+  const values=[String(castId)];
+  const n=Number(castId);
+  if(Number.isFinite(n)&&!values.includes(n))values.push(n);
+  return values;
+}
+async function readRemoteActiveAssignmentsForCast(castId){
+  const found={};
+  for(const value of castIdQueryValues(castId)){
+    const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("castId").equalTo(value).once("value");
+    Object.entries(snap.val()||{}).forEach(([id,a])=>{
+      if(a&&String(a.castId)===String(castId)&&!a.endTime)found[id]=a;
+    });
+  }
+  return found;
+}
 function syncVersionedRecordsFromPrepared(prepared){
   Object.entries(prepared||{}).forEach(([path,val])=>{
     const info=versionedRecordPathInfo(path);
@@ -658,13 +674,16 @@ async function guardedCheckedNodeUpdate(updates,checker,options={}){
   for(const collection of (options.readCollections||[])){
     root[collection]=await readRemoteRelative(collection)||{};
   }
+  for(const castId of (options.readActiveAssignCasts||[])){
+    root.assignments={...(root.assignments||{}),...(await readRemoteActiveAssignmentsForCast(castId))};
+  }
   const ok=checker?checker(root):{ok:true};
   if(ok===false||ok?.ok===false){
     throw Object.assign(new Error(ok?.message||"conflict"),{userMessage:ok?.message});
   }
   const prepared=prepareVersionedRecordUpdates(root,updates,options);
   try{
-    await window._db.ref("/").update(prepared);
+    await window._db.ref("/").update(withWriteGate(prepared));
   }catch(e){
     if(isFirebasePermissionDenied(e)){
       const err=new Error("record conflict");
@@ -6790,7 +6809,7 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
           }
           return{ok:true};
         },
-        {expectedRecords,createRecords:["assignments/"+aid],nodeUpdate:{expectedRecords,createRecords:["assignments/"+aid],readPaths:["sessions/"+tableId],readCollections:["assignments"]}}
+        {expectedRecords,createRecords:["assignments/"+aid],nodeUpdate:{expectedRecords,createRecords:["assignments/"+aid],readPaths:["sessions/"+tableId],readActiveAssignCasts:[castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
@@ -6867,7 +6886,7 @@ async function moveToBreak(castId){
         if(assignment&&(!remoteAssignment||String(remoteAssignment.id)!==String(assignment.id)))return{ok:false,message:"付け回し状態が他端末で変更されています。"};
         if(!assignment&&remoteAssignment)return{ok:false,message:"このキャストは他端末で付け回し中です。"};
         return{ok:true};
-      },{expectedRecords,nodeUpdate:{expectedRecords,readCollections:["assignments"]}});
+      },{expectedRecords,nodeUpdate:{expectedRecords,readActiveAssignCasts:[castId]}});
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -6889,7 +6908,7 @@ async function moveToWaiting(castId){
         root=>remoteActiveAssign(root,castId)
           ?{ok:false,message:"付け回し中のため待機へ変更できません。先に付け回しを終了してください。"}
           :{ok:true},
-        {expectedRecords,nodeUpdate:{expectedRecords,readCollections:["assignments"]}}
+        {expectedRecords,nodeUpdate:{expectedRecords,readActiveAssignCasts:[castId]}}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
