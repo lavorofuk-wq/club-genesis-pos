@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.120";
+const APP_VERSION="6.121";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4900,7 +4900,7 @@ function _salesDataStatsFromHist(hist){
     });
     if(!honItems.length){
       banaiExtensionSalesPhases(items).forEach(phase=>{
-        const share=Math.floor((phase.total||0)/Math.max(1,phase.ids.length));
+        const share=Math.floor(((phase.total||0)+(phase.backTotal||0))/Math.max(1,phase.ids.length));
         phase.ids.forEach(id=>{ensure(id,gmsCastName(id,"")).banaiExtensionSales+=share;});
       });
       let currentIds=[];
