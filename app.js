@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.121";
+const APP_VERSION="6.122";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4871,10 +4871,18 @@ function _salesDataStatsFromHist(hist){
     const c=gmsItemCategory(item);
     return c==="champagneWine"||c==="keepBottle"?c:"";
   };
-  const addLiquor=(row,item)=>{
+  const liquorAmountLabel=item=>{
+    const amount=Math.abs((Number(item.price)||0)*Math.max(1,Number(item.qty||item.quantity)||1));
+    return "\u00a5"+fmt(amount);
+  };
+  const targetNameSuffix=names=>{
+    const unique=[...new Set((names||[]).filter(Boolean).map(String))];
+    return unique.length>1?"("+unique.join("\u30fb")+")":"";
+  };
+  const addLiquor=(row,item,targetNames=[])=>{
     const c=liquorCategory(item);
     if(!c)return;
-    const label=anaLiquorLabel(item);
+    const label=anaLiquorLabel(item)+" "+liquorAmountLabel(item)+targetNameSuffix(targetNames);
     if(c==="champagneWine")row.champagneWineItems.push(label);
     else row.keepBottleItems.push(label);
   };
@@ -4887,9 +4895,10 @@ function _salesDataStatsFromHist(hist){
       uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honShimeiSales+=share;});
       honItems.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honCount+=Math.max(1,Number(i.qty)||1);});
       const liquorItems=items.filter(i=>i&&liquorCategory(i));
+      const honTargetNames=uniqueHon.map(i=>itemCastName(i)||i.castName||gmsCastName(i.castId,"")).filter(Boolean);
       uniqueHon.forEach(i=>{
         const row=ensure(i.castId,itemCastName(i)||i.castName);
-        liquorItems.forEach(item=>addLiquor(row,item));
+        liquorItems.forEach(item=>addLiquor(row,item,honTargetNames));
       });
       if(items.some(i=>i&&(i.id==="dh"||i.label==="\u540c\u4f34\u6599"))){
         uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).dohanCount+=1;});
@@ -4909,7 +4918,8 @@ function _salesDataStatsFromHist(hist){
           currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
         }
         if(!currentIds.length||!item||item.isDiscount||!liquorCategory(item))return;
-        currentIds.forEach(id=>addLiquor(ensure(id,gmsCastName(id,"")),item));
+        const currentNames=currentIds.map(id=>gmsCastName(id,"")).filter(Boolean);
+        currentIds.forEach(id=>addLiquor(ensure(id,gmsCastName(id,"")),item,currentNames));
       });
     }
   });
