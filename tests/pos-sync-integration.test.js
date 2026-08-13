@@ -44,6 +44,12 @@ assert.match(app,/function readRemoteActiveAssignmentsForCast\(castId\)/);
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
 assert.match(app,/window\._db\.ref\("\/"\)\.update\(withWriteGate\(prepared\)\)/);
 
+const salesData=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _castDrinkRowsFromHist"));
+assert.match(salesData,/champagneWineItems:\[\],keepBottleItems:\[\]/);
+assert.match(salesData,/liquorCategory=item=>/);
+assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb"\)/);
+assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\(\(r\.champagneWineItems\|\|\[\]\)\.join\(" \/ "\),\(r\.keepBottleItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);
+
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
 assert.ok(checkout.indexOf("queueSessionUpdate")<checkout.indexOf("eposPrint"));

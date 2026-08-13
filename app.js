@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.119";
+const APP_VERSION="6.120";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4861,9 +4861,22 @@ function _salesDataStatsFromHist(hist){
   const map={};
   const ensure=(id,name)=>{
     const key=String(id||("name:"+name)||"unknown");
-    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0};
+    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0,champagneWineItems:[],keepBottleItems:[]};
     if((!map[key].castName||map[key].castName==="不明")&&name)map[key].castName=name;
+    if(!map[key].champagneWineItems)map[key].champagneWineItems=[];
+    if(!map[key].keepBottleItems)map[key].keepBottleItems=[];
     return map[key];
+  };
+  const liquorCategory=item=>{
+    const c=gmsItemCategory(item);
+    return c==="champagneWine"||c==="keepBottle"?c:"";
+  };
+  const addLiquor=(row,item)=>{
+    const c=liquorCategory(item);
+    if(!c)return;
+    const label=anaLiquorLabel(item);
+    if(c==="champagneWine")row.champagneWineItems.push(label);
+    else row.keepBottleItems.push(label);
   };
   (hist||[]).forEach(h=>{
     const items=h.items||[];
@@ -4873,6 +4886,11 @@ function _salesDataStatsFromHist(hist){
       const share=Math.floor((Number(h.subtotal||h.total)||0)/uniqueHon.length);
       uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honShimeiSales+=share;});
       honItems.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honCount+=Math.max(1,Number(i.qty)||1);});
+      const liquorItems=items.filter(i=>i&&liquorCategory(i));
+      uniqueHon.forEach(i=>{
+        const row=ensure(i.castId,itemCastName(i)||i.castName);
+        liquorItems.forEach(item=>addLiquor(row,item));
+      });
       if(items.some(i=>i&&(i.id==="dh"||i.label==="\u540c\u4f34\u6599"))){
         uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).dohanCount+=1;});
       }
@@ -4885,10 +4903,19 @@ function _salesDataStatsFromHist(hist){
         const share=Math.floor((phase.total||0)/Math.max(1,phase.ids.length));
         phase.ids.forEach(id=>{ensure(id,gmsCastName(id,"")).banaiExtensionSales+=share;});
       });
+      let currentIds=[];
+      items.forEach(item=>{
+        if(item&&item.isBanaiExtension){
+          currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
+        }
+        if(!currentIds.length||!item||item.isDiscount||!liquorCategory(item))return;
+        currentIds.forEach(id=>addLiquor(ensure(id,gmsCastName(id,"")),item));
+      });
     }
   });
   return Object.values(map)
-    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount)
+    .map(r=>({...r,champagneWineItems:[...new Set(r.champagneWineItems||[])],keepBottleItems:[...new Set(r.keepBottleItems||[])]}))
+    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length)
     .sort((a,b)=>String(a.castName).localeCompare(String(b.castName),"ja-JP"));
 }
 function _salesDataTotalsFromHist(hist){
@@ -4907,7 +4934,10 @@ function _salesDataRowsFromHist(hist){
     ["キャスト名","本指名売上","場内延長売上","指名本数","場内指名本数","同伴本数"],
     ...stats.map(r=>[r.castName,Math.round(r.honShimeiSales),Math.round(r.banaiExtensionSales),Math.round(r.honCount),Math.round(r.banaiCount),Math.round(r.dohanCount)])
   ];
+  rows[0].push("シャンパン・ワイン","キープボトル");
+  stats.forEach((r,idx)=>rows[idx+1].push((r.champagneWineItems||[]).join(" / "),(r.keepBottleItems||[]).join(" / ")));
   if(stats.length)rows.push(["全キャスト合計",totals.honShimeiSales,totals.banaiExtensionSales,totals.honCount,totals.banaiCount,totals.dohanCount]);
+  if(stats.length)rows[rows.length-1].push("","");
   return rows;
 }
 function _castDrinkRowsFromHist(hist){
