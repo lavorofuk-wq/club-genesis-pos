@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.122";
+const APP_VERSION="6.123";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4748,9 +4748,25 @@ function _xlsxCol(n){
   while(n>0){n--;s=String.fromCharCode(65+(n%26))+s;n=Math.floor(n/26);}
   return s;
 }
-function _xlsxSheet(rows){
+function _xlsxTextWidth(v){
+  return Array.from(String(v??"")).reduce((sum,ch)=>sum+(/[ -~]/.test(ch)?1:2),0);
+}
+function _xlsxAutoColWidth(rows,colIdx,minWidth=16){
+  const widest=Math.max(minWidth,...(rows||[]).map(row=>_xlsxTextWidth((row||[])[colIdx])));
+  return Math.min(255,Math.ceil(widest*1.05+2));
+}
+function _xlsxColsXml(maxCols,widths=[]){
+  const cols=[];
+  for(let idx=0;idx<maxCols;idx++){
+    const fallback=idx===0?18:16;
+    const width=Math.min(255,Math.max(8,Number(widths[idx])||fallback));
+    cols.push('<col min="'+(idx+1)+'" max="'+(idx+1)+'" width="'+width+'" customWidth="1"/>');
+  }
+  return '<cols>'+cols.join("")+'</cols>';
+}
+function _xlsxSheet(rows,options={}){
   const maxCols=Math.max(1,...(rows||[]).map(r=>(r||[]).length));
-  const cols='<cols><col min="1" max="1" width="18" customWidth="1"/>'+(maxCols>1?'<col min="2" max="'+maxCols+'" width="16" customWidth="1"/>':'')+'</cols>';
+  const cols=_xlsxColsXml(maxCols,options.columnWidths||[]);
   const body=rows.map((row,rIdx)=>'<row r="'+(rIdx+1)+'">'+row.map((v,cIdx)=>{
     const ref=_xlsxCol(cIdx+1)+(rIdx+1);
     return '<c r="'+ref+'" t="inlineStr"><is><t>'+_xlsxEscape(v)+'</t></is></c>';
@@ -4804,14 +4820,14 @@ function _zipStore(files){
 function _xlsxSheetName(name){
   return _xlsxEscape(String(name||"Data").replace(/[\[\]\*\/\\\?:]/g,"").slice(0,31)||"Data");
 }
-function _downloadXLSX(rows,filename,sheetName){
+function _downloadXLSX(rows,filename,sheetName,options={}){
   const safeSheet=_xlsxSheetName(sheetName);
   const files=[
     {name:"[Content_Types].xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>'},
     {name:"_rels/.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'},
     {name:"xl/workbook.xml",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+safeSheet+'" sheetId="1" r:id="rId1"/></sheets></workbook>'},
     {name:"xl/_rels/workbook.xml.rels",data:'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>'},
-    {name:"xl/worksheets/sheet1.xml",data:_xlsxSheet(rows)}
+    {name:"xl/worksheets/sheet1.xml",data:_xlsxSheet(rows,options)}
   ];
   const blob=new Blob([_zipStore(files)],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
   const url=URL.createObjectURL(blob);
@@ -4950,6 +4966,12 @@ function _salesDataRowsFromHist(hist){
   if(stats.length)rows[rows.length-1].push("","");
   return rows;
 }
+function _salesDataColumnWidths(rows){
+  const widths=[18,16,16,12,14,12,24,24];
+  widths[6]=_xlsxAutoColWidth(rows,6,24);
+  widths[7]=_xlsxAutoColWidth(rows,7,24);
+  return widths;
+}
 function _castDrinkRowsFromHist(hist){
   const map={};
   const totals={p2000:0,p3000:0,other:{},all:0};
@@ -5004,7 +5026,7 @@ function exportSalesDataXLSX(){
   const rows=_salesDataRowsFromHist(S.history||[]);
   if(rows.length<=1){alert("出力する売上データがありません");return;}
   const date=S.activeBizDay||getBizDate();
-  _downloadXLSX(rows,"sales_data_"+date+".xlsx","Sales");
+  _downloadXLSX(rows,"sales_data_"+date+".xlsx","Sales",{columnWidths:_salesDataColumnWidths(rows)});
 }
 
 // ===== RECEIPT PRINT END =====

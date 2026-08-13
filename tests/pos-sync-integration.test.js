@@ -53,6 +53,10 @@ assert.match(salesData,/anaLiquorLabel\(item\)\+"\ "\+liquorAmountLabel\(item\)\
 assert.match(salesData,/const share=Math\.floor\(\(\(phase\.total\|\|0\)\+\(phase\.backTotal\|\|0\)\)\/Math\.max\(1,phase\.ids\.length\)\)/);
 assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb"\)/);
 assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\(\(r\.champagneWineItems\|\|\[\]\)\.join\(" \/ "\),\(r\.keepBottleItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);
+assert.match(salesData,/function _salesDataColumnWidths\(rows\)/);
+assert.match(salesData,/widths\[6\]=_xlsxAutoColWidth\(rows,6,24\)/);
+assert.match(salesData,/widths\[7\]=_xlsxAutoColWidth\(rows,7,24\)/);
+assert.match(app,/_downloadXLSX\(rows,"sales_data_"\+date\+"\.xlsx","Sales",\{columnWidths:_salesDataColumnWidths\(rows\)\}\)/);
 
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
