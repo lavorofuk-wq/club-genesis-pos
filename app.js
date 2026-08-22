@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.128";
+const APP_VERSION="6.129";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4941,8 +4941,10 @@ function _salesDataStatsFromHist(hist){
   const map={};
   const ensure=(id,name)=>{
     const key=String(id||("name:"+name)||"unknown");
-    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0,champagneWineItems:[],keepBottleItems:[],roomChargeItems:[]};
+    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honShimeiSalesItems:[],banaiExtensionSalesItems:[],honCount:0,banaiCount:0,dohanCount:0,champagneWineItems:[],keepBottleItems:[],roomChargeItems:[]};
     if((!map[key].castName||map[key].castName==="不明")&&name)map[key].castName=name;
+    if(!map[key].honShimeiSalesItems)map[key].honShimeiSalesItems=[];
+    if(!map[key].banaiExtensionSalesItems)map[key].banaiExtensionSalesItems=[];
     if(!map[key].champagneWineItems)map[key].champagneWineItems=[];
     if(!map[key].keepBottleItems)map[key].keepBottleItems=[];
     if(!map[key].roomChargeItems)map[key].roomChargeItems=[];
@@ -4981,7 +4983,11 @@ function _salesDataStatsFromHist(hist){
     const uniqueHon=[...new Map(honItems.map(i=>[String(i.castId||itemCastName(i)),i])).values()];
     if(uniqueHon.length){
       const share=Math.floor((Number(h.subtotal||h.total)||0)/uniqueHon.length);
-      uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honShimeiSales+=share;});
+      uniqueHon.forEach(i=>{
+        const row=ensure(i.castId,itemCastName(i)||i.castName);
+        row.honShimeiSales+=share;
+        row.honShimeiSalesItems.push(share);
+      });
       honItems.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honCount+=Math.max(1,Number(i.qty)||1);});
       const liquorItems=items.filter(i=>i&&liquorCategory(i));
       const roomChargeItems=items.filter(isRoomChargeItem);
@@ -4999,10 +5005,16 @@ function _salesDataStatsFromHist(hist){
       ensure(i.castId,itemCastName(i)||i.castName).banaiCount+=Math.max(1,Number(i.qty)||1);
     });
     if(!honItems.length){
+      const recordBanaiSales={};
       banaiExtensionSalesPhases(items).forEach(phase=>{
         const share=Math.floor(((phase.total||0)+(phase.backTotal||0))/Math.max(1,phase.ids.length));
-        phase.ids.forEach(id=>{ensure(id,gmsCastName(id,"")).banaiExtensionSales+=share;});
+        phase.ids.forEach(id=>{
+          const row=ensure(id,gmsCastName(id,""));
+          row.banaiExtensionSales+=share;
+          recordBanaiSales[id]=(recordBanaiSales[id]||0)+share;
+        });
       });
+      Object.entries(recordBanaiSales).forEach(([id,amount])=>ensure(id,gmsCastName(id,"")).banaiExtensionSalesItems.push(amount));
       let currentIds=[];
       items.forEach(item=>{
         if(item&&item.isBanaiExtension){
@@ -5019,8 +5031,8 @@ function _salesDataStatsFromHist(hist){
     }
   });
   return Object.values(map)
-    .map(r=>({...r,champagneWineItems:r.champagneWineItems||[],keepBottleItems:r.keepBottleItems||[],roomChargeItems:r.roomChargeItems||[]}))
-    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length||r.roomChargeItems.length)
+    .map(r=>({...r,honShimeiSalesItems:r.honShimeiSalesItems||[],banaiExtensionSalesItems:r.banaiExtensionSalesItems||[],champagneWineItems:r.champagneWineItems||[],keepBottleItems:r.keepBottleItems||[],roomChargeItems:r.roomChargeItems||[]}))
+    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honShimeiSalesItems.length||r.banaiExtensionSalesItems.length||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length||r.roomChargeItems.length)
     .sort((a,b)=>String(a.castName).localeCompare(String(b.castName),"ja-JP"));
 }
 function _salesDataTotalsFromHist(hist){
@@ -5032,12 +5044,19 @@ function _salesDataTotalsFromHist(hist){
     dohanCount:sum.dohanCount+Math.round(row.dohanCount||0)
   }),{honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0});
 }
+function _salesDataBreakdownLabel(amounts,total){
+  const values=(amounts||[]).map(value=>Math.round(Number(value)||0));
+  if(!values.length)return "";
+  const labels=values.map(value=>"\u00a5"+fmt(value));
+  if(values.length>1)labels.push("合計 \u00a5"+fmt(Math.round(Number(total)||0)));
+  return labels.join(" / ");
+}
 function _salesDataRowsFromHist(hist){
   const stats=_salesDataStatsFromHist(hist);
   const totals=_salesDataTotalsFromHist(hist);
   const rows=[
     ["キャスト名","本指名売上","場内延長売上","指名本数","場内指名本数","同伴本数"],
-    ...stats.map(r=>[r.castName,Math.round(r.honShimeiSales),Math.round(r.banaiExtensionSales),Math.round(r.honCount),Math.round(r.banaiCount),Math.round(r.dohanCount)])
+    ...stats.map(r=>[r.castName,_salesDataBreakdownLabel(r.honShimeiSalesItems,r.honShimeiSales),_salesDataBreakdownLabel(r.banaiExtensionSalesItems,r.banaiExtensionSales),Math.round(r.honCount),Math.round(r.banaiCount),Math.round(r.dohanCount)])
   ];
   rows[0].push("シャンパン・ワイン","キープボトル","室料");
   stats.forEach((r,idx)=>rows[idx+1].push((r.champagneWineItems||[]).join(" / "),(r.keepBottleItems||[]).join(" / "),(r.roomChargeItems||[]).join(" / ")));
@@ -5047,6 +5066,8 @@ function _salesDataRowsFromHist(hist){
 }
 function _salesDataColumnWidths(rows){
   const widths=[18,16,16,12,14,12,24,24,24];
+  widths[1]=_xlsxAutoColWidth(rows,1,16);
+  widths[2]=_xlsxAutoColWidth(rows,2,16);
   widths[6]=_xlsxAutoColWidth(rows,6,24);
   widths[7]=_xlsxAutoColWidth(rows,7,24);
   widths[8]=_xlsxAutoColWidth(rows,8,24);

@@ -46,7 +46,7 @@ assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("c
 assert.match(app,/window\._db\.ref\("\/"\)\.update\(withWriteGate\(prepared\)\)/);
 
 const salesData=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _castDrinkRowsFromHist"));
-assert.match(salesData,/champagneWineItems:\[\],keepBottleItems:\[\],roomChargeItems:\[\]/);
+assert.match(salesData,/honShimeiSalesItems:\[\],banaiExtensionSalesItems:\[\][\s\S]*champagneWineItems:\[\],keepBottleItems:\[\],roomChargeItems:\[\]/);
 assert.match(salesData,/liquorCategory=item=>/);
 assert.match(salesData,/isRoomChargeItem=item=>/);
 assert.match(salesData,/salesItemAmountLabel=item=>/);
@@ -63,9 +63,12 @@ assert.match(salesData,/function _salesDataColumnWidths\(rows\)/);
 assert.match(salesData,/widths\[6\]=_xlsxAutoColWidth\(rows,6,24\)/);
 assert.match(salesData,/widths\[7\]=_xlsxAutoColWidth\(rows,7,24\)/);
 assert.match(salesData,/widths\[8\]=_xlsxAutoColWidth\(rows,8,24\)/);
+assert.match(salesData,/widths\[1\]=_xlsxAutoColWidth\(rows,1,16\)/);
+assert.match(salesData,/widths\[2\]=_xlsxAutoColWidth\(rows,2,16\)/);
+assert.match(salesData,/if\(values\.length>1\)labels\.push\("合計 \\u00a5"\+fmt\(Math\.round\(Number\(total\)\|\|0\)\)\)/);
 assert.match(app,/_downloadXLSX\(rows,"sales_data_"\+date\+"\.xlsx","Sales",\{columnWidths:_salesDataColumnWidths\(rows\)\}\)/);
 
-const salesStatsSource=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _salesDataTotalsFromHist"));
+const salesRowsSource=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _salesDataColumnWidths"));
 const castNames={a:"A",b:"B",c:"C",d:"D"};
 const salesStatsContext={
   gmsItemCategory:item=>item.category||"",
@@ -76,28 +79,44 @@ const salesStatsContext={
   },
   itemCastName:item=>item.castName||"",
   gmsCastName:id=>castNames[id]||"",
-  banaiExtensionSalesPhases:()=>[]
+  banaiExtensionSalesPhases:items=>items.filter(item=>item.mockPhase).map(item=>item.mockPhase)
 };
 vm.createContext(salesStatsContext);
-vm.runInContext(salesStatsSource,salesStatsContext);
-const roomStats=JSON.parse(JSON.stringify(salesStatsContext._salesDataStatsFromHist([
+vm.runInContext(salesRowsSource,salesStatsContext);
+const salesHist=[
   {subtotal:100000,items:[
     {category:"vipRoom",isRoomCharge:true,label:"VIP室料",price:30000},
     {isHonShimei:true,castId:"a",castName:"A"},
     {isHonShimei:true,castId:"b",castName:"B"},
     {category:"karaokeRoom",isRoomCharge:true,label:"カラオケ室料",price:1000,qty:3}
   ]},
+  {subtotal:20000,items:[
+    {isHonShimei:true,castId:"a",castName:"A"}
+  ]},
   {items:[
     {category:"vipRoom",isRoomCharge:true,label:"延長前室料",price:30000},
-    {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:4000},
+    {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:4000,mockPhase:{ids:["c","d"],total:30000,backTotal:0}},
     {category:"vipRoom",isRoomCharge:true,label:"VIP室料延長 30分",price:15000}
+  ]},
+  {items:[
+    {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:4000,mockPhase:{ids:["c","d"],total:10000,backTotal:0}}
   ]}
-])));
+];
+const roomStats=JSON.parse(JSON.stringify(salesStatsContext._salesDataStatsFromHist(salesHist)));
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="a").roomChargeItems,["VIP室料 \u00a530000(A\u30fbB)","カラオケ室料 x3 \u00a53000(A\u30fbB)"]);
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="b").roomChargeItems,["VIP室料 \u00a530000(A\u30fbB)","カラオケ室料 x3 \u00a53000(A\u30fbB)"]);
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="c").roomChargeItems,["VIP室料延長 30分 \u00a515000(C\u30fbD)"]);
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").roomChargeItems,["VIP室料延長 30分 \u00a515000(C\u30fbD)"]);
 assert.ok(roomStats.every(row=>!row.roomChargeItems.some(label=>label.includes("延長前室料"))));
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="a").honShimeiSalesItems,[50000,20000]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="b").honShimeiSalesItems,[50000]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="c").banaiExtensionSalesItems,[15000,5000]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").banaiExtensionSalesItems,[15000,5000]);
+const salesRows=JSON.parse(JSON.stringify(salesStatsContext._salesDataRowsFromHist(salesHist)));
+assert.strictEqual(salesRows.find(row=>row[0]==="A")[1],"\u00a550000 / \u00a520000 / 合計 \u00a570000");
+assert.strictEqual(salesRows.find(row=>row[0]==="B")[1],"\u00a550000");
+assert.strictEqual(salesRows.find(row=>row[0]==="C")[2],"\u00a515000 / \u00a55000 / 合計 \u00a520000");
+assert.strictEqual(salesRows.find(row=>row[0]==="D")[2],"\u00a515000 / \u00a55000 / 合計 \u00a520000");
 
 const castDrinkOrder=app.slice(app.indexOf("function updateQtyDisplay"),app.indexOf("function addCustom"));
 assert.match(castDrinkOrder,/function openCastDrinkQty\(cid,price,drinkLabel\)/);
