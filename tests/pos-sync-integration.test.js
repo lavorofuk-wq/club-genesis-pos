@@ -50,6 +50,8 @@ assert.match(salesData,/liquorCategory=item=>/);
 assert.match(salesData,/liquorAmountLabel=item=>/);
 assert.match(salesData,/targetNameSuffix=names=>/);
 assert.match(salesData,/anaLiquorLabel\(item\)\+"\ "\+liquorAmountLabel\(item\)\+targetNameSuffix\(targetNames\)/);
+assert.doesNotMatch(salesData,/new Set\(r\.champagneWineItems/);
+assert.doesNotMatch(salesData,/new Set\(r\.keepBottleItems/);
 assert.match(salesData,/const share=Math\.floor\(\(\(phase\.total\|\|0\)\+\(phase\.backTotal\|\|0\)\)\/Math\.max\(1,phase\.ids\.length\)\)/);
 assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb"\)/);
 assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\(\(r\.champagneWineItems\|\|\[\]\)\.join\(" \/ "\),\(r\.keepBottleItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);

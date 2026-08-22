@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.123";
+const APP_VERSION="6.124";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4940,7 +4940,7 @@ function _salesDataStatsFromHist(hist){
     }
   });
   return Object.values(map)
-    .map(r=>({...r,champagneWineItems:[...new Set(r.champagneWineItems||[])],keepBottleItems:[...new Set(r.keepBottleItems||[])]}))
+    .map(r=>({...r,champagneWineItems:r.champagneWineItems||[],keepBottleItems:r.keepBottleItems||[]}))
     .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length)
     .sort((a,b)=>String(a.castName).localeCompare(String(b.castName),"ja-JP"));
 }
