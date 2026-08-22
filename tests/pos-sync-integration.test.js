@@ -56,7 +56,8 @@ assert.match(salesData,/row\.roomChargeItems\.push\(anaLiquorLabel\(item\)\+"\ "
 assert.doesNotMatch(salesData,/new Set\(r\.champagneWineItems/);
 assert.doesNotMatch(salesData,/new Set\(r\.keepBottleItems/);
 assert.doesNotMatch(salesData,/new Set\(r\.roomChargeItems/);
-assert.match(salesData,/const share=Math\.floor\(\(\(phase\.total\|\|0\)\+\(phase\.backTotal\|\|0\)\)\/Math\.max\(1,phase\.ids\.length\)\)/);
+assert.match(salesData,/const salesScale=recordSalesScale\(items,h\.subtotal\)/);
+assert.match(salesData,/const share=Math\.floor\(\(\(phase\.total\|\|0\)\+\(phase\.backTotal\|\|0\)\)\*salesScale\/Math\.max\(1,phase\.ids\.length\)\)/);
 assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb","\u5ba4\u6599"\)/);
 assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\([\s\S]*\(r\.roomChargeItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);
 assert.match(salesData,/function _salesDataColumnWidths\(rows\)/);
@@ -79,6 +80,11 @@ const salesStatsContext={
   },
   itemCastName:item=>item.castName||"",
   gmsCastName:id=>castNames[id]||"",
+  recordSalesSubtotal:rec=>Number.isFinite(Number(rec.subtotal))?Math.max(0,Number(rec.subtotal)):Math.max(0,Number(rec.total)||0),
+  recordSalesScale:(items,subtotal)=>{
+    const gross=items.reduce((sum,item)=>sum+Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1),0);
+    return gross>0&&Number.isFinite(Number(subtotal))?Math.max(0,Math.min(1,Number(subtotal)/gross)):1;
+  },
   banaiExtensionSalesPhases:items=>items.filter(item=>item.mockPhase).map(item=>item.mockPhase)
 };
 vm.createContext(salesStatsContext);
@@ -100,6 +106,9 @@ const salesHist=[
   ]},
   {items:[
     {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:4000,mockPhase:{ids:["c","d"],total:10000,backTotal:0}}
+  ]},
+  {subtotal:5000,items:[
+    {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:10000,mockPhase:{ids:["c","d"],total:10000,backTotal:0}}
   ]}
 ];
 const roomStats=JSON.parse(JSON.stringify(salesStatsContext._salesDataStatsFromHist(salesHist)));
@@ -110,13 +119,22 @@ assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").roomChargeItems,["V
 assert.ok(roomStats.every(row=>!row.roomChargeItems.some(label=>label.includes("延長前室料"))));
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="a").honShimeiSalesItems,[50000,20000]);
 assert.deepStrictEqual(roomStats.find(row=>row.castId==="b").honShimeiSalesItems,[50000]);
-assert.deepStrictEqual(roomStats.find(row=>row.castId==="c").banaiExtensionSalesItems,[15000,5000]);
-assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").banaiExtensionSalesItems,[15000,5000]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="c").banaiExtensionSalesItems,[15000,5000,2500]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").banaiExtensionSalesItems,[15000,5000,2500]);
 const salesRows=JSON.parse(JSON.stringify(salesStatsContext._salesDataRowsFromHist(salesHist)));
 assert.strictEqual(salesRows.find(row=>row[0]==="A")[1],"\u00a550000 / \u00a520000 / 合計 \u00a570000");
 assert.strictEqual(salesRows.find(row=>row[0]==="B")[1],"\u00a550000");
-assert.strictEqual(salesRows.find(row=>row[0]==="C")[2],"\u00a515000 / \u00a55000 / 合計 \u00a520000");
-assert.strictEqual(salesRows.find(row=>row[0]==="D")[2],"\u00a515000 / \u00a55000 / 合計 \u00a520000");
+assert.strictEqual(salesRows.find(row=>row[0]==="C")[2],"\u00a515000 / \u00a55000 / \u00a52500 / 合計 \u00a522500");
+assert.strictEqual(salesRows.find(row=>row[0]==="D")[2],"\u00a515000 / \u00a55000 / \u00a52500 / 合計 \u00a522500");
+
+assert.match(app,/function adjustedTotalResult\(s,value\)/);
+assert.match(app,/id="adjusted-total-input"/);
+assert.match(app,/割引後小計/);
+assert.match(app,/Tax\+SC/);
+assert.doesNotMatch(app,/function addDiscount\(/);
+assert.doesNotMatch(app,/function addCustomDiscount\(/);
+assert.doesNotMatch(app,/S\.menus\.discounts/);
+assert.doesNotMatch(app,/割引メニュー/);
 
 const castDrinkOrder=app.slice(app.indexOf("function updateQtyDisplay"),app.indexOf("function addCustom"));
 assert.match(castDrinkOrder,/function openCastDrinkQty\(cid,price,drinkLabel\)/);

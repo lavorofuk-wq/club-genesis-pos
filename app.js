@@ -1,10 +1,10 @@
 // ===== DEFAULTS =====
 const DC=[{id:1,name:"すず"},{id:2,name:"みお"},{id:3,name:"みゆ"},{id:4,name:"ひなの"},{id:5,name:"れな"},{id:6,name:"まなみ"},{id:7,name:"せりか"},{id:8,name:"あむ"},{id:9,name:"さき"},{id:10,name:"こはる"},{id:11,name:"さり"},{id:12,name:"かのん"},{id:13,name:"かすみ"},{id:14,name:"なな"},{id:15,name:"ゆうか"},{id:16,name:"めぐみ"},{id:17,name:"れみ"},{id:18,name:"ももか"},{id:19,name:"あみ"},{id:20,name:"るな"},{id:21,name:"あゆな"}];
-const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:2000},{id:"bs",label:"場内指名料",price:2000},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],karaoke:[],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],keepBottles:[],wine:[],whisky:[],shochu:[],brandy:[],discounts:[{id:"dc10",label:"10%割引",type:"percent",value:10},{id:"dc20",label:"20%割引",type:"percent",value:20},{id:"dc5k",label:"¥5,000割引",type:"fixed",value:5000}]};
+const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金",price:8000,minutes:60},{id:"s2",label:"案内所特別①",price:5000,minutes:60},{id:"s3",label:"案内所特別②",price:6000,minutes:60},{id:"s4",label:"案内所特別③",price:7000,minutes:60},{id:"s5",label:"同伴セット",price:12000,minutes:90}],options:[{id:"fd",label:"フリードリンク",price:2000},{id:"hs",label:"本指名料",price:2000},{id:"bs",label:"場内指名料",price:2000},{id:"dh",label:"同伴料",price:3000},{id:"sc",label:"シングルチャージ",price:2000}],extensions:[{id:"e30",label:"延長30分",price:4000,minutes:30},{id:"e60",label:"延長60分",price:8000,minutes:60}],vip:[{id:"v60",label:"VIP室料 60分",price:30000,minutes:60},{id:"v30",label:"VIP室料延長 30分",price:15000,minutes:30}],karaoke:[],castDrinks:[{id:"cd2",label:"キャストドリンク 2,000円",price:2000},{id:"cd3",label:"キャストドリンク 3,000円",price:3000}],drinks:[{id:"so",label:"ソーダ",price:1000},{id:"pi",label:"ピッチャー",price:1000},{id:"o1",label:"その他 1,000円",price:1000},{id:"o2",label:"その他 2,000円",price:2000},{id:"o3",label:"その他 3,000円",price:3000}],champagne:[],keepBottles:[],wine:[],whisky:[],shochu:[],brandy:[]};
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.130";
+const APP_VERSION="6.131";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -18,6 +18,11 @@ function applyFixedShimeiPrices(menus){
   if(!menus||!Array.isArray(menus.options))return menus;
   menus.options=menus.options.map(o=>o.id==="hs"?{...o,price:HON_SHIMEI_PRICE}:o.id==="bs"?{...o,price:BANAI_SHIMEI_PRICE}:o);
   return menus;
+}
+function normalizeMenus(menus){
+  const normalized={...(menus||{})};
+  delete normalized.discounts;
+  return applyFixedShimeiPrices(normalized);
 }
 function normalizeCasts(list){
   let nextNo=1;
@@ -98,7 +103,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:applyFixedShimeiPrices(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -212,21 +217,62 @@ function floorGridLayout(){
 function fmt(n){return Number(n||0).toLocaleString("ja-JP");}
 function roundCharge(n){return Math.ceil(Math.max(0,Number(n)||0)/TOTAL_ROUND_UNIT)*TOTAL_ROUND_UNIT;}
 function ts(ms){const s=Math.max(0,Math.floor(ms/1000));return[Math.floor(s/3600),Math.floor((s%3600)/60),s%60].map(x=>String(x).padStart(2,"0")).join(":");}
+function sessionGrossSubtotal(ses){
+  return(ses?.items||[]).filter(i=>i&&!i.isDiscount).reduce((sum,item)=>sum+Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1),0);
+}
+function recordSalesSubtotal(rec){
+  if(rec?.subtotal==null)return Math.max(0,Number(rec?.total)||0);
+  const subtotal=Number(rec?.subtotal);
+  if(Number.isFinite(subtotal))return Math.max(0,subtotal);
+  return Math.max(0,Number(rec?.total)||0);
+}
+function recordSalesScale(items,salesSubtotal){
+  const grossSubtotal=sessionGrossSubtotal({items});
+  if(salesSubtotal==null)return 1;
+  const subtotal=Number(salesSubtotal);
+  if(grossSubtotal<=0||!Number.isFinite(subtotal))return 1;
+  return Math.max(0,Math.min(1,subtotal/grossSubtotal));
+}
+function standardChargeFromSubtotal(subtotal){
+  const sub=Math.max(0,Math.round(Number(subtotal)||0));
+  const rawTax=Math.floor(sub*TAX_RATE);
+  const total=roundCharge(sub+rawTax);
+  return{subtotal:sub,tax:Math.max(0,total-sub),total};
+}
+function adjustedChargeFromTotal(total){
+  const finalTotal=Math.max(0,Math.round(Number(total)||0));
+  const subtotal=Math.floor(finalTotal/(1+TAX_RATE));
+  return{subtotal,tax:Math.max(0,finalTotal-subtotal),total:finalTotal};
+}
+function hasActiveAdjustedTotal(ses,grossSubtotal){
+  if(!ses||!Object.prototype.hasOwnProperty.call(ses,"adjustedTotal"))return false;
+  const total=Number(ses.adjustedTotal);
+  const base=Number(ses.adjustedTotalBaseSubtotal);
+  return Number.isFinite(total)&&total>=0&&Number.isFinite(base)&&base===grossSubtotal;
+}
+function clearAdjustedTotalFields(ses){
+  if(!ses)return;
+  delete ses.adjustedTotal;
+  delete ses.adjustedTotalBaseSubtotal;
+}
+function stripLegacyActiveDiscounts(sessions){
+  Object.values(sessions||{}).forEach(session=>{
+    if(Array.isArray(session?.items))session.items=session.items.filter(item=>item&&!item.isDiscount);
+  });
+  return sessions||{};
+}
 function ct(ses){
-  if(!ses||!Array.isArray(ses.items))return{subtotal:0,discount:0,subDiscAmt:0,totalDiscAmt:0,tax:0,total:0,rate:TAX_RATE};
-  const items=ses.items.filter(Boolean);
-  const r=TAX_RATE;
-  const sub=items.filter(i=>!i.isDiscount).reduce((a,i)=>a+(i.price||0)*(i.qty||1),0);
-  const subDiscAmt=items.filter(i=>i.isDiscount&&i.discountTarget!=='total').reduce((a,i)=>a+Math.abs((i.price||0)*(i.qty||1)),0);
-  const totalDiscAmt=items.filter(i=>i.isDiscount&&i.discountTarget==='total').reduce((a,i)=>a+Math.abs((i.price||0)*(i.qty||1)),0);
-  const afterSubDisc=Math.max(0,sub-subDiscAmt);
-  const rawTax=Math.floor(afterSubDisc*r);
-  const rawTotal=afterSubDisc+rawTax;
-  const totalBeforePostDisc=roundCharge(rawTotal);
-  const total=roundCharge(totalBeforePostDisc-totalDiscAmt);
-  const tax=Math.max(0,totalBeforePostDisc-afterSubDisc);
-  const discount=subDiscAmt+totalDiscAmt;
-  return{subtotal:sub,discount,subDiscAmt,totalDiscAmt,tax,total,rate:r};
+  if(!ses||!Array.isArray(ses.items))return{grossSubtotal:0,subtotal:0,discount:0,subDiscAmt:0,totalDiscAmt:0,tax:0,total:0,rate:TAX_RATE,discountMode:""};
+  const grossSubtotal=sessionGrossSubtotal(ses);
+  const standard=standardChargeFromSubtotal(grossSubtotal);
+  if(hasActiveAdjustedTotal(ses,grossSubtotal)){
+    const adjusted=adjustedChargeFromTotal(ses.adjustedTotal);
+    if(adjusted.total<standard.total&&adjusted.subtotal<=grossSubtotal){
+      const discount=Math.max(0,grossSubtotal-adjusted.subtotal);
+      return{grossSubtotal,subtotal:adjusted.subtotal,discount,subDiscAmt:discount,totalDiscAmt:0,tax:adjusted.tax,total:adjusted.total,rate:TAX_RATE,discountMode:"finalTotal"};
+    }
+  }
+  return{grossSubtotal,subtotal:grossSubtotal,discount:0,subDiscAmt:0,totalDiscAmt:0,tax:standard.tax,total:standard.total,rate:TAX_RATE,discountMode:""};
 }
 function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return allCasts().filter(isVisibleCast);}
@@ -376,7 +422,7 @@ if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appV
 S.castLifecycleLogs=d.castLifecycleLogs||{};
 if(d.casts)S.casts=applyPosCastPolicy(d.casts);
 if(d.menus){
-  S.menus=applyFixedShimeiPrices(d.menus);
+  S.menus=normalizeMenus(d.menus);
   // 未定義カテゴリを空配列で初期化
   if(!S.menus.champagne)S.menus.champagne=[];
   if(!S.menus.keepBottles)S.menus.keepBottles=[];
@@ -386,7 +432,7 @@ if(d.menus){
 }
 if(d.tables)S.tables=d.tables;
 // Firebaseを正として反映し、古い端末のローカル状態を混ぜ戻さない
-S.sessions=d.sessions||{};
+S.sessions=stripLegacyActiveDiscounts(d.sessions||{});
 markSessionGuards(S.sessions);
 // historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
 S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
@@ -1292,31 +1338,56 @@ function addCastCustomItem(itemId){
   s.items=[...s.items,{id:"cci_"+itemId+"_"+Date.now(),label:item.label,price:item.price,qty:1}];
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function addDiscount(id){
-  const d=(S.menus.discounts||[]).find(x=>x.id===id);if(!d)return;
-  const s=S.sessions[at];const tgt=window._discTarget||'subtotal';
-  const{subtotal,total}=ct(s);
-  const base=tgt==='total'?total:subtotal;
-  let amt=0;
-  if(d.type==="percent")amt=Math.floor(base*d.value/100);
-  else amt=Math.min(d.value||d.price||0,base);
-  if(amt<=0)return;
-  const lbl=d.label+(tgt==='total'?' (合計割引)':'');
-  s.items=[...s.items,{id:"disc_"+Date.now(),label:lbl,price:-amt,qty:1,isDiscount:true,discountTarget:tgt}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
+function adjustedTotalResult(s,value){
+  const grossSubtotal=sessionGrossSubtotal(s);
+  const standard=standardChargeFromSubtotal(grossSubtotal);
+  const raw=String(value??"").trim();
+  if(raw==="")return{valid:false,empty:true,grossSubtotal,standard};
+  const targetTotal=Math.round(Number(raw));
+  if(!Number.isFinite(targetTotal)||targetTotal<0)return{valid:false,message:"0円以上の合計金額を入力してください。",grossSubtotal,standard};
+  if(targetTotal>standard.total)return{valid:false,message:"通常合計以下の金額を入力してください。",grossSubtotal,standard};
+  if(targetTotal===standard.total)return{valid:true,clear:true,grossSubtotal,standard,...standard,discount:0};
+  const adjusted=adjustedChargeFromTotal(targetTotal);
+  if(adjusted.subtotal>grossSubtotal)return{valid:false,message:"この金額では割引後小計が通常小計を超えます。",grossSubtotal,standard};
+  return{valid:true,clear:false,grossSubtotal,standard,...adjusted,discount:Math.max(0,grossSubtotal-adjusted.subtotal)};
 }
-function addCustomDiscount(){
-  const el=document.getElementById("disc-custom");
-  const v=parseInt(el?.value||"",10);if(!v||v<=0){if(el)el.focus();return;}
-  const s=S.sessions[at];const tgt=window._discTarget||'subtotal';
-  const{subtotal,total}=ct(s);
-  const base=tgt==='total'?total:subtotal;
-  const amt=Math.min(v,base);
-  const lbl='割引 -¥'+fmt(amt)+(tgt==='total'?' (合計)':'');
-  s.items=[...s.items,{id:"disc_"+Date.now(),label:lbl,price:-amt,qty:1,isDiscount:true,discountTarget:tgt}];
-  save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
+function adjustedTotalPreviewHtml(result){
+  if(!result||result.empty)return'<div style="height:92px;"></div>';
+  if(!result.valid)return'<div style="padding:10px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;color:#b91c1c;font-size:12px;font-weight:700;">'+result.message+'</div>';
+  return'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+    +'<div style="padding:10px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">割引後小計</div><div style="font-size:16px;font-weight:800;color:#0f172a;">¥'+fmt(result.subtotal)+'</div></div>'
+    +'<div style="padding:10px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">Tax+SC ('+Math.round(TAX_RATE*100)+'%)</div><div style="font-size:16px;font-weight:800;color:#0f172a;">¥'+fmt(result.tax)+'</div></div>'
+    +'<div style="grid-column:1 / -1;padding:10px;background:#eff6ff;border:1px solid #93c5fd;border-radius:6px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;color:#1d4ed8;font-weight:700;">割引後合計</span><span style="font-size:20px;color:#0f4ab8;font-weight:900;">¥'+fmt(result.total)+'</span></div>'
+    +'</div>';
 }
-function remItemDisc(id){const s=S.sessions[at];if(!s)return;s.items=(s.items||[]).filter(i=>i.id!==id);save("sessions/"+at,S.sessions[at]);renderOrderPartial();rModal();}
+function updateAdjustedTotalPreview(){
+  const s=S.sessions[at];if(!s)return;
+  const input=document.getElementById("adjusted-total-input");
+  const preview=document.getElementById("adjusted-total-preview");
+  const applyBtn=document.getElementById("adjusted-total-apply");
+  const result=adjustedTotalResult(s,input?.value);
+  if(preview)preview.innerHTML=adjustedTotalPreviewHtml(result);
+  if(applyBtn)applyBtn.disabled=!result.valid;
+}
+function applyAdjustedTotal(){
+  const s=S.sessions[at];if(!s)return;
+  const input=document.getElementById("adjusted-total-input");
+  const result=adjustedTotalResult(s,input?.value);
+  if(!result.valid){if(input)input.focus();return;}
+  s.items=(s.items||[]).filter(item=>item&&!item.isDiscount);
+  if(result.clear)clearAdjustedTotalFields(s);
+  else{
+    s.adjustedTotal=result.total;
+    s.adjustedTotalBaseSubtotal=result.grossSubtotal;
+  }
+  save("sessions/"+at,s);closeM();renderOrderPartial();
+}
+function clearAdjustedTotal(){
+  const s=S.sessions[at];if(!s)return;
+  s.items=(s.items||[]).filter(item=>item&&!item.isDiscount);
+  clearAdjustedTotalFields(s);
+  save("sessions/"+at,s);closeM();renderOrderPartial();
+}
 // 後からセット/指名を追加
 function addSetToSession(setId, addGuests){
   const s=S.sessions[at];if(!s)return;
@@ -2023,12 +2094,13 @@ function gmsCastSales(hist){
     const items=h.items||[];
     const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
     if(hon.length){
-      const share=Math.floor(gmsInt(h.subtotal||h.total)/hon.length);
+      const share=Math.floor(recordSalesSubtotal(h)/hon.length);
       hon.forEach(i=>{ensure(i.castId,gmsCastName(i.castId,i.castName||itemCastName(i))).honShimeiSales+=share;});
     }else{
+      const salesScale=recordSalesScale(items,h.subtotal);
       gmsBanaiExtensionSalesPhases(items).forEach(phase=>{
-        const share=Math.floor((phase.total||0)/phase.ids.length);
-        const backShare=Math.floor((phase.backTotal||0)/phase.ids.length);
+        const share=Math.floor((phase.total||0)*salesScale/phase.ids.length);
+        const backShare=Math.floor((phase.backTotal||0)*salesScale/phase.ids.length);
         phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,""));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
       });
     }
@@ -3267,8 +3339,14 @@ if(exp){
   html+='<div class="hist-body"><div style="margin:12px 0;">';
   [...(h.items||[])].forEach(i=>{const isDisc=i.isDiscount;html+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
   html+='</div><div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">';
-  html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(h.subtotal||h.total)+'</span></div>';
-  if(h.discount>0)html+='<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(h.discount)+'</span></div>';
+  if(h.discountMode==="finalTotal"){
+    html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">通常小計</span><span>'+pAmt(h.grossSubtotal)+'</span></div>';
+    html+='<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(h.discount)+'</span></div>';
+    html+='<div class="ir" style="font-size:12px;"><span style="color:#0f4ab8;font-weight:700;">割引後小計</span><span style="color:#0f4ab8;font-weight:700;">'+pAmt(h.subtotal)+'</span></div>';
+  }else{
+    html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(h.subtotal||h.total)+'</span></div>';
+    if(h.discount>0)html+='<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(h.discount)+'</span></div>';
+  }
   html+='<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((h.rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(h.tax)+'</span></div>';
   html+='<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(h.total)+'</span></div></div>';
   html+='<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">';
@@ -3486,10 +3564,9 @@ html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="
 html+='<div style="display:flex;gap:8px;margin-top:10px;"><input class="ip" id="nti" placeholder="体入キャスト名（当日のみ）" value="'+ntn+'" oninput="ntn=this.value" style="flex:1;"/><button class="btn" onclick="actrial()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;">体入登録</button></div>';
 html+='</div>';
   }else if(stab==="menus"){
-const menuSections=[["normalSets","通常セットメニュー",true],["sets","特別セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["karaoke","カラオケ室料（1名単価）",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false],["discounts","割引メニュー",false]];
+const menuSections=[["normalSets","通常セットメニュー",true],["sets","特別セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["karaoke","カラオケ室料（1名単価）",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false]];
 menuSections.forEach(([k,l,hm])=>{
-  const ni=nmi[k]||{label:"",price:"",minutes:"",discType:"fixed"};
-  const isDisc=(k==="discounts");
+  const ni=nmi[k]||{label:"",price:"",minutes:""};
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">'+l+'</div>';
   (S.menus[k]||[]).forEach(item=>{
     html+='<div class="ir" style="flex-wrap:wrap;gap:6px;">';
@@ -3502,9 +3579,8 @@ menuSections.forEach(([k,l,hm])=>{
   });
   html+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
   html+='<input class="ip" placeholder="名前" data-k="'+k+'" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
-  if(isDisc)html+='<select class="ip" data-k="'+k+'" data-f="discType" onchange="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"><option value="fixed">固定額</option><option value="percent">%</option></select>';
   if(hm)html+='<input type="number" inputmode="numeric" class="ip" placeholder="分" data-k="'+k+'" data-f="minutes" value="'+ni.minutes+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:52px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" placeholder="'+(isDisc?"値":"金額")+'" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"/>';
+  html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"/>';
   html+='<button class="btn gbg" data-k="'+k+'" data-hm="'+(hm?1:0)+'" onclick="ami(this.dataset.k,this.dataset.hm==\'1\')" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;white-space:nowrap;">＋ 追加</button>';
   html+='</div></div></div>';
 });
@@ -3574,23 +3650,6 @@ html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
 html+='<input class="ip" placeholder="名前" data-k="castDrinks" data-f="label" value="'+nicd.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
 html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="castDrinks" data-f="price" value="'+nicd.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
 html+='<button class="btn gbg" data-k="castDrinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';
-// 割引
-html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#ff6b6b;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,80,80,.15);padding-bottom:4px;">割引メニュー</div>';
-(S.menus.discounts||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="discounts" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<select class="ip" data-k="discounts" data-id="'+item.id+'" onchange="udisctype(this.dataset.k,this.dataset.id,this.value)" style="width:70px;font-size:12px;"><option value="fixed"'+(item.type==="fixed"?" selected":"")+'>固定</option><option value="percent"'+(item.type==="percent"?" selected":"")+'>%</option></select>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="discounts" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:70px;"/>';
-  html+='<button class="btn" data-k="discounts" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-const nidc=nmi["discounts"]||{label:"",price:"",discType:"fixed"};
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;">';
-html+='<input class="ip" placeholder="名前" data-k="discounts" data-f="label" value="'+nidc.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
-html+='<select class="ip" data-k="discounts" data-f="discType" onchange="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;font-size:12px;"><option value="fixed">固定</option><option value="percent">%</option></select>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="値" data-k="discounts" data-f="price" value="'+nidc.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:70px;"/>';
-html+='<button class="btn gbg" data-k="discounts" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
 html+='</div></div>';
 // シャンパン・ワイン（CASTオーダー）
 {const ni=nmi["champagne"]||{label:"",price:""};
@@ -3975,7 +4034,6 @@ guardedRootUpdate({
   vw="list";render();
 }
 function sst(t){stab=t;render();}
-function udisctype(k,id,v){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,type:v}:x);save("menus",S.menus);}
 function ucn(id,name){
   const n=String(name||"").trim();
   if(!n)return render();
@@ -4110,7 +4168,7 @@ function uml(k,id,v){if(v.trim()){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,l
 function ump(k,id,v){const p=parseInt(v,10);if(p>0){S.menus[k]=S.menus[k].map(x=>x.id===id?x.type==="percent"?{...x,value:p}:{...x,price:p}:x);S.menus=applyFixedShimeiPrices(S.menus);save("menus",S.menus);}}
 function umm(k,id,v){const m=parseInt(v,10);if(m>0){S.menus[k]=S.menus[k].map(x=>x.id===id?{...x,minutes:m}:x);save("menus",S.menus);}}
 function dmi(k,id){S.menus[k]=S.menus[k].filter(x=>x.id!==id);save("menus",S.menus);render();}
-function snmi(k,f,v){if(!nmi[k])nmi[k]={label:"",price:"",minutes:"",discType:"fixed"};nmi[k][f]=v;}
+function snmi(k,f,v){if(!nmi[k])nmi[k]={label:"",price:"",minutes:""};nmi[k][f]=v;}
 function ami(k,hm){
   const ni=nmi[k]||{};
   if(!ni.label||ni.label.trim()==="")return;
@@ -4118,13 +4176,11 @@ function ami(k,hm){
   const p=parseInt(ni.price,10);if(isNaN(p)||p<0)return;
   const minutes=parseInt(ni.minutes,10);
   if((k==="vip"||k==="karaoke")&&(!minutes||minutes<=0)){alert("室料の分数を入力してください。");return;}
-  const isDisc=(k==="discounts");
-  let item;
-  if(isDisc){const tp=ni.discType||"fixed";item={id:k+"_"+Date.now(),label:ni.label.trim(),type:tp,value:p};if(tp==="fixed")item.price=p;}
-  else{item={id:k+"_"+Date.now(),label:ni.label.trim(),price:p};if(hm&&minutes>0)item.minutes=minutes;}
+  const item={id:k+"_"+Date.now(),label:ni.label.trim(),price:p};
+  if(hm&&minutes>0)item.minutes=minutes;
   if(!S.menus[k])S.menus[k]=[];
   S.menus[k]=[...S.menus[k],item];
-  save("menus",S.menus);nmi[k]={label:"",price:"",minutes:"",discType:"fixed"};render();
+  save("menus",S.menus);nmi[k]={label:"",price:"",minutes:""};render();
 }
 function utl(id,v){if(v.trim()){S.tables=S.tables.map(t=>t.id===id?{...t,label:v.trim()}:t);save("tables",S.tables);}}
 function ttv(id){S.tables=S.tables.map(t=>t.id===id?{...t,vip:!t.vip}:t);save("tables",S.tables);render();}
@@ -4143,7 +4199,7 @@ function buildReceiptHTML(sessionOrEst, isEstimate){
   const st=new Date(sessionOrEst.startTime);
   const et=sessionOrEst.endTime?new Date(sessionOrEst.endTime):now2;
   const dur=Math.round((et-st)/60000);
-  const{subtotal,discount,tax,total,rate}=sessionOrEst;
+  const{grossSubtotal,subtotal,discount,tax,total,rate,discountMode}=sessionOrEst;
 
   const isGuest=!!sessionOrEst.isGuest;
   const noteText=sessionOrEst.note||"";
@@ -4190,8 +4246,12 @@ ${(()=>{if(isGuest)return"";const _bn=[...new Set((sessionOrEst.items||[]).filte
 <hr class="rcp-divider">
 ${rows}
 <hr class="rcp-divider">
-<div class="rcp-subtotal-row"><span>小計</span><span>¥${fmt(subtotal)}</span></div>
-${discount>0?`<div class="rcp-subtotal-row"><span>割引</span><span>-¥${fmt(discount)}</span></div>`:""}
+${discountMode==="finalTotal"
+  ?`<div class="rcp-subtotal-row"><span>通常小計</span><span>¥${fmt(grossSubtotal)}</span></div>
+<div class="rcp-subtotal-row"><span>割引</span><span>-¥${fmt(discount)}</span></div>
+<div class="rcp-subtotal-row"><span>割引後小計</span><span>¥${fmt(subtotal)}</span></div>`
+  :`<div class="rcp-subtotal-row"><span>小計</span><span>¥${fmt(subtotal)}</span></div>
+${discount>0?`<div class="rcp-subtotal-row"><span>割引</span><span>-¥${fmt(discount)}</span></div>`:""}`}
 <div class="rcp-subtotal-row"><span>税・SC (${Math.round((rate||TAX_RATE)*100)}%)</span><span>¥${fmt(tax)}</span></div>
 <hr class="rcp-divider-solid">
 <div class="rcp-total-row">
@@ -4237,7 +4297,7 @@ showEposPrintError(ip,port,e,data,isEstimate);
 
 // ePOS-Print XML形式でレシートデータを構築（80mm = 約42半角文字幅）
 function buildEposXML(data,isEstimate){
-  const{tableLabel,guests,items,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,payMethod,splits,startTime,note,isGuest}=data;
+  const{tableLabel,guests,items,grossSubtotal,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,discountMode,payMethod,splits,startTime,note,isGuest}=data;
   const now2=new Date();
   const W=42;
   const DIV="-".repeat(W);
@@ -4284,10 +4344,16 @@ if(dItems.length){x+='<feed line="1"/>'; ln("--- 割引 ---"); dItems.forEach(pr
 (items||[]).forEach(printItem);
   }
   ln(DIV);
-  x+=`<text>${row("小計","¥"+fmt(subtotal))}</text>`;
-  if((subDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))}</text>`;
+  if(discountMode==="finalTotal"){
+    x+=`<text>${row("通常小計","¥"+fmt(grossSubtotal))}</text>`;
+    if((discount||0)>0)x+=`<text>${row("割引","-¥"+fmt(discount))}</text>`;
+    x+=`<text>${row("割引後小計","¥"+fmt(subtotal))}</text>`;
+  }else{
+    x+=`<text>${row("小計","¥"+fmt(subtotal))}</text>`;
+    if((subDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（小計）","-¥"+fmt(subDiscAmt))}</text>`;
+  }
   x+=`<text>${row("税・SC ("+Math.round((rate||TAX_RATE)*100)+"%)", "¥"+fmt(tax))}</text>`;
-  if((totalDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))}</text>`;
+  if(discountMode!=="finalTotal"&&(totalDiscAmt||0)>0)x+=`<text>${row(isGuest?"割引":"割引（合計）","-¥"+fmt(totalDiscAmt))}</text>`;
   ln(DBL);
   x+='<feed line="1"/>';
   x+='<text dh="true" dw="true"/>'; x+=`<text>${row("合 計","¥"+fmt(total),Math.floor(W/2))}</text>`;
@@ -4582,18 +4648,20 @@ function banaiExtensionSalesPhases(items){
   });
   return[...phases.values()];
 }
-function banaiExtensionSalesForCast(items,castId){
+function banaiExtensionSalesForCast(items,castId,salesSubtotal){
   const cid=String(castId);
+  const salesScale=recordSalesScale(items,salesSubtotal);
   return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
     if(!phase.ids.includes(cid))return total;
-    return total+Math.floor(phase.total/phase.ids.length);
+    return total+Math.floor(phase.total*salesScale/phase.ids.length);
   },0);
 }
-function banaiExtensionBackSalesForCast(items,castId){
+function banaiExtensionBackSalesForCast(items,castId,salesSubtotal){
   const cid=String(castId);
+  const salesScale=recordSalesScale(items,salesSubtotal);
   return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
     if(!phase.ids.includes(cid))return total;
-    return total+Math.floor((phase.backTotal||0)/phase.ids.length);
+    return total+Math.floor((phase.backTotal||0)*salesScale/phase.ids.length);
   },0);
 }
 function anaBizDateFromMs(ms){
@@ -4614,15 +4682,16 @@ function anaHasHonCast(rec,cid){
 function anaHonShare(rec,cid){
   if(!anaHasHonCast(rec,cid))return 0;
   const honCount=Math.max(1,(rec.items||[]).filter(i=>i.isHonShimei).length);
-  return Math.floor((Number(rec.subtotal||rec.total)||0)/honCount);
+  return Math.floor(recordSalesSubtotal(rec)/honCount);
 }
 function anaBanaiExtMatch(item,cid){
   return item&&item.isBanaiExtension&&((item.banaiExtCastIds||[]).map(String).includes(String(cid))||(item.banaiExtCastId&&String(item.banaiExtCastId)===String(cid)));
 }
-function anaBanaiExtensionDetails(items,cid){
+function anaBanaiExtensionDetails(items,cid,salesSubtotal){
   let currentIds=[];
   let sales=0;
   const liquors=[];
+  const salesScale=recordSalesScale(items,salesSubtotal);
   (items||[]).forEach(item=>{
     if(item.isBanaiExtension){
       currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
@@ -4631,7 +4700,7 @@ function anaBanaiExtensionDetails(items,cid){
     const shareCount=Math.max(1,currentIds.length);
     const amount=Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1);
     if(isBanaiExtensionBackItem(item))liquors.push(anaLiquorLabel(item));
-    else sales+=Math.floor(amount/shareCount);
+    else sales+=Math.floor(amount*salesScale/shareCount);
   });
   return{sales,liquors};
 }
@@ -4743,7 +4812,7 @@ function anaCastDetailRows(filtered,castId,castName){
     }
     row.banaiCount+=items.filter(i=>i.isBanaiShimei&&String(i.castId)===cid).length;
     if(!items.some(i=>i.isHonShimei)&&items.some(i=>anaBanaiExtMatch(i,cid))){
-      const det=anaBanaiExtensionDetails(items,cid);
+      const det=anaBanaiExtensionDetails(items,cid,rec.subtotal);
       row.banaiExtSales+=det.sales;
       row.banaiLiquors.push(...det.liquors);
     }
@@ -4790,13 +4859,13 @@ function exportUriageCSV(filtered,castId,castName){
   // 本指名売上: 同テーブルの本指名人数で均等分配
   const sub=honRecs.reduce((a,h)=>{
 const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
-return a+(h.subtotal||h.total)/honCount;
+return a+recordSalesSubtotal(h)/honCount;
   },0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
   const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
-  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
-  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
+  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid,h.subtotal),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid,h.subtotal),0);
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
@@ -5036,7 +5105,7 @@ function _salesDataStatsFromHist(hist){
     const honItems=items.filter(i=>i&&i.isHonShimei);
     const uniqueHon=[...new Map(honItems.map(i=>[String(i.castId||itemCastName(i)),i])).values()];
     if(uniqueHon.length){
-      const share=Math.floor((Number(h.subtotal||h.total)||0)/uniqueHon.length);
+      const share=Math.floor(recordSalesSubtotal(h)/uniqueHon.length);
       uniqueHon.forEach(i=>{
         const row=ensure(i.castId,itemCastName(i)||i.castName);
         row.honShimeiSales+=share;
@@ -5060,8 +5129,9 @@ function _salesDataStatsFromHist(hist){
     });
     if(!honItems.length){
       const recordBanaiSales={};
+      const salesScale=recordSalesScale(items,h.subtotal);
       banaiExtensionSalesPhases(items).forEach(phase=>{
-        const share=Math.floor(((phase.total||0)+(phase.backTotal||0))/Math.max(1,phase.ids.length));
+        const share=Math.floor(((phase.total||0)+(phase.backTotal||0))*salesScale/Math.max(1,phase.ids.length));
         phase.ids.forEach(id=>{
           const row=ensure(id,gmsCastName(id,""));
           row.banaiExtensionSales+=share;
@@ -5306,9 +5376,13 @@ return h;
   function totalRow(result,label,col){
 const hv=[...s.items,...(result.extraItems||[])].some(i=>i.isVipCharge);
 return '<div style="margin-top:6px;padding:8px 0;border-top:1px solid rgba(255,255,255,.1);">'
+  +(result.discountMode==="finalTotal"
+    ?'<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;"><span>通常小計</span><span>¥'+fmt(result.grossSubtotal)+'</span></div>'
+     +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#ff6b6b;margin-bottom:2px;"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>'
+     +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#38bdf8;margin-bottom:2px;"><span>割引後小計</span><span>¥'+fmt(result.subtotal)+'</span></div>'
+    :"")
   +'<div style="display:flex;justify-content:space-between;font-size:11px;color:#666;margin-bottom:2px;">'
   +'<span>税・SC ('+Math.round((result.rate||TAX_RATE)*100)+'%)</span><span>¥'+fmt(result.tax)+'</span></div>'
-  +(result.discount>0?'<div style="display:flex;justify-content:space-between;font-size:11px;color:#ff6b6b;margin-bottom:2px;"><span>割引</span><span>-¥'+fmt(result.discount)+'</span></div>':"")
   +'<div style="display:flex;justify-content:space-between;align-items:baseline;">'
   +'<span style="font-size:12px;color:'+col+';">'+label+'</span>'
   +'<span style="font-size:18px;font-weight:700;color:'+col+';">¥'+fmt(result.total)+'</span>'
@@ -5503,15 +5577,18 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   }
   else if(md==="co"&&s){
 // ステップ1：明細確認
-const{subtotal,discount,tax,total,rate}=ct(s);const hv=(s?.items||[]).some(i=>i.isVipCharge);
+const{grossSubtotal,subtotal,discount,tax,total,rate,discountMode}=ct(s);const hv=(s?.items||[]).some(i=>i.isVipCharge);
 let rows="";
-[...s.items].forEach(i=>{const isDisc=i.isDiscount;rows+='<div class="ir"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
+[...s.items].filter(i=>i&&!i.isDiscount).forEach(i=>{rows+='<div class="ir"><span style="color:#bbb;">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:#d4a017;">'+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
   +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">会計</h3>'
   +rows
   +'<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">'
-  +'<div class="ir"><span style="font-size:12px;color:#888;">小計</span><span>'+pAmt(subtotal)+'</span></div>'
-  +(discount>0?'<div class="ir"><span style="font-size:12px;color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(discount)+'</span></div>':"")
+  +(discountMode==="finalTotal"
+    ?'<div class="ir"><span style="font-size:12px;color:#888;">通常小計</span><span>'+pAmt(grossSubtotal)+'</span></div>'
+     +'<div class="ir"><span style="font-size:12px;color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(discount)+'</span></div>'
+     +'<div class="ir"><span style="font-size:12px;color:#0f4ab8;font-weight:700;">割引後小計</span><span style="color:#0f4ab8;font-weight:700;">'+pAmt(subtotal)+'</span></div>'
+    :'<div class="ir"><span style="font-size:12px;color:#888;">小計</span><span>'+pAmt(subtotal)+'</span></div>')
   +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round((rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(tax)+'</span></div>'
   +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
   +'</div>'
@@ -5584,31 +5661,21 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'</div></div>';
   }
   else if(md==="disc"&&s){
-if(!window._discTarget)window._discTarget='subtotal';
-const dt=window._discTarget;
-const selSt='padding:8px 16px;border-radius:6px;font-size:13px;font-weight:700;touch-action:manipulation;';
-const selA='background:rgba(255,80,80,.25);border:2px solid #ff6b6b;color:#ff6b6b;';
-const selI='background:rgba(255,255,255,.05);border:2px solid rgba(255,255,255,.1);color:#555;';
-let discs="";
-(S.menus.discounts||[]).forEach(d=>{discs+='<button class="btn" data-did="'+d.id+'" onclick="addDiscount(this.dataset.did)" style="padding:12px 16px;text-align:left;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:6px;font-size:14px;width:100%;margin-bottom:8px;touch-action:manipulation;">'+d.label+(d.type==="percent"?" ("+d.value+"%)":"")+'</button>';});
+const grossSubtotal=sessionGrossSubtotal(s);
+const standard=standardChargeFromSubtotal(grossSubtotal);
+const hasAdjusted=hasActiveAdjustedTotal(s,grossSubtotal)&&ct(s).discountMode==="finalTotal";
+const currentValue=hasAdjusted?String(s.adjustedTotal):"";
+const preview=adjustedTotalResult(s,currentValue);
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:400px;">'
-  +'<h3 style="margin-bottom:12px;font-size:16px;color:#ff6b6b;">割引</h3>'
-  // 適用済み割引一覧
-  +(()=>{const dItems=(s.items||[]).filter(i=>i.isDiscount);if(!dItems.length)return'';return'<div style="margin-bottom:12px;"><div style="font-size:11px;color:#888;margin-bottom:6px;">適用済み割引</div>'+dItems.map(i=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:rgba(255,80,80,.06);border:1px solid rgba(255,80,80,.15);border-radius:6px;margin-bottom:5px;"><span style="font-size:13px;color:#ff8888;flex:1;">'+i.label+'</span><span style="font-size:13px;color:#ff6b6b;margin:0 10px;">-¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;">×</button></div>').join('')+'</div>';})()
-  +'<div style="margin-bottom:14px;">'
-  +'<div style="font-size:11px;color:#888;margin-bottom:6px;">割引対象</div>'
-  +'<div style="display:flex;gap:8px;">'
-  +'<button class="btn" onclick="window._discTarget=\'subtotal\';rModal()" style="'+selSt+(dt==='subtotal'?selA:selI)+'flex:1;">小計から</button>'
-  +'<button class="btn" onclick="window._discTarget=\'total\';rModal()" style="'+selSt+(dt==='total'?selA:selI)+'flex:1;">合計から</button>'
+  +'<h3 style="margin-bottom:4px;font-size:16px;color:#b91c1c;">割引後の合計金額</h3>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0;">'
+  +'<div style="padding:9px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">通常小計</div><div style="font-size:15px;font-weight:800;color:#0f172a;">¥'+fmt(grossSubtotal)+'</div></div>'
+  +'<div style="padding:9px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">通常合計</div><div style="font-size:15px;font-weight:800;color:#0f172a;">¥'+fmt(standard.total)+'</div></div>'
   +'</div>'
-  +(dt==='total'?'<div style="font-size:10px;color:#888;margin-top:5px;">※ 税・SC計算後の合計金額から割引します</div>':'<div style="font-size:10px;color:#888;margin-top:5px;">※ 税・SC計算前の小計から割引します</div>')
-  +'</div>'
-  +discs
-  +'<div style="margin-bottom:8px;"><div class="st" style="margin-bottom:6px;">金額を直接入力</div>'
-  +'<div style="display:flex;gap:8px;">'
-  +'<input type="number" id="disc-custom" inputmode="numeric" pattern="[0-9]*" class="ip" placeholder="割引金額" style="flex:1;" />'
-  +'<button class="btn" onclick="addCustomDiscount()" style="padding:8px 16px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;touch-action:manipulation;">適用</button>'
-  +'</div></div>'
+  +'<input type="number" id="adjusted-total-input" inputmode="numeric" pattern="[0-9]*" min="0" class="ip" placeholder="割引後の合計金額" value="'+currentValue+'" oninput="updateAdjustedTotalPreview()" onkeydown="if(event.key===\'Enter\')applyAdjustedTotal()" style="font-size:20px;font-weight:800;text-align:right;margin-bottom:12px;" />'
+  +'<div id="adjusted-total-preview" style="margin-bottom:14px;">'+adjustedTotalPreviewHtml(preview)+'</div>'
+  +'<button id="adjusted-total-apply" class="btn gbg" onclick="applyAdjustedTotal()" '+(preview.valid?'':'disabled')+' style="width:100%;padding:12px;font-size:14px;font-weight:800;">'+(hasAdjusted?'変更を適用':'割引を適用')+'</button>'
+  +(hasAdjusted?'<button class="btn" onclick="clearAdjustedTotal()" style="width:100%;margin-top:8px;padding:10px;color:#b91c1c;border-color:#fca5a5;">割引を解除</button>':'')
   +'<button class="btn" onclick="closeM()" style="margin-top:8px;font-size:12px;color:#555;background:none;width:100%;">キャンセル</button>'
   +'</div></div>';
   }
@@ -6405,11 +6472,11 @@ if(isShimei){
   // 本指名売上: テーブル小計を同テーブルの本指名人数で均等分配
   const sub=honRecs.reduce((a,h)=>{
     const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
-    return a+(h.subtotal||h.total)/honCount;
+    return a+recordSalesSubtotal(h)/honCount;
   },0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
-  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid),0);
-  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid),0);
+  const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid,h.subtotal),0);
+  const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid,h.subtotal),0);
   const hon=honRecs.length;
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
@@ -6485,7 +6552,12 @@ else{
     +'</div>'
     +'<div style="margin-bottom:12px;">'+itRows+'</div>'
     +'<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">'
-    +(_hr.discount>0?'<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(_hr.subtotal)+'</span></div>'+'<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(_hr.discount)+'</span></div>':"")
+    +(_hr.discountMode==="finalTotal"
+      ?'<div class="ir" style="font-size:12px;"><span style="color:#888;">通常小計</span><span>'+pAmt(_hr.grossSubtotal)+'</span></div>'
+       +'<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(_hr.discount)+'</span></div>'
+       +'<div class="ir" style="font-size:12px;"><span style="color:#0f4ab8;font-weight:700;">割引後小計</span><span style="color:#0f4ab8;font-weight:700;">'+pAmt(_hr.subtotal)+'</span></div>'
+      :'<div class="ir" style="font-size:12px;"><span style="color:#888;">小計</span><span>'+pAmt(_hr.subtotal||_hr.total)+'</span></div>'
+       +(_hr.discount>0?'<div class="ir" style="font-size:12px;"><span style="color:#ff6b6b;">割引</span><span style="color:#ff6b6b;">-'+pAmt(_hr.discount)+'</span></div>':""))
     +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
     +'<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(_hr.total)+'</span></div>'
     +'</div>'
