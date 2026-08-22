@@ -1,6 +1,7 @@
 const assert=require("assert");
 const fs=require("fs");
 const path=require("path");
+const vm=require("vm");
 
 const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 
@@ -59,6 +60,27 @@ assert.match(salesData,/function _salesDataColumnWidths\(rows\)/);
 assert.match(salesData,/widths\[6\]=_xlsxAutoColWidth\(rows,6,24\)/);
 assert.match(salesData,/widths\[7\]=_xlsxAutoColWidth\(rows,7,24\)/);
 assert.match(app,/_downloadXLSX\(rows,"sales_data_"\+date\+"\.xlsx","Sales",\{columnWidths:_salesDataColumnWidths\(rows\)\}\)/);
+
+const castDrinkOrder=app.slice(app.indexOf("function updateQtyDisplay"),app.indexOf("function addCustom"));
+assert.match(castDrinkOrder,/function openCastDrinkQty\(cid,price,drinkLabel\)/);
+assert.match(castDrinkOrder,/qtyLabel:"杯数を選択",unitLabel:"杯",confirmLabel:"オーダーする"/);
+assert.match(castDrinkOrder,/s\.items=\[\.\.\.s\.items,\{[^}]*\.\.\.\(qm\.itemData\|\|\{\}\)\}\]/);
+assert.match(castDrinkOrder,/function addCD\(cid,did\)[\s\S]*openCastDrinkQty\(cid,d\.price,d\.label\)/);
+assert.match(app,/function addCDC\(\)[\s\S]*openCastDrinkQty\(cdc,p,"その他 "\+fmt\(p\)\+"円"\)/);
+
+const drinkRowsSource=app.slice(app.indexOf("function _castDrinkRowsFromHist"),app.indexOf("function exportDrinkDataXLSX"));
+const drinkRowsContext={itemCastName:()=>""};
+vm.createContext(drinkRowsContext);
+vm.runInContext(drinkRowsSource,drinkRowsContext);
+const drinkRows=JSON.parse(JSON.stringify(drinkRowsContext._castDrinkRowsFromHist([{items:[
+  {id:"cd_a1",category:"castDrink",castId:"a",castName:"A",price:2000,qty:3},
+  {id:"cd_a2",category:"castDrink",castId:"a",castName:"A",price:3000,qty:2},
+  {id:"cd_a3",category:"castDrink",castId:"a",castName:"A",price:2500,qty:4},
+  {id:"cd_b1",category:"castDrink",castId:"b",castName:"B",price:2000}
+]}])));
+assert.deepStrictEqual(drinkRows[1],["A","3杯","2杯","2500円(4杯)","9杯"]);
+assert.deepStrictEqual(drinkRows[2],["B","1杯","0杯","0杯","1杯"]);
+assert.deepStrictEqual(drinkRows[3],["全キャスト合計","4杯","2杯","2500円(4杯)","10杯"]);
 
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
