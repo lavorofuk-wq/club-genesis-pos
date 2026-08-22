@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.129";
+const APP_VERSION="6.130";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -110,6 +110,9 @@ let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
 let checkoutBusy=false;
+let checkoutProgress=null;
+let checkoutError="";
+let checkoutSlowTimer=null;
 let checkinBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
@@ -408,7 +411,7 @@ if(!window._fbFirstSync){
   render();return;
 }
 // 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
-if(at&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
+if(at&&!checkoutBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
   at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
 }
 // 営業日が終了していたらホームへ
@@ -1342,15 +1345,24 @@ function addHonShimeiToSession(cid){
 async function checkout(){
   if(!at||!S.sessions[at])return;
   if(checkoutBusy)return;
-  checkoutBusy=true;
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
   if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
+  const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
+  checkoutBusy=true;
+  checkoutError="";
+  setCheckoutProgress("未保存のオーダーを保存中",20);
+  startCheckoutSlowNotice();
+  await waitForCheckoutPaint();
   const s=S.sessions[at];
-  try{await waitForSessionSaveQueue(at);}
-  catch(e){checkoutBusy=false;return;}
-  try{await ensureSessionCurrent(at,s);}
-  catch(e){checkoutBusy=false;return;}
+  try{
+    await waitForSessionSaveQueue(at);
+    setCheckoutProgress("会計データを確認中",45);
+    await ensureSessionCurrent(at,s);
+  }catch(e){
+    failCheckout(e,"会計データを確認できませんでした。入力内容を保持したまま再試行できます。");
+    return;
+  }
   const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
@@ -1369,7 +1381,6 @@ payMethod,
 splits:splits||null,
 ...totals
   };
-  const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
   // 全データをアトミックに保存（history/assignment/shiftはレコード単位書き込みで同時会計の上書き競合を防ぐ）
   if(window._db){
 const _cu={};
@@ -1389,18 +1400,61 @@ Object.values(S.assignments||{}).forEach(a=>{
     }
   }
 });
+setCheckoutProgress("会計を確定・同期中",75);
 try{await queueSessionUpdate(checkoutTableId,()=>_cu,{session:s,expectedRecords});}
 catch(e){
-  checkoutBusy=false;
-  alert(e.userMessage||"会計保存に失敗しました。テーブルは閉じていません。最新状態を確認してください。");
+  failCheckout(e,"会計保存に失敗しました。テーブルは閉じていません。入力内容を保持したまま再試行できます。");
   return;
 }
   }
-  S.history=[rec,...S.history.filter(h=>String(h.id)!==String(rec.id))];
-  if(shouldPrintStoreCopy)eposPrint({...rec,isGuest:false},false);
-  const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
-  at=null;vw="floor";coState={payMethod:null,splits:[]};closeM();render();
+  clearCheckoutSlowNotice();
+  try{
+    S.history=[rec,...S.history.filter(h=>String(h.id)!==String(rec.id))];
+    setCheckoutProgress("会計完了 \u2713",100);
+    if(shouldPrintStoreCopy){
+      try{eposPrint({...rec,isGuest:false},false);}
+      catch(e){console.warn("checkout store copy print failed",e);}
+    }
+    await new Promise(resolve=>setTimeout(resolve,500));
+  }finally{
+    const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
+    at=null;vw="floor";coState={payMethod:null,splits:[]};
+    checkoutBusy=false;checkoutProgress=null;checkoutError="";
+    closeM();render();
+  }
+}
+function setCheckoutProgress(message,percent){
+  checkoutProgress={
+    message:String(message||""),
+    percent:Math.max(0,Math.min(100,Math.round(Number(percent)||0))),
+    slow:!!checkoutProgress?.slow
+  };
+  if(md==="co2")rModal();
+}
+function startCheckoutSlowNotice(){
+  clearCheckoutSlowNotice();
+  checkoutSlowTimer=setTimeout(()=>{
+    if(!checkoutBusy||!checkoutProgress)return;
+    checkoutProgress={...checkoutProgress,slow:true};
+    if(md==="co2")rModal();
+  },4000);
+}
+function clearCheckoutSlowNotice(){
+  if(checkoutSlowTimer){clearTimeout(checkoutSlowTimer);checkoutSlowTimer=null;}
+}
+function waitForCheckoutPaint(){
+  return new Promise(resolve=>{
+    if(typeof requestAnimationFrame==="function")requestAnimationFrame(()=>resolve());
+    else setTimeout(resolve,0);
+  });
+}
+function failCheckout(error,fallback){
+  clearCheckoutSlowNotice();
   checkoutBusy=false;
+  checkoutProgress=null;
+  checkoutError=error?.userMessage||fallback||"会計保存に失敗しました。入力内容を確認して再試行してください。";
+  sbs(false,"保存エラー");
+  if(md==="co2")rModal();
 }
 async function tableChange(newId){
   if(!at||!newId||newId===at)return;
@@ -4079,7 +4133,7 @@ function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert(
 
 // ===== MODAL =====
 function om(name){md=name;rModal();}
-function closeM(){md=null;document.getElementById("md").innerHTML="";}
+function closeM(){if(checkoutBusy&&md==="co2")return;md=null;document.getElementById("md").innerHTML="";}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -5469,6 +5523,21 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
   +'</div></div>';
   }
+  else if(md==="co2"&&checkoutBusy&&checkoutProgress){
+const progress=checkoutProgress;
+h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
+  +'<div style="min-height:330px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px 12px;">'
+  +(progress.percent>=100
+    ?'<div style="width:54px;height:54px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(74,222,128,.12);border:2px solid #16a34a;color:#16a34a;font-size:28px;font-weight:900;margin-bottom:18px;">\u2713</div>'
+    :'<div class="sp" aria-hidden="true" style="width:50px;height:50px;margin-bottom:18px;"></div>')
+  +'<div style="font-size:17px;font-weight:800;color:#0f172a;margin-bottom:8px;">'+progress.message+'</div>'
+  +'<div style="font-size:34px;font-weight:900;color:'+(progress.percent>=100?'#047857':'#0f4ab8')+';margin-bottom:16px;">'+progress.percent+'%</div>'
+  +'<div style="width:100%;max-width:330px;height:12px;background:#e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:16px;" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+progress.percent+'">'
+  +'<div style="height:100%;width:'+progress.percent+'%;background:'+(progress.percent>=100?'#16a34a':'#0f4ab8')+';border-radius:6px;transition:width .25s ease;"></div></div>'
+  +(progress.slow&&progress.percent<100?'<div style="max-width:340px;padding:10px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:6px;color:#9a3412;font-size:12px;font-weight:700;line-height:1.6;margin-bottom:12px;">通信に時間がかかっています。このままお待ちください</div>':'')
+  +'<div style="font-size:12px;color:#64748b;line-height:1.7;">保存完了まで画面を閉じずにお待ちください<br>再度ボタンを押す必要はありません</div>'
+  +'</div></div></div>';
+  }
   else if(md==="co2"&&s){
 const{total}=ct(s);
 // splitsが空なら初期化（合計全額・現金）
@@ -5492,6 +5561,7 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<button class="btn" onclick="md=\'co\';coState.splits=[];rModal()" style="padding:6px 10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">← 戻る</button>'
   +'<h3 style="font-size:16px;color:#d4a017;margin:0;">会計終了</h3>'
   +'</div>'
+  +(checkoutError?'<div style="padding:10px 12px;margin-bottom:14px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;color:#b91c1c;font-size:12px;font-weight:700;line-height:1.6;">'+checkoutError+'</div>':'')
   +'<div style="text-align:center;padding:12px;margin-bottom:16px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
   +'<div style="font-size:11px;color:#888;margin-bottom:2px;">合計金額</div>'
   +'<div style="font-size:28px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'

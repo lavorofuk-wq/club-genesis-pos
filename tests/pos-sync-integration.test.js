@@ -142,6 +142,19 @@ assert.deepStrictEqual(drinkRows[3],["全キャスト合計","4杯","2杯","2500
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
 assert.ok(checkout.indexOf("queueSessionUpdate")<checkout.indexOf("eposPrint"));
+assert.match(checkout,/setCheckoutProgress\("未保存のオーダーを保存中",20\)/);
+assert.match(checkout,/setCheckoutProgress\("会計データを確認中",45\)/);
+assert.match(checkout,/setCheckoutProgress\("会計を確定・同期中",75\)/);
+assert.match(checkout,/setCheckoutProgress\("会計完了 \\u2713",100\)/);
+assert.match(checkout,/setTimeout\(\(\)=>\{[\s\S]*checkoutProgress=\{\.\.\.checkoutProgress,slow:true\}[\s\S]*\},4000\)/);
+assert.match(checkout,/function failCheckout[\s\S]*checkoutBusy=false[\s\S]*checkoutError=[\s\S]*rModal\(\)/);
+assert.ok(checkout.indexOf("await waitForSessionSaveQueue")<checkout.indexOf("await ensureSessionCurrent"));
+assert.ok(checkout.indexOf("await ensureSessionCurrent")<checkout.indexOf("await queueSessionUpdate"));
+assert.ok(checkout.indexOf("await queueSessionUpdate")<checkout.indexOf("at=null"));
+assert.match(app,/if\(at&&!checkoutBusy&&!\(md&&String\(md\)\.indexOf\("ci-"\)===0\)&&!S\.sessions\[at\]\)/);
+assert.match(app,/function closeM\(\)\{if\(checkoutBusy&&md==="co2"\)return;/);
+assert.match(app,/role="progressbar"[\s\S]*aria-valuenow=/);
+assert.match(app,/通信に時間がかかっています。このままお待ちください/);
 
 const checkin=app.slice(app.indexOf("async function startSession"),app.indexOf("function addExt"));
 assert.match(checkin,/checkinBusy/);
