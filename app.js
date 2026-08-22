@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.126";
+const APP_VERSION="6.127";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -113,6 +113,7 @@ let checkoutBusy=false;
 let checkinBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
+let estIncludeRoom=false; // 概算に現在の室料を含めるか
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
 
 // ===== DEVICE DETECTION =====
@@ -1657,7 +1658,7 @@ html+='<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding
 +'<div style="flex:1;"><div style="font-size:'+fColH+';color:#666;margin-bottom:2px;">合計</div>'
 +'<div style="font-size:'+fTotal+';font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
 +'<button class="btn gbg" onclick="om(\'co\')" style="padding:'+bPad+';font-size:'+bFs+';font-weight:700;border-radius:6px;touch-action:manipulation;">会計</button>'
-+'<button class="btn" onclick="om(\'est\')" style="padding:'+bPad+';background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">概算</button>'
++'<button class="btn" onclick="openEstimate()" style="padding:'+bPad+';background:rgba(255,215,0,.08);border:1px solid rgba(255,215,0,.25);color:#ffd700;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">概算</button>'
 +'<button class="btn" onclick="om(\'disc\')" style="padding:'+bPad+';background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">割引</button>'
 +(_isAdmin?'<button class="btn" onclick="om(\'deleteSession\')" style="padding:'+bPad+';background:rgba(255,30,30,.12);border:1px solid rgba(255,30,30,.35);color:#ff4444;border-radius:6px;font-size:'+bFs+';font-weight:700;touch-action:manipulation;">削除</button>':'')
 +'</div>'
@@ -4292,11 +4293,11 @@ function printEstimate(){
   const s=S.sessions[at];if(!s)return;
   const tl=S.tables.find(t=>t.id===at)?.label||"";
   const estimateRoomType=sessionRoomType(s);
-  const roomSuffix=estimateRoomType?" +"+roomTypeLabel(estimateRoomType)+"室料":"";
+  const roomSuffix=estIncludeRoom&&estimateRoomType?" +"+roomTypeLabel(estimateRoomType)+"室料":"";
   const cur=ct(s);
-  const r30=calcEstForMinutes(s,30);
-  const r60=calcEstForMinutes(s,60);
-  const rCustom=estCustomMin>0&&estCustomMin!==30&&estCustomMin!==60?calcEstForMinutes(s,estCustomMin):null;
+  const r30=calcEstForMinutes(s,30,estIncludeRoom);
+  const r60=calcEstForMinutes(s,60,estIncludeRoom);
+  const rCustom=estCustomMin>0&&estCustomMin!==30&&estCustomMin!==60?calcEstForMinutes(s,estCustomMin,estIncludeRoom):null;
   const missingRoom=[r30,r60,rCustom].filter(Boolean).find(result=>result.roomChargeMissing);
   if(missingRoom){alert(roomTypeLabel(missingRoom.roomType)+"室料が未設定のため概算を印刷できません。設定タブで室料を登録してください。");return;}
   const now2=new Date();
@@ -5134,7 +5135,7 @@ function needsExtensionSingleCharge(s,addMinutes){
 function singleChargePriceForMinutes(minutes){
   return Number(minutes)>0?singleChargePrice():0;
 }
-function calcEstForMinutes(s,extraMinutes){
+function calcEstForMinutes(s,extraMinutes,includeRoomCharge){
   const extraItems=[];
   if(extraMinutes>0){
 const ext60=S.menus.extensions.find(e=>e.minutes===60);
@@ -5151,7 +5152,7 @@ if(extraMinutes===60&&ext60){
   }
 }
   }
-  const roomType=sessionRoomType(s);
+  const roomType=includeRoomCharge?sessionRoomType(s):"";
   const roomItem=roomType&&extraMinutes>0?roomChargeItemForMinutes(roomType,extraMinutes,s.guests,{isExtension:true,idPrefix:"estroom"}):null;
   if(roomItem){
     extraItems.push({...roomItem,id:"est_room"});
@@ -5170,17 +5171,20 @@ if(scPrice>0)extraItems.push({id:"est_sc",label:"\u30b7\u30f3\u30b0\u30eb\u30c1\
 
 function calcEst(){
   const s=S.sessions[at];if(!s)return{total:0,extraItems:[]};
-  return calcEstForMinutes(s,estCustomMin||0);
+  return calcEstForMinutes(s,estCustomMin||0,estIncludeRoom);
 }
+
+function openEstimate(){estCustomMin=0;estIncludeRoom=false;om("est");}
+function setEstimateRoomIncluded(value){estIncludeRoom=!!value;rModal();}
 
 function updateEstPreview(){
   const s=S.sessions[at];if(!s)return;
   const customEl=document.getElementById("est-custom-min");
   estCustomMin=customEl?Math.max(0,parseInt(customEl.value||"0",10)||0):0;
   const cur=ct(s);
-  const r30=calcEstForMinutes(s,30);
-  const r60=calcEstForMinutes(s,60);
-  const rCustom=estCustomMin>0?calcEstForMinutes(s,estCustomMin):null;
+  const r30=calcEstForMinutes(s,30,estIncludeRoom);
+  const r60=calcEstForMinutes(s,60,estIncludeRoom);
+  const rCustom=estCustomMin>0?calcEstForMinutes(s,estCustomMin,estIncludeRoom):null;
   const el=document.getElementById("est-preview");if(!el)return;
 
   // 現在の明細ブロック
@@ -6591,15 +6595,21 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div></div>';
   }
   else if(md==="est"&&s){
+const estimateRoomType=sessionRoomType(s);
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:#ffd700;">概算</h3>'
   +'<div style="font-size:12px;color:#666;margin-bottom:16px;">'+S.tables.find(t=>t.id===at)?.label+' · '+s.guests+'名</div>'
-  +(sessionRoomType(s)?'<div style="padding:9px 12px;margin-bottom:14px;background:rgba(124,77,255,.08);border:1px solid rgba(124,77,255,.2);border-radius:6px;color:#a78bfa;font-size:12px;">延長概算に'+roomTypeLabel(sessionRoomType(s))+'室料を自動追加</div>':'')
+  +(estimateRoomType
+    ?'<div style="margin-bottom:14px;"><div class="st" style="margin-bottom:8px;">'+roomTypeLabel(estimateRoomType)+'室料</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">'
+     +'<button class="btn" onclick="setEstimateRoomIncluded(false)" style="padding:11px;border-radius:6px;font-size:14px;font-weight:700;background:'+(!estIncludeRoom?'rgba(255,255,255,.14)':'rgba(255,255,255,.04)')+';border:2px solid '+(!estIncludeRoom?'#aaa':'rgba(255,255,255,.1)')+';color:'+(!estIncludeRoom?'#fff':'#666')+';touch-action:manipulation;">なし</button>'
+     +'<button class="btn" onclick="setEstimateRoomIncluded(true)" style="padding:11px;border-radius:6px;font-size:14px;font-weight:700;background:'+(estIncludeRoom?'rgba(124,77,255,.2)':'rgba(124,77,255,.06)')+';border:2px solid '+(estIncludeRoom?'#a78bfa':'rgba(124,77,255,.2)')+';color:'+(estIncludeRoom?'#d8c8ff':'#6b5a91')+';touch-action:manipulation;">あり</button>'
+     +'</div><div style="font-size:11px;color:#777;margin-top:6px;">ありの場合、'+roomTypeLabel(estimateRoomType)+'室料を延長概算に含めます</div></div>'
+    :'')
   // カスタム延長入力
   +'<div style="margin-bottom:14px;">'
   +'<div class="st" style="margin-bottom:8px;">カスタム延長（分）</div>'
   +'<div style="display:flex;gap:8px;align-items:center;">'
-  +'<input type="number" id="est-custom-min" class="ip" inputmode="numeric" min="0" step="10" placeholder="例: 45" oninput="updateEstPreview()" style="flex:1;font-size:16px;text-align:center;" />'
+  +'<input type="number" id="est-custom-min" class="ip" inputmode="numeric" min="0" step="10" placeholder="例: 45" value="'+(estCustomMin||"")+'" oninput="updateEstPreview()" style="flex:1;font-size:16px;text-align:center;" />'
   +'<span style="color:#666;font-size:13px;white-space:nowrap;">分延長</span>'
   +'</div>'
   +'</div>'

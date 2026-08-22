@@ -53,7 +53,15 @@ assert.match(extensionBlock,/if\(extRoom\)ni\.push/);
 
 const estimateBlock=app.slice(app.indexOf("function calcEstForMinutes"),app.indexOf("function rModal"));
 assert.match(estimateBlock,/roomChargeItemForMinutes\(roomType,extraMinutes,s\.guests/);
+assert.match(estimateBlock,/const roomType=includeRoomCharge\?sessionRoomType\(s\):""/);
+assert.match(estimateBlock,/calcEstForMinutes\(s,30,estIncludeRoom\)/);
 assert.doesNotMatch(estimateBlock,/est-vip|useVip/);
+
+assert.match(app,/let estIncludeRoom=false/);
+assert.match(app,/function openEstimate\(\)\{estCustomMin=0;estIncludeRoom=false;om\("est"\);\}/);
+assert.match(app,/onclick="setEstimateRoomIncluded\(false\)"[\s\S]*?>なし<\/button>/);
+assert.match(app,/onclick="setEstimateRoomIncluded\(true\)"[\s\S]*?>あり<\/button>/);
+assert.match(app,/const roomSuffix=estIncludeRoom&&estimateRoomType/);
 
 assert.match(app,/\["karaoke","カラオケ室料（1名単価）",true\]/);
 assert.match(app,/室料<br><small>VIP \/ カラオケ<\/small>/);
