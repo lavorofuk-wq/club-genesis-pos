@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.127";
+const APP_VERSION="6.128";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4941,17 +4941,22 @@ function _salesDataStatsFromHist(hist){
   const map={};
   const ensure=(id,name)=>{
     const key=String(id||("name:"+name)||"unknown");
-    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0,champagneWineItems:[],keepBottleItems:[]};
+    if(!map[key])map[key]={castId:String(id||""),castName:name||"不明",honShimeiSales:0,banaiExtensionSales:0,honCount:0,banaiCount:0,dohanCount:0,champagneWineItems:[],keepBottleItems:[],roomChargeItems:[]};
     if((!map[key].castName||map[key].castName==="不明")&&name)map[key].castName=name;
     if(!map[key].champagneWineItems)map[key].champagneWineItems=[];
     if(!map[key].keepBottleItems)map[key].keepBottleItems=[];
+    if(!map[key].roomChargeItems)map[key].roomChargeItems=[];
     return map[key];
   };
   const liquorCategory=item=>{
     const c=gmsItemCategory(item);
     return c==="champagneWine"||c==="keepBottle"?c:"";
   };
-  const liquorAmountLabel=item=>{
+  const isRoomChargeItem=item=>{
+    const c=gmsItemCategory(item);
+    return !!item&&(item.isRoomCharge||item.isVipCharge||item.isKaraokeCharge||item.roomType==="vip"||item.roomType==="karaoke"||c==="vipRoom"||c==="karaokeRoom");
+  };
+  const salesItemAmountLabel=item=>{
     const amount=Math.abs((Number(item.price)||0)*Math.max(1,Number(item.qty||item.quantity)||1));
     return "\u00a5"+fmt(amount);
   };
@@ -4962,9 +4967,13 @@ function _salesDataStatsFromHist(hist){
   const addLiquor=(row,item,targetNames=[])=>{
     const c=liquorCategory(item);
     if(!c)return;
-    const label=anaLiquorLabel(item)+" "+liquorAmountLabel(item)+targetNameSuffix(targetNames);
+    const label=anaLiquorLabel(item)+" "+salesItemAmountLabel(item)+targetNameSuffix(targetNames);
     if(c==="champagneWine")row.champagneWineItems.push(label);
     else row.keepBottleItems.push(label);
+  };
+  const addRoomCharge=(row,item,targetNames=[])=>{
+    if(!isRoomChargeItem(item))return;
+    row.roomChargeItems.push(anaLiquorLabel(item)+" "+salesItemAmountLabel(item)+targetNameSuffix(targetNames));
   };
   (hist||[]).forEach(h=>{
     const items=h.items||[];
@@ -4975,10 +4984,12 @@ function _salesDataStatsFromHist(hist){
       uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honShimeiSales+=share;});
       honItems.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).honCount+=Math.max(1,Number(i.qty)||1);});
       const liquorItems=items.filter(i=>i&&liquorCategory(i));
+      const roomChargeItems=items.filter(isRoomChargeItem);
       const honTargetNames=uniqueHon.map(i=>itemCastName(i)||i.castName||gmsCastName(i.castId,"")).filter(Boolean);
       uniqueHon.forEach(i=>{
         const row=ensure(i.castId,itemCastName(i)||i.castName);
         liquorItems.forEach(item=>addLiquor(row,item,honTargetNames));
+        roomChargeItems.forEach(item=>addRoomCharge(row,item,honTargetNames));
       });
       if(items.some(i=>i&&(i.id==="dh"||i.label==="\u540c\u4f34\u6599"))){
         uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).dohanCount+=1;});
@@ -4997,15 +5008,19 @@ function _salesDataStatsFromHist(hist){
         if(item&&item.isBanaiExtension){
           currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
         }
-        if(!currentIds.length||!item||item.isDiscount||!liquorCategory(item))return;
+        if(!currentIds.length||!item||item.isDiscount||(!liquorCategory(item)&&!isRoomChargeItem(item)))return;
         const currentNames=currentIds.map(id=>gmsCastName(id,"")).filter(Boolean);
-        currentIds.forEach(id=>addLiquor(ensure(id,gmsCastName(id,"")),item,currentNames));
+        currentIds.forEach(id=>{
+          const row=ensure(id,gmsCastName(id,""));
+          addLiquor(row,item,currentNames);
+          addRoomCharge(row,item,currentNames);
+        });
       });
     }
   });
   return Object.values(map)
-    .map(r=>({...r,champagneWineItems:r.champagneWineItems||[],keepBottleItems:r.keepBottleItems||[]}))
-    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length)
+    .map(r=>({...r,champagneWineItems:r.champagneWineItems||[],keepBottleItems:r.keepBottleItems||[],roomChargeItems:r.roomChargeItems||[]}))
+    .filter(r=>r.honShimeiSales||r.banaiExtensionSales||r.honCount||r.banaiCount||r.dohanCount||r.champagneWineItems.length||r.keepBottleItems.length||r.roomChargeItems.length)
     .sort((a,b)=>String(a.castName).localeCompare(String(b.castName),"ja-JP"));
 }
 function _salesDataTotalsFromHist(hist){
@@ -5024,16 +5039,17 @@ function _salesDataRowsFromHist(hist){
     ["キャスト名","本指名売上","場内延長売上","指名本数","場内指名本数","同伴本数"],
     ...stats.map(r=>[r.castName,Math.round(r.honShimeiSales),Math.round(r.banaiExtensionSales),Math.round(r.honCount),Math.round(r.banaiCount),Math.round(r.dohanCount)])
   ];
-  rows[0].push("シャンパン・ワイン","キープボトル");
-  stats.forEach((r,idx)=>rows[idx+1].push((r.champagneWineItems||[]).join(" / "),(r.keepBottleItems||[]).join(" / ")));
+  rows[0].push("シャンパン・ワイン","キープボトル","室料");
+  stats.forEach((r,idx)=>rows[idx+1].push((r.champagneWineItems||[]).join(" / "),(r.keepBottleItems||[]).join(" / "),(r.roomChargeItems||[]).join(" / ")));
   if(stats.length)rows.push(["全キャスト合計",totals.honShimeiSales,totals.banaiExtensionSales,totals.honCount,totals.banaiCount,totals.dohanCount]);
-  if(stats.length)rows[rows.length-1].push("","");
+  if(stats.length)rows[rows.length-1].push("","","");
   return rows;
 }
 function _salesDataColumnWidths(rows){
-  const widths=[18,16,16,12,14,12,24,24];
+  const widths=[18,16,16,12,14,12,24,24,24];
   widths[6]=_xlsxAutoColWidth(rows,6,24);
   widths[7]=_xlsxAutoColWidth(rows,7,24);
+  widths[8]=_xlsxAutoColWidth(rows,8,24);
   return widths;
 }
 function _castDrinkRowsFromHist(hist){

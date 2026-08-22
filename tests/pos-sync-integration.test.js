@@ -46,20 +46,58 @@ assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("c
 assert.match(app,/window\._db\.ref\("\/"\)\.update\(withWriteGate\(prepared\)\)/);
 
 const salesData=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _castDrinkRowsFromHist"));
-assert.match(salesData,/champagneWineItems:\[\],keepBottleItems:\[\]/);
+assert.match(salesData,/champagneWineItems:\[\],keepBottleItems:\[\],roomChargeItems:\[\]/);
 assert.match(salesData,/liquorCategory=item=>/);
-assert.match(salesData,/liquorAmountLabel=item=>/);
+assert.match(salesData,/isRoomChargeItem=item=>/);
+assert.match(salesData,/salesItemAmountLabel=item=>/);
 assert.match(salesData,/targetNameSuffix=names=>/);
-assert.match(salesData,/anaLiquorLabel\(item\)\+"\ "\+liquorAmountLabel\(item\)\+targetNameSuffix\(targetNames\)/);
+assert.match(salesData,/anaLiquorLabel\(item\)\+"\ "\+salesItemAmountLabel\(item\)\+targetNameSuffix\(targetNames\)/);
+assert.match(salesData,/row\.roomChargeItems\.push\(anaLiquorLabel\(item\)\+"\ "\+salesItemAmountLabel\(item\)\+targetNameSuffix\(targetNames\)\)/);
 assert.doesNotMatch(salesData,/new Set\(r\.champagneWineItems/);
 assert.doesNotMatch(salesData,/new Set\(r\.keepBottleItems/);
+assert.doesNotMatch(salesData,/new Set\(r\.roomChargeItems/);
 assert.match(salesData,/const share=Math\.floor\(\(\(phase\.total\|\|0\)\+\(phase\.backTotal\|\|0\)\)\/Math\.max\(1,phase\.ids\.length\)\)/);
-assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb"\)/);
-assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\(\(r\.champagneWineItems\|\|\[\]\)\.join\(" \/ "\),\(r\.keepBottleItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);
+assert.match(salesData,/rows\[0\]\.push\("\u30b7\u30e3\u30f3\u30d1\u30f3\u30fb\u30ef\u30a4\u30f3","\u30ad\u30fc\u30d7\u30dc\u30c8\u30eb","\u5ba4\u6599"\)/);
+assert.match(salesData,/stats\.forEach\(\(r,idx\)=>rows\[idx\+1\]\.push\([\s\S]*\(r\.roomChargeItems\|\|\[\]\)\.join\(" \/ "\)\)\)/);
 assert.match(salesData,/function _salesDataColumnWidths\(rows\)/);
 assert.match(salesData,/widths\[6\]=_xlsxAutoColWidth\(rows,6,24\)/);
 assert.match(salesData,/widths\[7\]=_xlsxAutoColWidth\(rows,7,24\)/);
+assert.match(salesData,/widths\[8\]=_xlsxAutoColWidth\(rows,8,24\)/);
 assert.match(app,/_downloadXLSX\(rows,"sales_data_"\+date\+"\.xlsx","Sales",\{columnWidths:_salesDataColumnWidths\(rows\)\}\)/);
+
+const salesStatsSource=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _salesDataTotalsFromHist"));
+const castNames={a:"A",b:"B",c:"C",d:"D"};
+const salesStatsContext={
+  gmsItemCategory:item=>item.category||"",
+  fmt:value=>String(value),
+  anaLiquorLabel:item=>{
+    const qty=Math.max(1,Number(item.qty||item.quantity)||1);
+    return String(item.label||"")+(qty>1?" x"+qty:"");
+  },
+  itemCastName:item=>item.castName||"",
+  gmsCastName:id=>castNames[id]||"",
+  banaiExtensionSalesPhases:()=>[]
+};
+vm.createContext(salesStatsContext);
+vm.runInContext(salesStatsSource,salesStatsContext);
+const roomStats=JSON.parse(JSON.stringify(salesStatsContext._salesDataStatsFromHist([
+  {subtotal:100000,items:[
+    {category:"vipRoom",isRoomCharge:true,label:"VIP室料",price:30000},
+    {isHonShimei:true,castId:"a",castName:"A"},
+    {isHonShimei:true,castId:"b",castName:"B"},
+    {category:"karaokeRoom",isRoomCharge:true,label:"カラオケ室料",price:1000,qty:3}
+  ]},
+  {items:[
+    {category:"vipRoom",isRoomCharge:true,label:"延長前室料",price:30000},
+    {isBanaiExtension:true,banaiExtCastIds:["c","d"],label:"延長30分",price:4000},
+    {category:"vipRoom",isRoomCharge:true,label:"VIP室料延長 30分",price:15000}
+  ]}
+])));
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="a").roomChargeItems,["VIP室料 \u00a530000(A\u30fbB)","カラオケ室料 x3 \u00a53000(A\u30fbB)"]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="b").roomChargeItems,["VIP室料 \u00a530000(A\u30fbB)","カラオケ室料 x3 \u00a53000(A\u30fbB)"]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="c").roomChargeItems,["VIP室料延長 30分 \u00a515000(C\u30fbD)"]);
+assert.deepStrictEqual(roomStats.find(row=>row.castId==="d").roomChargeItems,["VIP室料延長 30分 \u00a515000(C\u30fbD)"]);
+assert.ok(roomStats.every(row=>!row.roomChargeItems.some(label=>label.includes("延長前室料"))));
 
 const castDrinkOrder=app.slice(app.indexOf("function updateQtyDisplay"),app.indexOf("function addCustom"));
 assert.match(castDrinkOrder,/function openCastDrinkQty\(cid,price,drinkLabel\)/);
