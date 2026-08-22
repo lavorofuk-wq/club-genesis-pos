@@ -33,7 +33,7 @@ assert.deepStrictEqual(
     discount:adjusted.discount,
     discountMode:adjusted.discountMode
   },
-  {grossSubtotal:10000,subtotal:7692,tax:2308,total:10000,discount:2308,discountMode:"finalTotal"}
+  {grossSubtotal:10000,subtotal:7600,tax:2400,total:10000,discount:2400,discountMode:"finalTotal"}
 );
 
 const stale=context.ct({
@@ -64,6 +64,11 @@ assert.strictEqual(free.tax,0);
 assert.strictEqual(free.total,0);
 assert.strictEqual(free.discount,10000);
 
-assert.strictEqual(context.recordSalesScale([{price:10000,qty:1}],7692),.7692);
+assert.strictEqual(context.recordSalesScale([{price:10000,qty:1}],7600),.76);
+
+const resultSource=app.slice(app.indexOf("function adjustedTotalResult"),app.indexOf("function adjustedTotalPreviewHtml"));
+vm.runInContext(resultSource,context);
+assert.strictEqual(context.adjustedTotalResult({items:[{price:10000,qty:1}]},9999).valid,false);
+assert.strictEqual(context.adjustedTotalResult({items:[{price:10000,qty:1}]},10000).valid,true);
 
 console.log("discounted total calculation guards passed");
