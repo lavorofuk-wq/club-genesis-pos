@@ -181,4 +181,11 @@ assert.doesNotMatch(checkin,/S\.sessions\[at\]\s*=/);
 assert.ok(checkin.indexOf("await queueSessionSave")<checkin.indexOf("openFloorDetail"));
 assert.match(app,/function cancelCheckin\(\)\{if\(checkinBusy\)return;/);
 
+const settingsSave=app.slice(app.indexOf("const LIGHTWEIGHT_SETTING_PATHS"),app.indexOf("function castIdQueryValues"));
+assert.match(settingsSave,/const LIGHTWEIGHT_SETTING_PATHS=new Set\(\["menus","tables","casts","config"\]\)/);
+assert.match(settingsSave,/function queueSettingSave\(/);
+assert.match(app,/function scheduleFirebaseRender\(settingsChanged\)/);
+assert.doesNotMatch(settingsSave,/guardedRootTransaction/);
+assert.match(app,/function shouldGuardWholeValue\(path\)\{return\["bizDays"\]/);
+
 console.log("pos-sync integration guards passed");

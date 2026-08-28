@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.132";
+const APP_VERSION="6.133";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -74,15 +74,34 @@ function castSnapshot(c,extra={}){
 }
 async function saveCastsAndLifecycle(){
   if(window._db){
-    const base=window._remoteValueHashes?.casts;
-    return guardedRootTransaction(root=>{
-      if(base!==undefined&&stableJson(root.casts||null)!==base){
-        throw Object.assign(new Error("casts changed"),{userMessage:"他端末でキャスト名簿が変更されています。最新データに更新してから再実行してください。"});
-      }
-      root.casts=cloneData(S.casts);
-      root.castLifecycleLogs=cloneData(S.castLifecycleLogs||{});
-      return root;
-    }).then(res=>{updateRemoteHash("casts",S.casts);return res;});
+    await waitForSettingSaveQueue("casts");
+    const state=settingSaveState("casts");
+    const desiredCasts=cloneData(S.casts);
+    const desiredLifecycle=cloneData(S.castLifecycleLogs||{});
+    const version=++state.requestedVersion;
+    state.latest=desiredCasts;
+    state.running=true;
+    setSettingSaveStatus("casts","saving","");
+    const base=state.confirmedHash??window._remoteValueHashes?.casts;
+    const lifecycleBase=state.confirmedLifecycleHash??window._remoteValueHashes?.castLifecycleLogs;
+    try{
+      const res=await guardedLightweightCastRosterSet(desiredCasts,desiredLifecycle,base,lifecycleBase);
+      state.confirmedHash=stableJson(desiredCasts);
+      state.confirmedLifecycleHash=stableJson(desiredLifecycle);
+      state.savedVersion=version;
+      state.running=false;
+      updateRemoteHash("casts",desiredCasts);
+      updateRemoteHash("castLifecycleLogs",desiredLifecycle);
+      settleSettingWaiters(state,version,null);
+      setSettingSaveStatus("casts","saved","");
+      if(state.savedVersion<state.requestedVersion)drainSettingSaveQueue("casts");
+      return res;
+    }catch(error){
+      state.running=false;
+      settleSettingWaiters(state,state.requestedVersion,error);
+      setSettingSaveStatus("casts","error",error.userMessage||"キャスト名簿を保存できませんでした。入力内容は保持されています。");
+      throw error;
+    }
   }
   return save("casts",S.casts);
 }
@@ -278,6 +297,41 @@ function isV(id){return S.tables.find(t=>t.id===id)?.vip||false;}
 function sc(){return allCasts().filter(isVisibleCast);}
 function rem(e){return e?e-now:null;}
 function sbs(ok,msg){const el=document.getElementById("sb");if(!el)return;el.style.color=ok?"#4ade80":"#ff6b6b";el.style.borderColor=ok?"rgba(74,222,128,.2)":"rgba(255,80,80,.2)";el.style.background=ok?"rgba(74,222,128,.06)":"rgba(255,80,80,.06)";el.textContent="⟳ "+msg;}
+const LIGHTWEIGHT_SETTING_PATHS=new Set(["menus","tables","casts","config"]);
+const settingSaveStates={};
+function settingSaveState(path){
+  if(!settingSaveStates[path])settingSaveStates[path]={path,running:false,requestedVersion:0,savedVersion:0,latest:null,confirmedHash:window._remoteValueHashes?.[path],confirmedLifecycleHash:path==="casts"?window._remoteValueHashes?.castLifecycleLogs:undefined,waiters:[],status:"idle",message:"",lastRemoteValue:undefined};
+  return settingSaveStates[path];
+}
+function isSettingSaveDirty(path){
+  const state=settingSaveStates[path];
+  return !!state&&(state.running||state.requestedVersion>state.savedVersion||state.status==="error");
+}
+function hasPendingSettingSaves(){return Object.keys(settingSaveStates).some(isSettingSaveDirty);}
+function settingsSyncView(){
+  const states=Object.values(settingSaveStates);
+  const error=states.find(state=>state.status==="error");
+  if(error)return{status:"error",text:error.message||"設定を保存できませんでした。最新状態を確認してください。"};
+  if(states.some(state=>state.running||state.requestedVersion>state.savedVersion))return{status:"saving",text:"設定を保存中..."};
+  return{status:"saved",text:"設定は同期済み ✓"};
+}
+function refreshSettingsSyncIndicator(){
+  const el=document.getElementById("settings-sync-state");if(!el)return;
+  const view=settingsSyncView();
+  el.textContent=view.text;
+  el.style.color=view.status==="error"?"#b91c1c":view.status==="saving"?"#9a3412":"#047857";
+  el.style.borderColor=view.status==="error"?"#fca5a5":view.status==="saving"?"#fdba74":"#86efac";
+  el.style.background=view.status==="error"?"#fef2f2":view.status==="saving"?"#fff7ed":"#f0fdf4";
+}
+function setSettingSaveStatus(path,status,message){
+  const state=settingSaveState(path);
+  state.status=status;
+  state.message=message||"";
+  if(status==="saving")sbs(false,"設定を保存中...");
+  else if(status==="saved"&&!hasPendingSettingSaves())sbs(true,"同期済み ✓");
+  else if(status==="error")sbs(false,"設定保存エラー");
+  refreshSettingsSyncIndicator();
+}
 const sessionSaveQueues={};
 const sessionSaveStates={};
 const sessionSaveLastOwn={};
@@ -397,7 +451,7 @@ if(window._fbFirstSync&&!connected){
 }else if(connected&&!window._posNeedsReloadAfterDisconnect&&wasConnected===false){
   window._posWriteLocked=false;
 }
-if(connected){sbs(true,"同期済み ✓");}
+if(connected){if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");}
 else{sbs(false,"⚠ オフライン");}
   });
 
@@ -410,27 +464,35 @@ if(["admin","backupDetail"].includes(vw))render();
   db.ref(FB_ROOT).on("value",(snap)=>{
 const d=snap.val();
 if(!d){
-  sbs(true,"同期済み ✓");
+  if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
   if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
   render();return;
 }
 rememberRemoteHashes(d);
+let settingsChanged=false;
 // バージョン不一致チェック（初回sync後のみ。自分より新しいバージョンが来たら再読み込みを要求）
 if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
   const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
 }
-S.castLifecycleLogs=d.castLifecycleLogs||{};
-if(d.casts)S.casts=applyPosCastPolicy(d.casts);
-if(d.menus){
-  S.menus=normalizeMenus(d.menus);
-  // 未定義カテゴリを空配列で初期化
-  if(!S.menus.champagne)S.menus.champagne=[];
-  if(!S.menus.keepBottles)S.menus.keepBottles=[];
-  if(!S.menus.normalSets)S.menus.normalSets=[];
-  if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
-  if(!S.menus.karaoke)S.menus.karaoke=[];
+if(isSettingSaveDirty("casts"))settingSaveState("casts").lastRemoteLifecycle=cloneData(d.castLifecycleLogs||{});
+else{
+  S.castLifecycleLogs=d.castLifecycleLogs||{};
+  updateRemoteHash("castLifecycleLogs",S.castLifecycleLogs);
+  const castState=settingSaveStates.casts;if(castState)castState.confirmedLifecycleHash=window._remoteValueHashes.castLifecycleLogs;
 }
-if(d.tables)S.tables=d.tables;
+if(d.casts)settingsChanged=acceptRemoteSettingValue("casts",d.casts,value=>{S.casts=applyPosCastPolicy(value);})||settingsChanged;
+if(d.menus){
+  settingsChanged=acceptRemoteSettingValue("menus",d.menus,value=>{
+    S.menus=normalizeMenus(value);
+    // 未定義カテゴリを空配列で初期化
+    if(!S.menus.champagne)S.menus.champagne=[];
+    if(!S.menus.keepBottles)S.menus.keepBottles=[];
+    if(!S.menus.normalSets)S.menus.normalSets=[];
+    if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
+    if(!S.menus.karaoke)S.menus.karaoke=[];
+  })||settingsChanged;
+}
+if(d.tables)settingsChanged=acceptRemoteSettingValue("tables",d.tables,value=>{S.tables=value;})||settingsChanged;
 // Firebaseを正として反映し、古い端末のローカル状態を混ぜ戻さない
 S.sessions=stripLegacyActiveDiscounts(d.sessions||{});
 markSessionGuards(S.sessions);
@@ -444,10 +506,12 @@ S.activeBizDay=d.activeBizDay||null;
 S.loMode=d.loMode||false;
 S.loStatus=d.loStatus||{};
 if(d.config){
-  S.config={printerIP:d.config.printerIP||'192.168.150.76',printerPort:d.config.printerPort||8008};
+  settingsChanged=acceptRemoteSettingValue("config",d.config,value=>{
+    S.config={printerIP:value.printerIP||'192.168.150.76',printerPort:value.printerPort||8008};
+  })||settingsChanged;
 }
 // config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
-sbs(true,"同期済み ✓");
+if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
 // 初回sync: loading解除してホームへ
 if(!window._fbFirstSync){
   window._fbFirstSync=true;
@@ -465,22 +529,33 @@ if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts"
   vw="home";closeM();render();return;
 }
 if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-window._fbRenderTimer=setTimeout(()=>{scheduleRender();refreshFloorModal();},80);
+window._fbRenderTimer=setTimeout(()=>{scheduleFirebaseRender(settingsChanged);refreshFloorModal();},80);
   },(e)=>sbs(false,"接続エラー"));
 }
 async function save(path,val){
-  if(!requireFirebaseReady())return;
+  const rootPath=String(path||"").split("/")[0];
+  if(!requireFirebaseReady()){
+    if(LIGHTWEIGHT_SETTING_PATHS.has(rootPath)){
+      const state=settingSaveState(path);
+      state.latest=cloneData(val);
+      state.requestedVersion++;
+      setSettingSaveStatus(path,"error","Firebaseへ接続できないため設定を保存していません。入力内容は保持されています。");
+    }
+    return;
+  }
   try{
     if(path.startsWith("sessions/")&&val){
       await queueSessionSave(path.split("/")[1],val);
+    }else if(LIGHTWEIGHT_SETTING_PATHS.has(rootPath)){
+      await queueSettingSave(path,val);
     }else if(shouldGuardWholeValue(path)){
       await guardedSetIfUnchanged(path,val);
     }else{
       await guardedSet(path,val);
     }
-    sbs(true,"同期済み ✓");
+    if(!LIGHTWEIGHT_SETTING_PATHS.has(rootPath)||!hasPendingSettingSaves())sbs(true,"同期済み ✓");
   }
-  catch(e){sbs(false,"保存エラー");}
+  catch(e){sbs(false,LIGHTWEIGHT_SETTING_PATHS.has(rootPath)?"設定保存エラー":"保存エラー");}
 }
 function writeGate(){
   const ts=(window.firebase&&firebase.database&&firebase.database.ServerValue)?firebase.database.ServerValue.TIMESTAMP:Date.now();
@@ -536,15 +611,38 @@ async function guardedSet(path,val,options={}){
   return guardedUpdate(updates,options);
 }
 async function guardedRemove(path){return guardedSet(path,null);}
-function stableJson(v){try{return JSON.stringify(v===undefined?null:v);}catch(e){return "";}}
-function shouldGuardWholeValue(path){return["menus","tables","casts","bizDays","config"].includes(String(path||"").split("/")[0]);}
+function canonicalJsonValue(v){
+  if(Array.isArray(v))return v.map(canonicalJsonValue);
+  if(v&&typeof v==="object"){
+    const out={};
+    Object.keys(v).sort().forEach(key=>{if(v[key]!==undefined)out[key]=canonicalJsonValue(v[key]);});
+    return out;
+  }
+  return v;
+}
+function stableJson(v){try{return JSON.stringify(canonicalJsonValue(v===undefined?null:v));}catch(e){return "";}}
+function shouldGuardWholeValue(path){return["bizDays"].includes(String(path||"").split("/")[0]);}
 function updateRemoteHash(path,val){
   if(!window._remoteValueHashes)window._remoteValueHashes={};
   window._remoteValueHashes[path]=stableJson(val);
 }
 function rememberRemoteHashes(d){
   if(!d)return;
-  ["menus","tables","casts","bizDays","config"].forEach(k=>updateRemoteHash(k,d[k]===undefined?null:d[k]));
+  ["bizDays"].forEach(k=>updateRemoteHash(k,d[k]===undefined?null:d[k]));
+}
+function acceptRemoteSettingValue(path,value,apply){
+  const state=settingSaveStates[path];
+  const remoteHash=stableJson(value===undefined?null:value);
+  if(state&&(state.running||state.requestedVersion>state.savedVersion||state.status==="error")){
+    state.lastRemoteValue=cloneData(value);
+    return false;
+  }
+  const previousHash=window._remoteValueHashes?.[path];
+  updateRemoteHash(path,value);
+  if(previousHash===remoteHash)return false;
+  if(state)state.confirmedHash=remoteHash;
+  apply(value);
+  return true;
 }
 function cloneData(v){return v==null?null:JSON.parse(JSON.stringify(v));}
 function stripRootPath(path){path=String(path||"");return path.indexOf(FB_ROOT+"/")===0?path.slice(FB_ROOT.length+1):path;}
@@ -686,6 +784,107 @@ function applyRootUpdates(root,updates){
 async function readRemoteRelative(path){
   const snap=await window._db.ref(FB_ROOT+"/"+stripRootPath(path)).once("value");
   return snap.val();
+}
+function settingConflictError(){
+  return Object.assign(new Error("setting changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。入力内容は保持しています。最新状態へ更新してから再実行してください。"});
+}
+async function guardedLightweightSettingSet(path,value,expectedHash){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for setting write");
+  const revisionPath="_settingsRevisions/"+path;
+  const [valueSnap,revisionSnap]=await Promise.all([
+    window._db.ref(FB_ROOT+"/"+path).once("value"),
+    window._db.ref(FB_ROOT+"/"+revisionPath).once("value")
+  ]);
+  const remoteValue=valueSnap.val();
+  if(expectedHash!==undefined&&stableJson(remoteValue)!==expectedHash)throw settingConflictError();
+  const revision=Math.max(0,Number(revisionSnap.val())||0)+1;
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  await guardedRootUpdate({
+    [path]:cloneData(value),
+    [revisionPath]:revision,
+    ["_settingsWriteMeta/"+path]:{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()}
+  });
+  return{revision,nonce,value:cloneData(value)};
+}
+async function guardedLightweightCastRosterSet(casts,lifecycle,expectedCastsHash,expectedLifecycleHash){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for cast roster write");
+  const revisionPath="_settingsRevisions/castRoster";
+  const [castsSnap,lifecycleSnap,revisionSnap]=await Promise.all([
+    window._db.ref(FB_ROOT+"/casts").once("value"),
+    window._db.ref(FB_ROOT+"/castLifecycleLogs").once("value"),
+    window._db.ref(FB_ROOT+"/"+revisionPath).once("value")
+  ]);
+  if(expectedCastsHash!==undefined&&stableJson(castsSnap.val())!==expectedCastsHash)throw settingConflictError();
+  if(expectedLifecycleHash!==undefined&&stableJson(lifecycleSnap.val()||{})!==expectedLifecycleHash)throw settingConflictError();
+  const revision=Math.max(0,Number(revisionSnap.val())||0)+1;
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  await guardedRootUpdate({
+    casts:cloneData(casts),
+    castLifecycleLogs:cloneData(lifecycle||{}),
+    [revisionPath]:revision,
+    "_settingsWriteMeta/castRoster":{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()}
+  });
+  return{revision,nonce};
+}
+function settleSettingWaiters(state,version,error){
+  const remaining=[];
+  state.waiters.forEach(waiter=>{
+    if(waiter.version<=version){if(error)waiter.reject(error);else waiter.resolve(true);}
+    else remaining.push(waiter);
+  });
+  state.waiters=remaining;
+}
+async function drainSettingSaveQueue(path){
+  const state=settingSaveState(path);
+  if(state.running)return;
+  state.running=true;
+  while(state.savedVersion<state.requestedVersion){
+    const targetVersion=state.requestedVersion;
+    const desired=cloneData(state.latest);
+    const desiredHash=stableJson(desired);
+    setSettingSaveStatus(path,"saving","");
+    try{
+      await guardedLightweightSettingSet(path,desired,state.confirmedHash);
+    }catch(error){
+      let alreadySaved=false;
+      try{alreadySaved=stableJson(await readRemoteRelative(path))===desiredHash;}catch(readError){}
+      if(!alreadySaved){
+        state.running=false;
+        setSettingSaveStatus(path,"error",error.userMessage||"設定を保存できませんでした。入力内容は保持されています。");
+        settleSettingWaiters(state,state.requestedVersion,error);
+        return;
+      }
+    }
+    state.confirmedHash=desiredHash;
+    state.savedVersion=targetVersion;
+    state.lastRemoteValue=cloneData(desired);
+    updateRemoteHash(path,desired);
+    settleSettingWaiters(state,targetVersion,null);
+  }
+  state.running=false;
+  setSettingSaveStatus(path,"saved","");
+}
+function queueSettingSave(path,value){
+  const state=settingSaveState(path);
+  state.latest=cloneData(value);
+  const version=++state.requestedVersion;
+  const promise=new Promise((resolve,reject)=>state.waiters.push({version,resolve,reject}));
+  setSettingSaveStatus(path,"saving","");
+  drainSettingSaveQueue(path).catch(error=>{
+    state.running=false;
+    setSettingSaveStatus(path,"error",error.userMessage||error.message||"設定保存エラー");
+    settleSettingWaiters(state,state.requestedVersion,error);
+  });
+  return promise;
+}
+async function waitForSettingSaveQueue(path){
+  let state=settingSaveStates[path];
+  while(state&&(state.running||state.requestedVersion>state.savedVersion)){
+    if(state.status==="error")throw Object.assign(new Error("setting save failed"),{userMessage:state.message});
+    const version=state.requestedVersion;
+    await new Promise((resolve,reject)=>state.waiters.push({version,resolve,reject}));
+    state=settingSaveStates[path];
+  }
 }
 function castIdQueryValues(castId){
   const values=[String(castId)];
@@ -892,6 +1091,14 @@ async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
       throw Object.assign(new Error("business day changed"),{userMessage:message||"営業状態が他端末で変更されています。最新データに更新してから再実行してください。"});
     }
     Object.entries(values||{}).forEach(([k,v])=>setPathValue(root,k,v));
+    const settingKeys=["menus","tables","config"].filter(key=>Object.prototype.hasOwnProperty.call(values||{},key));
+    if(Object.prototype.hasOwnProperty.call(values||{},"casts"))settingKeys.push(Object.prototype.hasOwnProperty.call(values||{},"castLifecycleLogs")?"castRoster":"casts");
+    settingKeys.forEach(key=>{
+      const revision=Math.max(0,Number(getPathValue(root,"_settingsRevisions/"+key))||0)+1;
+      const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+      setPathValue(root,"_settingsRevisions/"+key,revision);
+      setPathValue(root,"_settingsWriteMeta/"+key,{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()});
+    });
     return root;
   });
 }
@@ -1644,6 +1851,25 @@ function scheduleRender(){
   const schedule=window.requestAnimationFrame||function(fn){return setTimeout(fn,16);};
   schedule(()=>{_renderPending=false;render();});
 }
+function settingsInputIsActive(){
+  const active=document.activeElement;
+  return vw==="settings"&&!!active&&active!==document.body&&!!active.closest?.("#m");
+}
+function scheduleFirebaseRender(settingsChanged){
+  if(vw==="settings"){
+    if(!settingsChanged)return;
+    if(settingsInputIsActive()){
+      window._settingsRenderDeferred=true;
+      return;
+    }
+  }
+  scheduleRender();
+}
+document.addEventListener("focusout",()=>{
+  if(!window._settingsRenderDeferred)return;
+  window._settingsRenderDeferred=false;
+  setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
+});
 function sv(v,extra){
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
@@ -3543,6 +3769,8 @@ function getBizDayEnd(t){
 function rSettings(){
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">設定</h2>';
+  const syncView=settingsSyncView();
+  html+='<div id="settings-sync-state" style="padding:8px 10px;margin-bottom:12px;border:1px solid '+(syncView.status==="error"?'#fca5a5':syncView.status==="saving"?'#fdba74':'#86efac')+';background:'+(syncView.status==="error"?'#fef2f2':syncView.status==="saving"?'#fff7ed':'#f0fdf4')+';color:'+(syncView.status==="error"?'#b91c1c':syncView.status==="saving"?'#9a3412':'#047857')+';border-radius:6px;font-size:11px;font-weight:700;line-height:1.5;">'+syncView.text+'</div>';
   html+='<div style="display:flex;gap:8px;margin-bottom:20px;">';
   [["cast","キャスト"],["menus","メニュー料金"],["special","特殊メニュー"],["tables","テーブル"]].forEach(([k,l])=>{
 html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(this.dataset.stab)">'+l+'</button>';
@@ -4093,7 +4321,14 @@ function savePrinterConfig(){
   localStorage.setItem("genesis_printer_ip",ip);
   const newConfig={...S.config,printerIP:ip,printerPort:port};
   if(window._db){
-guardedSet("config",newConfig)
+if(!requireFirebaseReady()){
+  const state=settingSaveState("config");
+  state.latest=cloneData(newConfig);
+  state.requestedVersion++;
+  setSettingSaveStatus("config","error","Firebaseへ接続できないため設定を保存していません。入力内容は保持されています。");
+  return;
+}
+queueSettingSave("config",newConfig)
   .then(()=>{sbs(true,"プリンター設定保存 ✓");alert("プリンター設定を保存しました\nIP: "+ip+"\nポート: "+port+"\n\nページを再読み込みするとSDKが再ロードされます。");})
   .catch(()=>sbs(false,"保存エラー"));
   }

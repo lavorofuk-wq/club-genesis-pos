@@ -2,24 +2,27 @@
 
 古いiPadなどに残った旧POSコードが、キャッシュ済みの古い状態を `pos` / `pos-dev` に書き戻すことを防ぐための Realtime Database ルールです。
 
-POS Ver6.65 以降は、POSデータを書き込むたびに `_writeGate` を同時更新します。Firebase側で `_writeGate` の更新を必須にすると、旧POSからの直接書き込みは拒否されます。
+POS Ver6.65 以降は、POSデータを書き込むたびに `_writeGate` を同時更新します。POS Ver6.108 以降は注文を `sessions/{tableId}` 単位、Ver6.109 以降は出退勤と付け回しを `shifts/{shiftId}` / `assignments/{assignmentId}` 単位で競合検出付き保存します。
 
-POS Ver6.108 以降は、通常の注文保存に限り `sessions/{tableId}` を個別トランザクションで更新します。POS Ver6.109 以降は、単独の出退勤編集と付け回し種別編集も `shifts/{shiftId}` / `assignments/{assignmentId}` 単位で更新します。各保存で `_rev`、`_nodeWriteVersion`、`_nodeWriteNonce` を更新するため、古い画面が保持した値による上書きは拒否されます。会計・テーブル移動・付け回し開始・終了など複数データを同時更新する処理は、従来どおり `_writeGate` 付きの一括トランザクションを使用します。
+POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存を小さいマルチパス更新へ分離します。各保存で `_settingsRevisions` と `_settingsWriteMeta` を同時更新し、同じrevisionを元にした二台目の保存をルール側で拒否します。
 
-下記ルールを適用する前でも、Ver6.109は個別保存の権限エラーを検出すると従来の安全なルートトランザクションへ自動的に戻ります。個別保存による競合削減を有効にするには、Realtime Databaseへ下記ルールを適用してください。
-
-重要: `pos` の最低バージョンを `6109` に上げるルールは、Ver6.109をmainへ公開した後に適用してください。dev確認中は `pos-dev` だけを先に更新するか、`pos` の最低バージョンを現在値の `605` のままにしてください。
+重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `6133` へ更新してください。`pos` を `6133` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
 
 ## ルール例
 
-既存の Realtime Database ルールに認証条件がある場合は、下記を丸ごと置き換えず、`pos` / `pos-dev` の `.write` 条件部分を統合してください。
+既存ルールに認証条件がある場合は丸ごと置き換えず、条件を統合してください。`_settingsRevisions/$key` の検証は、nonceが変わる設定保存ではrevisionが必ず1増えること、同じnonceの再送では値が変わらないことを要求します。
 
 ```json
 {
   "rules": {
     ".read": true,
     "pos": {
-      ".write": "newData.child('_writeGate/versionNum').val() >= 6109 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      ".write": "newData.child('_writeGate/versionNum').val() >= 6133 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "_settingsRevisions": {
+        "$key": {
+          ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
+        }
+      },
       "sessions": {
         "$tableId": {
           ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6108 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
@@ -37,7 +40,12 @@ POS Ver6.108 以降は、通常の注文保存に限り `sessions/{tableId}` を
       }
     },
     "pos-dev": {
-      ".write": "newData.child('_writeGate/versionNum').val() >= 6109 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      ".write": "newData.child('_writeGate/versionNum').val() >= 6133 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "_settingsRevisions": {
+        "$key": {
+          ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
+        }
+      },
       "sessions": {
         "$tableId": {
           ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6108 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
@@ -66,9 +74,10 @@ POS Ver6.108 以降は、通常の注文保存に限り `sessions/{tableId}` を
 
 ## 適用手順
 
-1. POS Ver6.109をmainへ公開します。
-2. Firebase Console の Realtime Database ルール画面を開きます。
-3. `pos` と `pos-dev` に上記ルールを適用します。
-4. 保存後、古いiPadからの更新が「permission_denied」になることを確認します。
+1. Ver6.133をdevへ公開し、dev端末を更新します。
+2. Firebase Consoleで `pos-dev` の最低バージョンと `_settingsRevisions` 検証を適用します。`pos` は変更しません。
+3. devで設定保存、連続編集、二端末競合、オフライン復帰を確認します。
+4. Ver6.133をmainへ公開し、本番端末の更新を確認します。
+5. 最後に `pos` へ同じルールを適用します。
 
-このルールを保存するまでは、クライアント側の更新だけでは旧端末の書き戻しを完全には止められません。
+クライアント実装だけでも通常の競合確認は行いますが、読み取り直後に二端末が同時保存する競合を完全に拒否するには、このルールの適用が必要です。
