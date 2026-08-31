@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.133";
+const APP_VERSION="6.134";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -12,6 +12,8 @@ const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
 const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
+const REGULAR_CAST_MAX_NO=99;
+const TRIAL_CAST_START_NO=100;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -39,13 +41,23 @@ function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||g
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
 function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
 function nextCastInternalNo(){
-  const nums=allCasts().filter(c=>c.castType!=="trial").map(c=>Number(c.internalNo)||0);
+  const nums=allCasts().filter(c=>c.castType!=="trial").map(c=>Number(c.internalNo)||0).filter(no=>no>0&&no<=REGULAR_CAST_MAX_NO);
   Object.values((typeof S!=="undefined"&&S.castLifecycleLogs)||{}).forEach(log=>{
-    [...(log.enteredCasts||[]),...(log.exitedCasts||[])].forEach(c=>nums.push(Number(c.internalNo)||0));
+    [...(log.enteredCasts||[]),...(log.exitedCasts||[])].forEach(c=>{
+      const no=Number(c.internalNo)||0;
+      if(c.castType!=="trial"&&no>0&&no<=REGULAR_CAST_MAX_NO)nums.push(no);
+    });
   });
   return Math.max(0,...nums)+1;
 }
-function nextTrialCastInternalNo(date){return Math.max(99,...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||99))+1;}
+function nextTrialCastInternalNo(date){
+  const logged=(S.castLifecycleLogs||{})[date]?.trialCasts||[];
+  const nums=[
+    ...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||0),
+    ...logged.map(c=>Number(c.internalNo)||0)
+  ].filter(no=>no>=TRIAL_CAST_START_NO);
+  return Math.max(TRIAL_CAST_START_NO-1,...nums)+1;
+}
 function emptyLifecycle(){return{enteredCasts:[],exitedCasts:[],trialCasts:[]};}
 function lifecycleFor(date){
   if(!S.castLifecycleLogs)S.castLifecycleLogs={};
@@ -70,7 +82,15 @@ function upsertLifecycle(date,key,row,idField){
   else l[key].push(enriched);
 }
 function castSnapshot(c,extra={}){
-  return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",...extra};
+  return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",castType:c.castType==="trial"?"trial":"regular",...extra};
+}
+function recordCastDeparture(cast,ts,biz){
+  if(cast.castType==="trial"){
+    const trialBizDay=cast.trialBizDay||biz;
+    upsertLifecycle(trialBizDay,"trialCasts",castSnapshot(cast,{trialBizDay,trialRegisteredAt:cast.trialRegisteredAt||cast.registeredAt||null,trialEndedAt:ts}),"castId");
+    return;
+  }
+  upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
 }
 async function saveCastsAndLifecycle(){
   if(window._db){
@@ -4276,8 +4296,10 @@ function hasVisibleCastName(name){
 function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
+  const internalNo=nextCastInternalNo();
+  if(internalNo>REGULAR_CAST_MAX_NO){alert("通常キャスト番号がNo."+REGULAR_CAST_MAX_NO+"に達しているため登録できません。管理者へ確認してください。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"regular",internalNo:nextCastInternalNo(),active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
+  const cast={id:ts,name,castType:"regular",internalNo,active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"enteredCasts",castSnapshot(cast,{enteredAt:ts}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -4306,7 +4328,7 @@ function dc2(id){
   }
   if(!confirm(cast.name+" を退店しますか？\nPOS名簿からは削除され、退店履歴は営業履歴/GMS側で管理します。"))return;
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
+  recordCastDeparture(cast,ts,biz);
   S.casts=normalizeCasts(S.casts).filter(c=>String(c.id)!==String(id));
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
   render();
