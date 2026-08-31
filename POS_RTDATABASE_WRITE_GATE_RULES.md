@@ -6,7 +6,7 @@ POS Ver6.65 以降は、POSデータを書き込むたびに `_writeGate` を同
 
 POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存を小さいマルチパス更新へ分離します。各保存で `_settingsRevisions` と `_settingsWriteMeta` を同時更新し、同じrevisionを元にした二台目の保存をルール側で拒否します。
 
-重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `6133` へ更新してください。`pos` を `6133` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
+重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `_verNum("6.133")` の実値である `613300` へ更新してください。`pos` を `613300` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
 
 ## ルール例
 
@@ -17,7 +17,7 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
   "rules": {
     ".read": true,
     "pos": {
-      ".write": "newData.child('_writeGate/versionNum').val() >= 6133 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      ".write": "newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
       "_settingsRevisions": {
         "$key": {
           ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
@@ -25,22 +25,22 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
       },
       "sessions": {
         "$tableId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6108 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       },
       "shifts": {
         "$shiftId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6109 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       },
       "assignments": {
         "$assignmentId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6109 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       }
     },
     "pos-dev": {
-      ".write": "newData.child('_writeGate/versionNum').val() >= 6133 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      ".write": "newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
       "_settingsRevisions": {
         "$key": {
           ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
@@ -48,17 +48,17 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
       },
       "sessions": {
         "$tableId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6108 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       },
       "shifts": {
         "$shiftId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6109 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       },
       "assignments": {
         "$assignmentId": {
-          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 6109 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       }
     },

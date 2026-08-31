@@ -4,6 +4,8 @@ const path=require("path");
 const vm=require("vm");
 
 const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
+const rulesDoc=fs.readFileSync(path.join(__dirname,"..","POS_RTDATABASE_WRITE_GATE_RULES.md"),"utf8");
+const versionSource=app.slice(app.indexOf("function _verNum"),app.indexOf("function applyFixedShimeiPrices"));
 const stateSource=app.slice(app.indexOf("const LIGHTWEIGHT_SETTING_PATHS"),app.indexOf("const sessionSaveQueues"));
 const stableSource=app.slice(app.indexOf("function canonicalJsonValue"),app.indexOf("function shouldGuardWholeValue"));
 const queueSource=app.slice(app.indexOf("function settingConflictError"),app.indexOf("function castIdQueryValues"));
@@ -39,7 +41,7 @@ const context={
   stableJson:value=>JSON.stringify(value===undefined?null:value),
   cloneData:clone,
   updateRemoteHash:(key,value)=>{context.window._remoteValueHashes[key]=JSON.stringify(value===undefined?null:value);},
-  _verNum:()=>6133,
+  _verNum:()=>613300,
   readRemoteRelative:async key=>clone(getValue(remote,key)),
   guardedRootUpdate:async values=>{
     activeWrites++;
@@ -60,6 +62,19 @@ context.window._remoteValueHashes.tables=JSON.stringify(remote.tables);
 vm.createContext(context);
 vm.runInContext(stateSource,context);
 vm.runInContext(queueSource,context);
+
+const versionContext={parseInt};
+vm.createContext(versionContext);
+vm.runInContext(versionSource,versionContext);
+assert.strictEqual(versionContext._verNum("6.133"),613300);
+assert.strictEqual(versionContext._verNum("6.108"),610800);
+assert.strictEqual(versionContext._verNum("6.109"),610900);
+assert.match(rulesDoc,/versionNum'\)\.val\(\) >= 613300/);
+assert.match(rulesDoc,/_nodeWriteVersion'\)\.val\(\) >= 610800/);
+assert.match(rulesDoc,/_nodeWriteVersion'\)\.val\(\) >= 610900/);
+assert.doesNotMatch(rulesDoc,/>= 6133(?:\D|$)/);
+assert.doesNotMatch(rulesDoc,/>= 6108(?:\D|$)/);
+assert.doesNotMatch(rulesDoc,/>= 6109(?:\D|$)/);
 
 const stableContext={};
 vm.createContext(stableContext);
