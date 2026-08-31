@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.134";
+const APP_VERSION="6.135";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -12,8 +12,6 @@ const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
 const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
-const REGULAR_CAST_MAX_NO=99;
-const TRIAL_CAST_START_NO=100;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -27,37 +25,14 @@ function normalizeMenus(menus){
   return applyFixedShimeiPrices(normalized);
 }
 function normalizeCasts(list){
-  let nextNo=1;
   return (list||[]).map((cast,idx)=>{
-    const internalNo=Number(cast.internalNo)||nextNo;
-    nextNo=Math.max(nextNo,internalNo+1);
-    return {...cast,internalNo,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
+    return {...cast,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
   });
 }
-function castSortValue(c){return Number(c.internalNo)||Number.MAX_SAFE_INTEGER;}
-function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>castSortValue(a)-castSortValue(b)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
-function castNo(c){return String(c?.internalNo||"").padStart(3,"0");}
+function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>(Number(a.sortIndex)||0)-(Number(b.sortIndex)||0)||(Number(a.registeredAt)||0)-(Number(b.registeredAt)||0)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
 function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||getBizDate();}
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
 function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
-function nextCastInternalNo(){
-  const nums=allCasts().filter(c=>c.castType!=="trial").map(c=>Number(c.internalNo)||0).filter(no=>no>0&&no<=REGULAR_CAST_MAX_NO);
-  Object.values((typeof S!=="undefined"&&S.castLifecycleLogs)||{}).forEach(log=>{
-    [...(log.enteredCasts||[]),...(log.exitedCasts||[])].forEach(c=>{
-      const no=Number(c.internalNo)||0;
-      if(c.castType!=="trial"&&no>0&&no<=REGULAR_CAST_MAX_NO)nums.push(no);
-    });
-  });
-  return Math.max(0,...nums)+1;
-}
-function nextTrialCastInternalNo(date){
-  const logged=(S.castLifecycleLogs||{})[date]?.trialCasts||[];
-  const nums=[
-    ...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||0),
-    ...logged.map(c=>Number(c.internalNo)||0)
-  ].filter(no=>no>=TRIAL_CAST_START_NO);
-  return Math.max(TRIAL_CAST_START_NO-1,...nums)+1;
-}
 function emptyLifecycle(){return{enteredCasts:[],exitedCasts:[],trialCasts:[]};}
 function lifecycleFor(date){
   if(!S.castLifecycleLogs)S.castLifecycleLogs={};
@@ -3799,10 +3774,9 @@ html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(
 if(stab==="cast"){
 const activeCasts=sc();
 html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">キャスト名簿（入店順）</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">内部番号は登録順に自動付与されます。退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
+html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
 activeCasts.forEach(c=>{
 html+='<div class="ir" style="gap:8px;align-items:center;">'
-  +'<span style="width:48px;font-size:12px;color:#d4a017;font-weight:700;">No.'+castNo(c)+'</span>'
   +(c.castType==="trial"?'<span style="font-size:10px;color:#38bdf8;border:1px solid rgba(56,189,248,.3);border-radius:4px;padding:2px 6px;">体入</span>':'')
   +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
   +(c.castType==="trial"?'<span style="font-size:11px;color:#64748b;white-space:nowrap;">'+(c.trialBizDay||currentCastBizDate())+'</span>':'')
@@ -4296,10 +4270,8 @@ function hasVisibleCastName(name){
 function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
-  const internalNo=nextCastInternalNo();
-  if(internalNo>REGULAR_CAST_MAX_NO){alert("通常キャスト番号がNo."+REGULAR_CAST_MAX_NO+"に達しているため登録できません。管理者へ確認してください。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"regular",internalNo,active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
+  const cast={id:ts,name,castType:"regular",active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"enteredCasts",castSnapshot(cast,{enteredAt:ts}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -4309,7 +4281,7 @@ function actrial(){
   const name=String(ntn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
+  const cast={id:ts,name,castType:"trial",active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"trialCasts",castSnapshot(cast,{trialBizDay:biz,trialRegisteredAt:ts,trialEndedAt:null}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));

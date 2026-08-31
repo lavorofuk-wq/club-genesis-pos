@@ -35,13 +35,13 @@ const context={
   window:{_remoteValueHashes:{}},
   document:{getElementById:()=>null},
   FB_ROOT:"pos-dev",
-  APP_VERSION:"6.134",
+  APP_VERSION:"6.135",
   sbs:()=>{},
   requireFirebaseReady:()=>true,
   stableJson:value=>JSON.stringify(value===undefined?null:value),
   cloneData:clone,
   updateRemoteHash:(key,value)=>{context.window._remoteValueHashes[key]=JSON.stringify(value===undefined?null:value);},
-  _verNum:()=>613400,
+  _verNum:()=>613500,
   readRemoteRelative:async key=>clone(getValue(remote,key)),
   guardedRootUpdate:async values=>{
     activeWrites++;
@@ -67,7 +67,7 @@ const versionContext={parseInt};
 vm.createContext(versionContext);
 vm.runInContext(versionSource,versionContext);
 assert.strictEqual(versionContext._verNum("6.133"),613300);
-assert.strictEqual(versionContext._verNum("6.134"),613400);
+assert.strictEqual(versionContext._verNum("6.135"),613500);
 assert.strictEqual(versionContext._verNum("6.108"),610800);
 assert.strictEqual(versionContext._verNum("6.109"),610900);
 assert.match(rulesDoc,/versionNum'\)\.val\(\) >= 613300/);
