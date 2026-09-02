@@ -7,10 +7,10 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.140\.2"/);
-assert.match(index,/Ver6\.140\.2/);
-assert.match(index,/app\.js\?v=6\.140\.2/);
-assert.match(sw,/genesis-pos-v6\.140\.2-auth/);
+assert.match(app,/const APP_VERSION="6\.140\.3"/);
+assert.match(index,/Ver6\.140\.3/);
+assert.match(index,/app\.js\?v=6\.140\.3/);
+assert.match(sw,/genesis-pos-v6\.140\.3-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
@@ -36,7 +36,8 @@ assert.match(app,/async function endBizDay[\s\S]*\["bizDays\/"\+id\]:day/);
 assert.doesNotMatch(app,/bizDays:S\.bizDays/,"business operations must not rewrite every historical day");
 assert.doesNotMatch(app,/save\("bizDays",S\.bizDays\)/,"historical edits must not rewrite the complete business-day collection");
 assert.match(app,/async function guardedReplaceClosedBizDay[\s\S]*\[FB_ROOT\+"\/bizDays\/"\+id\][\s\S]*stableJson\(remote\)!==stableJson\(expectedDay\)/,"closed-day edits must compare and update only their target day");
-assert.match(app,/async function saveGmsTargetEdit[\s\S]*guardedReplaceClosedBizDay\(dayId,cloneData\(day\),nextDay\)/,"GMS target corrections must use the checked single-day update");
+assert.match(app,/async function guardedReplaceClosedHistoryRecord[\s\S]*remoteHistory\[recordIndex\][\s\S]*setPathValue\(root,"bizDays\/"\+id/ ,"GMS target corrections must replace only their checked history record");
+assert.match(app,/async function saveGmsTargetEdit[\s\S]*guardedReplaceClosedHistoryRecord\(dayId,cloneData\(record\),applied\.record,index\)/,"GMS target corrections must use the checked history-record update");
 assert.match(app,/function closedBizDaySaveErrorMessage[\s\S]*Firebaseの書込権限[\s\S]*Firebaseへ保存できませんでした/,"historical edit errors must identify permission and connection failures");
 
 const syncSource=app.slice(app.indexOf("const POS_CORE_SYNC_PATHS"),app.indexOf("// Firebase config"));

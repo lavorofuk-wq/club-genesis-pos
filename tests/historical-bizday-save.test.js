@@ -45,6 +45,14 @@ const context={
     remoteRoot=working;
     return clone(remoteRoot);
   },
+  guardedRootTransaction:async mutator=>{
+    const working=clone(remoteRoot);
+    const next=mutator(working);
+    if(!next)throw new Error("transaction aborted");
+    remoteRoot=clone(next);
+    return clone(remoteRoot);
+  },
+  setPathValue:(root,relative,value)=>set(root,relative,value),
   updateBizDayRemoteHashes:()=>{},
   isFirebasePermissionDenied:error=>String(error?.code||"").includes("PERMISSION_DENIED"),
   sbs:()=>{},
@@ -82,6 +90,32 @@ vm.runInContext(app.slice(start,end),context);
     vm.runInContext("guardedReplaceClosedBizDay",context)("2026-09-01",next,next),
     error=>error.userMessage.includes("営業中の日は変更できません")
   );
+
+  remoteRoot.activeBizDay=null;
+  remoteRoot.bizDays["2026-09-01"]={
+    id:"2026-09-01",date:"2026-09-01",endedAt:123456,
+    history:[
+      {id:101,tableId:"t1",startTime:1000,endTime:2000,total:10000,items:[{id:"cw",category:"champagneWine",price:10000,qty:1}]},
+      {id:102,tableId:"t2",startTime:3000,endTime:4000,total:20000,items:[]}
+    ],
+    assignments:{remote_only:{id:"remote_only",endTime:5000}}
+  };
+  context.S.bizDays["2026-09-01"]={...clone(remoteRoot.bizDays["2026-09-01"]),assignments:{stale_local:{id:"stale_local"}}};
+  const expectedRecord=clone(remoteRoot.bizDays["2026-09-01"].history[0]);
+  const repairedRecord={...clone(expectedRecord),items:[{...clone(expectedRecord.items[0]),castId:"c1",backTargetCastIds:["c1"]}]};
+  await vm.runInContext("guardedReplaceClosedHistoryRecord",context)("2026-09-01",expectedRecord,repairedRecord,0);
+
+  assert.deepStrictEqual(remoteRoot.bizDays["2026-09-01"].assignments,{remote_only:{id:"remote_only",endTime:5000}},"unrelated changes in the same business day must be preserved");
+  assert.strictEqual(remoteRoot.bizDays["2026-09-01"].history[0].items[0].castId,"c1","only the selected history record is replaced");
+  assert.strictEqual(remoteRoot.bizDays["2026-09-01"].history[1].total,20000,"other history records must remain untouched");
+
+  const staleRecord=clone(remoteRoot.bizDays["2026-09-01"].history[0]);
+  remoteRoot.bizDays["2026-09-01"].history[0].total=11000;
+  await assert.rejects(
+    vm.runInContext("guardedReplaceClosedHistoryRecord",context)("2026-09-01",staleRecord,repairedRecord,0),
+    error=>error.userMessage.includes("対象の会計が他端末で更新")
+  );
+  assert.strictEqual(context.S.bizDays["2026-09-01"].history[0].total,11000,"a true record conflict must refresh the latest business day immediately");
 
   console.log("historical business-day save guards passed");
 })().catch(error=>{console.error(error);process.exit(1);});
