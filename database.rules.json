@@ -1,0 +1,80 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "access": {
+      "authorizedUsers": {
+        "$uid": {
+          ".read": "auth != null && auth.uid == $uid",
+          ".write": false
+        }
+      }
+    },
+    "pos": {
+      ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
+      ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "_settingsRevisions": {
+        "$key": {
+          ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
+        }
+      },
+      "sessions": {
+        "$tableId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "shifts": {
+        "$shiftId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "assignments": {
+        "$assignmentId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "_banaiOperations": {
+        "$tableId": {
+          ".validate": "newData.child('nonce').val() == data.child('nonce').val() || (newData.child('version').val() >= 613600 && newData.child('nonce').isString() && newData.child('nonce').val() != data.child('nonce').val() && newData.child('assignmentId').isString() && newData.child('sessionRev').val() == newData.parent().parent().child('sessions').child($tableId).child('_rev').val() && newData.child('sessionRev').val() == root.child('pos').child('sessions').child($tableId).child('_rev').val() + 1 && newData.child('assignmentRev').val() == newData.parent().parent().child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() && newData.child('assignmentRev').val() == root.child('pos').child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() + 1)"
+        }
+      }
+    },
+    "pos-dev": {
+      ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
+      ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "_settingsRevisions": {
+        "$key": {
+          ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
+        }
+      },
+      "sessions": {
+        "$tableId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "shifts": {
+        "$shiftId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "assignments": {
+        "$assignmentId": {
+          ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "_banaiOperations": {
+        "$tableId": {
+          ".validate": "newData.child('nonce').val() == data.child('nonce').val() || (newData.child('version').val() >= 613600 && newData.child('nonce').isString() && newData.child('nonce').val() != data.child('nonce').val() && newData.child('assignmentId').isString() && newData.child('sessionRev').val() == newData.parent().parent().child('sessions').child($tableId).child('_rev').val() && newData.child('sessionRev').val() == root.child('pos-dev').child('sessions').child($tableId).child('_rev').val() + 1 && newData.child('assignmentRev').val() == newData.parent().parent().child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() && newData.child('assignmentRev').val() == root.child('pos-dev').child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() + 1)"
+        }
+      }
+    },
+    "backup": {
+      ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
+      ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true"
+    },
+    "backup-dev": {
+      ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
+      ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true"
+    }
+  }
+}

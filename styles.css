@@ -776,3 +776,108 @@ textarea:focus-visible{
     padding-bottom:2px;
   }
 }
+#auth-gate{
+  position:fixed;
+  inset:0;
+  z-index:1000000;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  background:
+    radial-gradient(circle at 50% 25%,rgba(212,160,23,.12),transparent 36%),
+    #08080b;
+}
+.auth-card{
+  width:min(100%,390px);
+  padding:34px 30px 28px;
+  border:1px solid rgba(212,160,23,.28);
+  border-radius:14px;
+  background:rgba(20,20,24,.96);
+  box-shadow:0 24px 80px rgba(0,0,0,.55);
+}
+.auth-brand{
+  margin-bottom:8px;
+  color:#d4a017;
+  font-family:'Cormorant Garamond',serif;
+  font-size:26px;
+  letter-spacing:.18em;
+  text-align:center;
+}
+.auth-card h1{
+  margin:0 0 8px;
+  color:#e8dcc8;
+  font-size:14px;
+  letter-spacing:.22em;
+  text-align:center;
+}
+.auth-card p{
+  margin:0 0 24px;
+  color:#8d8d95;
+  font-size:12px;
+  line-height:1.7;
+  text-align:center;
+}
+.auth-card label{
+  display:block;
+  margin:14px 0 6px;
+  color:#aaa;
+  font-size:12px;
+}
+.auth-card input{
+  box-sizing:border-box;
+  width:100%;
+  padding:13px 12px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:7px;
+  outline:none;
+  background:#0d0d11;
+  color:#f3f3f3;
+  font-size:16px;
+}
+.auth-card input:focus{
+  border-color:rgba(212,160,23,.75);
+  box-shadow:0 0 0 3px rgba(212,160,23,.1);
+}
+#auth-error{
+  margin-top:14px;
+  padding:10px 12px;
+  border:1px solid rgba(255,80,80,.28);
+  border-radius:6px;
+  background:rgba(255,80,80,.08);
+  color:#ff8b8b;
+  font-size:12px;
+  line-height:1.55;
+}
+#auth-submit{
+  width:100%;
+  margin-top:20px;
+  padding:13px;
+  border:0;
+  border-radius:7px;
+  background:linear-gradient(135deg,#b8960c,#e8c84a);
+  color:#1a1200;
+  font-size:14px;
+  font-weight:700;
+  cursor:pointer;
+}
+#auth-submit:disabled{cursor:wait;opacity:.65;}
+.auth-card small{
+  display:block;
+  margin-top:15px;
+  color:#666;
+  font-size:10px;
+  text-align:center;
+}
+#logout-btn{
+  padding:4px 8px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:4px;
+  background:rgba(255,255,255,.05);
+  color:#888;
+  font-size:10px;
+  touch-action:manipulation;
+}
+@media(max-width:700px){
+  #logout-btn{padding:4px 6px;font-size:0;}
+  #logout-btn::after{content:'退出';font-size:10px;}
+}

@@ -38,8 +38,8 @@ assert.match(assignmentOps,/async function moveToWaiting[\s\S]*nodeUpdate:\{expe
 assert.doesNotMatch(assignmentOps,/readCollections:\["assignments"\]/);
 
 assert.match(app,/function mergeRemoteVersionedCollection\(collection,remote\)/);
-assert.match(app,/S\.shifts=mergeRemoteVersionedCollection\("shifts",d\.shifts\)/);
-assert.match(app,/S\.assignments=mergeRemoteVersionedCollection\("assignments",d\.assignments\)/);
+assert.match(app,/path==="shifts"[\s\S]*S\.shifts=mergeRemoteVersionedCollection\("shifts",value\)/);
+assert.match(app,/path==="assignments"[\s\S]*S\.assignments=mergeRemoteVersionedCollection\("assignments",value\)/);
 assert.match(app,/function shouldFallbackNodeUpdate\(error\)[\s\S]*message==="record changed"[\s\S]*message==="record create conflict"/);
 assert.match(app,/function readRemoteActiveAssignmentsForCast\(castId\)/);
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);

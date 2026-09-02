@@ -6,6 +6,8 @@ POS Ver6.65 以降は、POSデータを書き込むたびに `_writeGate` を同
 
 POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存を小さいマルチパス更新へ分離します。各保存で `_settingsRevisions` と `_settingsWriteMeta` を同時更新し、同じrevisionを元にした二台目の保存をルール側で拒否します。
 
+POS Ver6.136 以降は、場内指名追加時の`session`と`assignment`を小さいマルチパス更新へ分離します。`_banaiOperations/{tableId}`の検証で、同じ更新内の両レコードが現在値からそれぞれ1revisionだけ進むことを保証します。ルール適用前は`_capabilities/banaiAtomicValidationVersion`が存在しないため、POSは従来のルートトランザクションを使用します。
+
 重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `_verNum("6.133")` の実値である `613300` へ更新してください。`pos` を `613300` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
 
 ## ルール例
@@ -37,6 +39,11 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
         "$assignmentId": {
           ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
+      },
+      "_banaiOperations": {
+        "$tableId": {
+          ".validate": "newData.child('nonce').val() == data.child('nonce').val() || (newData.child('version').val() >= 613600 && newData.child('nonce').isString() && newData.child('nonce').val() != data.child('nonce').val() && newData.child('assignmentId').isString() && newData.child('sessionRev').val() == newData.parent().parent().child('sessions').child($tableId).child('_rev').val() && newData.child('sessionRev').val() == root.child('pos').child('sessions').child($tableId).child('_rev').val() + 1 && newData.child('assignmentRev').val() == newData.parent().parent().child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() && newData.child('assignmentRev').val() == root.child('pos').child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() + 1)"
+        }
       }
     },
     "pos-dev": {
@@ -60,6 +67,11 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
         "$assignmentId": {
           ".write": "newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
+      },
+      "_banaiOperations": {
+        "$tableId": {
+          ".validate": "newData.child('nonce').val() == data.child('nonce').val() || (newData.child('version').val() >= 613600 && newData.child('nonce').isString() && newData.child('nonce').val() != data.child('nonce').val() && newData.child('assignmentId').isString() && newData.child('sessionRev').val() == newData.parent().parent().child('sessions').child($tableId).child('_rev').val() && newData.child('sessionRev').val() == root.child('pos-dev').child('sessions').child($tableId).child('_rev').val() + 1 && newData.child('assignmentRev').val() == newData.parent().parent().child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() && newData.child('assignmentRev').val() == root.child('pos-dev').child('assignments').child(newData.child('assignmentId').val()).child('_rev').val() + 1)"
+        }
       }
     },
     "backup": {
@@ -74,10 +86,10 @@ POS Ver6.133 以降は、`menus`、`tables`、`casts`、`config` の設定保存
 
 ## 適用手順
 
-1. Ver6.133をdevへ公開し、dev端末を更新します。
-2. Firebase Consoleで `pos-dev` の最低バージョンと `_settingsRevisions` 検証を適用します。`pos` は変更しません。
-3. devで設定保存、連続編集、二端末競合、オフライン復帰を確認します。
-4. Ver6.133をmainへ公開し、本番端末の更新を確認します。
-5. 最後に `pos` へ同じルールを適用します。
+1. `pos-dev/_banaiOperations/$tableId`の検証ルールと`pos-dev/_capabilities/banaiAtomicValidationVersion=613600`は適用済みです。`pos`は変更しません。
+2. Ver6.137をdevへ公開します。
+3. devで場内指名追加、連続操作、二端末競合、保存失敗時のロールバックを確認します。
+4. Ver6.137をmainへ公開し、本番端末の更新を確認します。
+5. `pos/_banaiOperations/$tableId`へ同じ検証を追加して公開し、最後に`pos/_capabilities/banaiAtomicValidationVersion`を`613600`に設定します。
 
 クライアント実装だけでも通常の競合確認は行いますが、読み取り直後に二端末が同時保存する競合を完全に拒否するには、このルールの適用が必要です。
