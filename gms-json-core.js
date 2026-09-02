@@ -234,7 +234,7 @@
     if (ids.length === 1 && String(item.castId || "") !== ids[0]) errors.push(`${path}.castId と backTargetCastIds[0] が一致しません`);
     if (item.backType !== expectedType) errors.push(`${path}.backType は「${expectedType}」である必要があります`);
     if (ids.length === 1 && item.backAllocation !== "single") errors.push(`${path}.backAllocation は「single」である必要があります`);
-    if (ids.length > 1 && !String(item.backAllocation || "").trim()) errors.push(`${path} は対象キャストが複数ですが分配方法が未設定です。分配仕様を確認してください`);
+    if (ids.length > 1 && item.backAllocation !== "equal") errors.push(`${path}.backAllocation は複数対象の均等分配を示す「equal」である必要があります`);
   }
 
   function validatePayload(payload) {

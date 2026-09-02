@@ -7,9 +7,9 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.139"/);
-assert.match(index,/Ver6\.139/);
-assert.match(sw,/genesis-pos-v6\.139-auth/);
+assert.match(app,/const APP_VERSION="6\.140"/);
+assert.match(index,/Ver6\.140/);
+assert.match(sw,/genesis-pos-v6\.140-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
