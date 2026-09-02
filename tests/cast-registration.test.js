@@ -7,7 +7,8 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const normalizeSource=app.slice(app.indexOf("function normalizeCasts"),app.indexOf("function currentCastBizDate"));
 const departureSource=app.slice(app.indexOf("function castSnapshot"),app.indexOf("async function saveCastsAndLifecycle"));
 
-const normalizeContext={S:{casts:[]},Number,String};
+const normalizeCastType=(value,isTrial,status)=>["regular","trial","dispatch"].includes(value)?value:(isTrial===true||status==="trial"?"trial":"regular");
+const normalizeContext={S:{casts:[]},Number,String,normalizeCastType};
 vm.createContext(normalizeContext);
 vm.runInContext(normalizeSource,normalizeContext);
 
@@ -22,6 +23,7 @@ assert.ok(!Object.prototype.hasOwnProperty.call(casts[0],"internalNo"),"normaliz
 const lifecycleCalls=[];
 const departureContext={
   upsertLifecycle(...args){lifecycleCalls.push(args);},
+  normalizeCastType,
   String,
   Number
 };

@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.138.2";
+const APP_VERSION="6.139";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -25,6 +25,7 @@ function normalizeMenus(menus){
   delete normalized.discounts;
   return applyFixedShimeiPrices(normalized);
 }
+function normalizeCastType(value,isTrial,status){return GMS_JSON.normalizeCastType(value,isTrial,status);}
 function normalizeCasts(list){
   return (list||[]).map((cast,idx)=>{
     return {...cast,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
@@ -58,7 +59,8 @@ function upsertLifecycle(date,key,row,idField){
   else l[key].push(enriched);
 }
 function castSnapshot(c,extra={}){
-  return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",castType:c.castType==="trial"?"trial":"regular",...extra};
+  const castType=normalizeCastType(c.castType,c.isTrial,c.status);
+  return{castId:String(c.id||""),internalNo:Number(c.internalNo)||0,castName:c.name||"",castType,isTrial:castType==="trial",...extra};
 }
 function recordCastDeparture(cast,ts,biz){
   if(cast.castType==="trial"){
@@ -120,7 +122,7 @@ function applyPosCastPolicy(casts){
 }
 let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
-let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};
+let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastId:null,freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
@@ -1482,14 +1484,16 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
 // ===== SESSIONS =====
 async function startSession(){
   if(checkinBusy||!at)return;
-  const{guests,setMenu,honShimeis,douhan,freedrink,single}=ci;
+  const{guests,setMenu,honShimeis,douhan,douhanCastId,freedrink,single}=ci;
   if(!setMenu)return;
+  const douhanCast=douhan?S.casts.find(c=>String(c.id)===String(douhanCastId)):null;
+  if(douhan&&!douhanCast){alert("同伴キャストを選択してください。");return;}
   const tableId=at;
   const items=[];
   const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===setMenu);
   if(sm)items.push({id:sm.id,label:sm.label,price:sm.price,qty:guests,minutes:sm.minutes,isSet:true});
   honShimeis.forEach(cid=>{const c=S.casts.find(c=>c.id===cid);items.push({id:"hs_"+cid,label:"本指名料 ("+c?.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c?.name||"",isHonShimei:true});});
-  if(douhan)items.push({id:"dh",label:"同伴料",price:3000,qty:1});
+  if(douhan)items.push({id:"dh",label:"同伴料",price:3000,qty:1,category:"dohan",castId:douhanCast.id,castName:douhanCast.name,backTargetCastIds:[String(douhanCast.id)],backTargetCastNames:[douhanCast.name],backType:"dohan",backAllocation:"single"});
   if(freedrink)items.push({id:"fd",label:freeDrinkLabel(60),price:freeDrinkPriceForMinutes(60),qty:guests,isFreeDrink:true,freeDrinkMinutes:60});
   if(single)items.push({id:"sc",label:"シングルチャージ",price:2000,qty:guests});
   let st=Date.now();
@@ -1727,6 +1731,8 @@ function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
   const isCastDrink=qm.category==="castDrink";
+  const isPaidBottle=(qm.category==="champagneWine"||qm.category==="keepBottle")&&Number(qm.price)>0;
+  if(isPaidBottle&&!(qm.itemData?.backTargetCastIds||[]).length){alert("有料ボトルのバック対象キャストを選択してください。");return;}
   s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.itemLabel||qm.label,price:qm.price,qty,category:qm.category||"",...(qm.itemData||{})}];
   save("sessions/"+at,S.sessions[at]);qm=null;qv=1;
   if(isCastDrink){cds=0;cdc=null;}
@@ -1747,6 +1753,12 @@ function openCastDrinkQty(cid,price,drinkLabel){
 function addCD(cid,did){
   const d=S.menus.castDrinks.find(d=>String(d.id)===String(did));
   if(d)openCastDrinkQty(cid,d.price,d.label);
+}
+function selectLiquorBackCast(cid){
+  if(!qm||(qm.category!=="champagneWine"&&qm.category!=="keepBottle"))return;
+  const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;
+  qm.itemData={castId:c.id,castName:c.name,backTargetCastIds:[String(c.id)],backTargetCastNames:[c.name],backType:qm.category,backAllocation:"single"};
+  om("qty");
 }
 function addCustom(){
   const lEl=document.getElementById("cu-label");
@@ -2435,7 +2447,7 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   html+=rPastAssignHistory(day);
   // CSV出力ボタン
   const gmsMeta=gmsGetExportMeta(day.date||day.id);
-  const hasGmsSubmission=!!(gmsMeta&&gmsMeta.submissionId&&gmsMeta.payload);
+  const hasGmsSubmission=!!(gmsMeta&&gmsMeta.schemaVersion===3&&gmsMeta.submissionId&&gmsMeta.payload);
   html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="'+(hasGmsSubmission?'redownloadGmsClosingJSON':'exportGmsClosingJSON')+'(this.dataset.dayid'+(hasGmsSubmission?'':',false')+')" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">'+(hasGmsSubmission?'前回JSON再ダウンロード':'GMS取込JSON')+'</button>';
@@ -2583,29 +2595,30 @@ function gmsCastSalesSummary(rows){
 }
 function gmsTransactionItems(items){
   const src=(items||[]).filter(Boolean);
-  const noHon=!src.some(i=>i.isHonShimei);
-  let currentBanaiIds=[];
   return src.map(item=>{
-    if(item.isBanaiExtension)currentBanaiIds=gmsUniqueStrings([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId]);
     const category=gmsItemCategory(item);
     let backTargetCastIds=gmsUniqueStrings(item.backTargetCastIds);
+    const storedTargetNames=Array.isArray(item.backTargetCastNames)?item.backTargetCastNames.map(String):[];
     let backType=item.backType||"",backAllocation=item.backAllocation||"";
     if(category==="castDrink"){
       backTargetCastIds=backTargetCastIds.length?backTargetCastIds:gmsUniqueStrings([item.castId]);
       backType=backType||"castDrink";backAllocation=backAllocation||"orderedCast";
-    }else if(noHon&&currentBanaiIds.length&&gmsIsBanaiBackItem(item)){
-      backTargetCastIds=currentBanaiIds;
-      backType=backType||"jonaiExtension";
-      backAllocation=backAllocation||(backTargetCastIds.length>1?"splitEvenly":"singleCast");
+    }else if(category==="champagneWine"||category==="keepBottle"||category==="dohan"){
+      backType=backType||category;
+      if(backTargetCastIds.length===1)backAllocation=backAllocation||"single";
     }
+    const backTargetCastNames=backTargetCastIds.map((id,index)=>storedTargetNames[index]||(String(item.castId||"")===id?String(item.castName||""):"")||gmsCastName(id,""));
+    const primaryTargetId=backTargetCastIds.length===1?backTargetCastIds[0]:"";
+    const castId=item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
+    const castName=String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
     return{
       itemId:String(item.id||""),label:String(item.label||""),category,
       price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
-      castId:item.castId==null?"":String(item.castId),castName:String(item.castName||""),
+      castId,castName,
       banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
       isSet:!!item.isSet,isHonShimei:!!item.isHonShimei,isBanaiShimei:!!item.isBanaiShimei,
       isExtension:!!item.isExtension,isBanaiExtension:!!item.isBanaiExtension,isVipCharge:!!item.isVipCharge,isRoomCharge:!!(item.isRoomCharge||item.isVipCharge||item.isKaraokeCharge),isKaraokeCharge:!!item.isKaraokeCharge,roomType:String(item.roomType||roomTypeFromItem(item)||""),roomMinutes:Number(item.roomMinutes)||0,isRoomExtension:!!item.isRoomExtension,isDiscount:!!item.isDiscount,isFreeDrink:!!item.isFreeDrink,freeDrinkMinutes:Number(item.freeDrinkMinutes)||0,
-      backTargetCastIds,backTargetCastNames:backTargetCastIds.map(id=>gmsCastName(id,"")),backType,backAllocation
+      backTargetCastIds,backTargetCastNames,backType,backAllocation
     };
   });
 }
@@ -2614,24 +2627,66 @@ function gmsTransactions(hist){
     transactionId:String(h.id||""),tableId:String(h.tableId||""),tableLabel:String(h.tableLabel||""),
     startTime:Number(h.startTime)||0,endTime:Number(h.endTime)||0,guests:gmsInt(h.guests),note:String(h.note||""),
     payMethod:h.payMethod==="card"?"card":"cash",
-    splits:(h.splits||[]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:gmsInt(sp.amount)})),
+    splits:(h.splits&&h.splits.length?h.splits:[{method:h.payMethod==="card"?"card":"cash",amount:h.total}]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:gmsInt(sp.amount)})),
     subtotal:gmsInt(h.subtotal),discount:gmsInt(h.discount),tax:gmsInt(h.tax),total:gmsInt(h.total),
     items:gmsTransactionItems(h.items||[])
   })).sort((a,b)=>a.startTime-b.startTime);
 }
-function gmsCastWork(day){
+function gmsRawLifecycleRows(date,type){
+  const log=(S.castLifecycleLogs||{})[date]||{};
+  const list=type==="entered"?log.enteredCasts:type==="exited"?log.exitedCasts:log.trialCasts;
+  return(Array.isArray(list)?list:[]).map(c=>({...c,castId:String(c.castId||""),castName:c.castName||c.name||"",internalNo:Number(c.internalNo)||0}));
+}
+function gmsCastTypeForDay(day,businessDate,castId,shift){
+  const id=String(castId||"");
+  const trial=gmsRawLifecycleRows(businessDate,"trial").find(row=>String(row.castId)===id);
+  if(trial)return"trial";
+  const roster=(day?.rosterSnapshot?.casts||[]).find(row=>String(row.castId??row.id??"")===id);
+  if(roster)return normalizeCastType(roster.castType,roster.isTrial,roster.status);
+  const lifecycle=[...gmsRawLifecycleRows(businessDate,"entered"),...gmsRawLifecycleRows(businessDate,"exited")].find(row=>String(row.castId)===id);
+  if(lifecycle)return normalizeCastType(lifecycle.castType,lifecycle.isTrial,lifecycle.status);
+  if(shift&&(shift.castType!=null||shift.isTrial!=null))return normalizeCastType(shift.castType,shift.isTrial,shift.status);
+  const current=allCasts().find(c=>String(c.id)===id);
+  return normalizeCastType(current?.castType,current?.isTrial,current?.status);
+}
+function gmsCastTypeSourceErrors(day,businessDate){
+  const errors=[],claims=new Map();
+  const add=(row,path,forcedType)=>{
+    const id=String(row?.castId??row?.id??"");if(!id)return;
+    const name=String(row?.castName||row?.name||id);
+    const hasClaim=!!forcedType||row.castType!=null||typeof row.isTrial==="boolean"||row.status==="trial";
+    if(!hasClaim)return;
+    if(row.castType!=null&&!['regular','trial','dispatch'].includes(row.castType)){errors.push(name+" ("+id+") の "+path+".castType「"+row.castType+"」が不正です");return;}
+    const castType=forcedType||normalizeCastType(row.castType,row.isTrial,row.status);
+    if(typeof row.isTrial==="boolean"&&row.isTrial!==(castType==="trial"))errors.push(name+" ("+id+") の区分が不一致です: "+path+".castType="+castType+", isTrial="+row.isTrial);
+    if(forcedType&&row.castType&&row.castType!==forcedType)errors.push(name+" ("+id+") の区分が不一致です: "+path+".castType="+row.castType+", 必須区分="+forcedType);
+    const prev=claims.get(id);
+    if(prev&&prev.castType!==castType)errors.push(name+" ("+id+") の区分が不一致です: "+prev.path+"="+prev.castType+", "+path+"="+castType);
+    else if(!prev)claims.set(id,{castType,path});
+  };
+  (day?.rosterSnapshot?.casts||[]).forEach((row,index)=>add(row,"rosterSnapshot.casts["+index+"]"));
+  gmsRawLifecycleRows(businessDate,"entered").forEach((row,index)=>add(row,"enteredCasts["+index+"]"));
+  gmsRawLifecycleRows(businessDate,"exited").forEach((row,index)=>add(row,"exitedCasts["+index+"]"));
+  gmsRawLifecycleRows(businessDate,"trial").forEach((row,index)=>add(row,"trialCasts["+index+"]","trial"));
+  Object.values(day?.shifts||{}).forEach((row,index)=>add(row,"shifts["+index+"]"));
+  const relevantIds=new Set([...claims.keys(),...Object.values(day?.shifts||{}).map(row=>String(row.castId||""))]);
+  allCasts().filter(c=>relevantIds.has(String(c.id))).forEach((row,index)=>add(row,"casts["+index+"]"));
+  return[...new Set(errors)];
+}
+function gmsCastWork(day,businessDate){
   return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>{
     const cast=allCasts().find(c=>String(c.id)===String(sh.castId));
     const startTime=gmsHHMM(sh.clockIn),endTime=gmsHHMM(sh.clockOut||day.endedAt);
-    const castType=cast?.castType||sh.castType||"regular";
+    const castType=gmsCastTypeForDay(day,businessDate||day.date||day.id,sh.castId,sh);
     const name=sh.castName||cast?.name||"";
     return{castId:String(sh.castId||""),castName:name,name,castType,isTrial:castType==="trial",startTime,endTime,breakMinutes:0,hours:gmsHours(startTime,endTime,0)};
   });
 }
-function gmsLifecycleRows(date,type){
-  const log=(S.castLifecycleLogs||{})[date]||{};
-  const list=type==="entered"?log.enteredCasts:type==="exited"?log.exitedCasts:log.trialCasts;
-  return(Array.isArray(list)?list:[]).map(c=>({...c,castId:String(c.castId||""),castName:c.castName||c.name||"",internalNo:Number(c.internalNo)||0}));
+function gmsLifecycleRows(date,type,day){
+  return gmsRawLifecycleRows(date,type).map(row=>{
+    const castType=type==="trial"?"trial":gmsCastTypeForDay(day,date,row.castId,row);
+    return{...row,castType,isTrial:castType==="trial"};
+  });
 }
 function gmsIso(value,fallback){
   const v=value||fallback||Date.now();
@@ -2660,18 +2715,18 @@ function gmsRosterSnapshot(capturedAt,day){
   return GMS_JSON.createRosterSnapshot(allCasts(),capturedAt,false);
 }
 function gmsLifecycleEvents(businessDate,day){
-  const entered=gmsLifecycleRows(businessDate,"entered").map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
-  const departed=gmsLifecycleRows(businessDate,"exited").map(row=>({row,eventType:"departed",timeField:"exitedAt"}));
-  const trial=gmsLifecycleRows(businessDate,"trial").map(row=>({row,eventType:"trial",timeField:"trialRegisteredAt"}));
+  const entered=gmsLifecycleRows(businessDate,"entered",day).map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
+  const departed=gmsLifecycleRows(businessDate,"exited",day).map(row=>({row,eventType:"departed",timeField:"exitedAt"}));
+  const trial=gmsLifecycleRows(businessDate,"trial",day).map(row=>({row,eventType:"trial",timeField:"trialRegisteredAt"}));
   return[...entered,...departed,...trial].map(({row,eventType,timeField})=>{
     const eventAt=gmsIsoForEvent(row,timeField,businessDate,day);
     const castId=String(row.castId||"");
     const eventId=String(row.eventId||gmsStableId("evt",[businessDate,eventType,castId,eventAt,Number(row.internalNo)||0]));
-    return{eventId,eventType,eventAt,castId,castName:String(row.castName||row.name||""),entryDate:String(row.entryDate||row.trialBizDay||businessDate),internalNo:Number(row.internalNo)||0};
+    return{eventId,eventType,eventAt,castId,castName:String(row.castName||row.name||""),castType:row.castType,isTrial:row.isTrial,entryDate:String(row.entryDate||row.trialBizDay||businessDate),internalNo:Number(row.internalNo)||0};
   }).sort((a,b)=>a.eventAt.localeCompare(b.eventAt)||a.eventId.localeCompare(b.eventId));
 }
-function gmsLocalMeta(){try{return JSON.parse(localStorage.getItem("genesis_gms_export_meta_v2")||"{}")||{};}catch(e){return{};}}
-function gmsPutLocalMeta(meta){try{localStorage.setItem("genesis_gms_export_meta_v2",JSON.stringify(meta||{}));return true;}catch(e){return false;}}
+function gmsLocalMeta(){try{return JSON.parse(localStorage.getItem("genesis_gms_export_meta_v3")||"{}")||{};}catch(e){return{};}}
+function gmsPutLocalMeta(meta){try{localStorage.setItem("genesis_gms_export_meta_v3",JSON.stringify(meta||{}));return true;}catch(e){return false;}}
 function gmsMetaTime(meta){const value=Date.parse(meta?.updatedAt||meta?.generatedAt||"");return Number.isNaN(value)?0:value;}
 function gmsGetExportMeta(date){
   const local=gmsLocalMeta()[date]||null;
@@ -2701,21 +2756,24 @@ function gmsClosingBasePayload(dayId){
   const businessDate=day.date||dayId,transactions=gmsTransactions(hist),castSales=gmsCastSales(hist);
   const capturedAt=gmsIso(day.endedAt||Date.now());
   return{
-    schema:"club-genesis-pos-closing",schemaVersion:2,
+    schema:"club-genesis-pos-closing",schemaVersion:3,
     businessDate,status:"submitted",
     sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
     customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
-    transactions,castSales,castSalesSummary:gmsCastSalesSummary(castSales),castWork:gmsCastWork(day),staffWork:[],
-    expenses:[],allowances:[],enteredCasts:gmsLifecycleRows(businessDate,"entered"),exitedCasts:gmsLifecycleRows(businessDate,"exited"),trialCasts:gmsLifecycleRows(businessDate,"trial"),
+    transactions,castSales,castWork:gmsCastWork(day,businessDate),
+    enteredCasts:gmsLifecycleRows(businessDate,"entered",day),exitedCasts:gmsLifecycleRows(businessDate,"exited",day),trialCasts:gmsLifecycleRows(businessDate,"trial",day),
     rosterSnapshot:gmsRosterSnapshot(capturedAt,day),lifecycleEvents:gmsLifecycleEvents(businessDate,day),
-    cashReconciliation:{expectedCash:pay.cash,actualCash:pay.cash,difference:0,note:""},
-    source:{exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null}
+    source:{exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null},
+    checksumAlgorithm:"sha256",checksumCanonicalization:"recursive-key-sort-v1"
   };
 }
 function gmsClosingPayload(dayId,opts={}){
   const base=gmsClosingBasePayload(dayId);if(!base)return null;
-  const prev=gmsGetExportMeta(base.businessDate)||{};
+  const sourceTypeErrors=gmsCastTypeSourceErrors(S.bizDays[dayId],base.businessDate);
+  if(sourceTypeErrors.length)return{_gmsError:"キャスト区分の不一致を修正してから再度出力してください。\n"+sourceTypeErrors.slice(0,12).join("\n"),_gmsMeta:{previous:{}}};
+  const storedPrev=gmsGetExportMeta(base.businessDate)||{};
+  const prev=storedPrev.schemaVersion===3?storedPrev:{};
   const prepared=GMS_JSON.prepareSubmission(base,prev,{
     correction:!!opts.correction,
     generatedAt:gmsIso(base.source.businessEndedAt||Date.now()),
@@ -2739,7 +2797,7 @@ function gmsDownloadPayload(payload){
 async function redownloadGmsClosingJSON(dayId){
   const day=S.bizDays[dayId];if(!day){alert("出力対象の営業日が見つかりません");return;}
   const prev=gmsGetExportMeta(day.date||dayId)||{};
-  if(!prev.payload||!prev.submissionId){return exportGmsClosingJSON(dayId,false);}
+  if(prev.schemaVersion!==3||!prev.payload||!prev.submissionId){return exportGmsClosingJSON(dayId,false);}
   const payload=JSON.parse(JSON.stringify(prev.payload));
   const errors=validateGmsClosingPayload(payload);
   if(errors.length){alert("保存済みJSONを再出力できませんでした。\n\n"+errors.slice(0,12).join("\n"));return;}
@@ -2790,7 +2848,7 @@ async function exportGmsClosingJSON(dayId,correction){
   if(!history.some(row=>row.submissionId===payload.submissionId)){
     history.push({submissionId:payload.submissionId,checksum:payload.checksum,generatedAt:payload.generatedAt,supersedesSubmissionId:payload.supersedesSubmissionId||null});
   }
-  const exportMeta={schemaVersion:2,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),history:history.slice(-20),updatedAt:gmsIso(Date.now())};
+  const exportMeta={schemaVersion:3,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),history:history.slice(-20),updatedAt:gmsIso(Date.now())};
   try{
     await gmsSaveExportMeta(payload.businessDate,exportMeta);
   }catch(e){
@@ -3606,7 +3664,7 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
 }
 
 // ===== CHECKIN =====
-function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,freedrink:false,single:false,note:""};etv=roundHHMM(5);}
+function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastId:null,freedrink:false,single:false,note:""};etv=roundHHMM(5);}
 function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
 function cancelCheckin(){if(checkinBusy)return;resetCheckinState();at=null;closeM();render();}
 function ciGo(step){md=step;rModal();}
@@ -3615,7 +3673,13 @@ function ciSelectSetType(type){ci.setType=type;ci.setMenu=null;ciGo("ci-set");}
 function ciSelectSet(id){ci.setMenu=id;ciGo("ci-time");}
 function ciToggleHon(id){id=parseInt(id,10);ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
 function ciAfterHon(){if(ci.honShimeis.length>0)ciGo("ci-douhan");else if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
-function ciSetDouhan(v){ci.douhan=!!v;rModal();}
+function ciSetDouhanCast(id){
+  const value=String(id||"");
+  const cast=ci.honShimeis.find(cid=>String(cid)===value);
+  ci.douhan=cast!=null;
+  ci.douhanCastId=cast??null;
+  rModal();
+}
 function ciAfterDouhan(){if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
 function ciSetSingle(v){ci.single=!!v;rModal();}
 function ciAfterSingle(){ciGo("ci-note");}
@@ -3710,7 +3774,11 @@ function odq(id){
   ];
   const source=menuSources.find(entry=>entry.items.some(item=>item.id===id));
   const d=source?.items.find(item=>item.id===id);
-  if(d){qm={id:d.id,label:d.label,price:d.price,category:source.category};om("qty");}
+  if(d){
+    qm={id:d.id,label:d.label,price:d.price,category:source.category};
+    if((source.category==="champagneWine"||source.category==="keepBottle")&&Number(d.price)>0){md="liquor-target";rModal();}
+    else om("qty");
+  }
 }
 function ofdq(){om("fd");}
 function selectFreeDrink(minutes,price){qv=S.sessions[at]?.guests||1;qm={id:"fd_add",label:price===0?freeDrinkLabel(0):freeDrinkLabel(minutes),price,category:"",isFreeDrink:true,freeDrinkMinutes:minutes};om("qty");}
@@ -6291,6 +6359,19 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">閉じる</button>'
   +'</div></div>';
   }
+  else if(md==="liquor-target"&&s&&qm){
+const candidates=sc();
+let targetButtons="";
+candidates.forEach(c=>{
+  targetButtons+='<button class="btn" data-cid="'+c.id+'" onclick="selectLiquorBackCast(this.dataset.cid)" style="padding:14px 8px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#d4a017;border-radius:7px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>';
+});
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
+  +'<h3 style="margin-bottom:4px;font-size:17px;color:#d4a017;">'+qm.label+'</h3>'
+  +'<div style="font-size:12px;color:#666;margin-bottom:16px;">ボトルバック対象キャストを1名選択してください</div>'
+  +(candidates.length?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:55vh;overflow-y:auto;">'+targetButtons+'</div>':'<div style="padding:18px;text-align:center;color:#b91c1c;font-size:13px;">選択できるキャストがいません。キャストを登録してから注文してください。</div>')
+  +'<button class="btn" onclick="closeM();qm=null;qv=1;" style="width:100%;margin-top:14px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
+  +'</div></div>';
+  }
   else if(md==="ext"&&s){
 // SC: show only extension choices that enter a new 60-minute SC charge block.
 const scEligible=isSingleChargeExtensionEligible(s);
@@ -6435,9 +6516,10 @@ if(md==="ci-guests"){
   body+='</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-time\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterHon()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-douhan"){
-  const sel=!!ci.douhan;
-  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">&#21516;&#20276;&#12458;&#12503;&#12471;&#12519;&#12531;&#65288;&#20219;&#24847;&#65289;</div>';
-  body+='<button class="btn" onclick="ciSetDouhan(!ci.douhan)" style="width:100%;padding:16px;font-weight:900;border-radius:8px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(255,255,255,.05)')+';border:1px solid '+(sel?'#d4a017':'rgba(255,255,255,.1)')+';color:'+(sel?'#d4a017':'#aaa')+';touch-action:manipulation;">'+(sel?'&#10003; ':'')+'&#21516;&#20276;</button>';
+  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">同伴したキャストを選択（同伴なしも選択可）</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">';
+  body+='<button class="btn" onclick="ciSetDouhanCast(\'\')" style="padding:14px 8px;border-radius:7px;background:'+(!ci.douhan?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+';border:1px solid '+(!ci.douhan?'#94a3b8':'rgba(255,255,255,.1)')+';color:#aaa;font-weight:700;">'+(!ci.douhan?'&#10003; ':'')+'同伴なし</button>';
+  ci.honShimeis.forEach(cid=>{const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;const sel=ci.douhan&&String(ci.douhanCastId)===String(cid);body+='<button class="btn" data-cid="'+c.id+'" onclick="ciSetDouhanCast(this.dataset.cid)" style="padding:14px 8px;border-radius:7px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(124,77,255,.1)')+';border:1px solid '+(sel?'#d4a017':'rgba(124,77,255,.3)')+';color:'+(sel?'#d4a017':'#a78bfa')+';font-weight:800;">'+(sel?'&#10003; ':'')+c.name+'</button>';});
+  body+='</div>';
   body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-hon\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterDouhan()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-single"){
@@ -7395,7 +7477,8 @@ async function clockIn(castId,time){
   const t=hhmm2ts(time||nowHHMM());
   const sid="sh_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
   // statusLogは待機・休憩の開始/終了を記録する配列
-  const desired={id:sid,castId:c.id,castName:c.name,clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
+  const castType=normalizeCastType(c.castType,c.isTrial,c.status);
+  const desired={id:sid,castId:c.id,castName:c.name,castType,isTrial:castType==="trial",clockIn:t,clockOut:null,status:"waiting",statusLog:[{status:"waiting",startTime:t,endTime:null}]};
   await withDataOperation("cast:"+castId,async()=>{
     try{
       await guardedCheckedUpdateOptimistic(
