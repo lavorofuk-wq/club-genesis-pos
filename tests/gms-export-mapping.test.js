@@ -92,6 +92,15 @@ const rawItems = [
     backTargetCastNames: ["在籍 花子"],
     backType: "castDrink",
     backAllocation: "orderedCast"
+  },
+  {
+    id: "hs_trial",
+    label: "本指名料 (体入 美咲)",
+    price: 2000,
+    qty: 1,
+    castId: "trial-1",
+    castName: "体入 美咲",
+    isHonShimei: true
   }
 ];
 
@@ -109,16 +118,73 @@ assert.deepStrictEqual(Array.from(mapped[3].banaiExtCastIds), ["dispatch-1"], "�
 assert.strictEqual(mapped[4].category, "castDrink", "キャストドリンク分類を維持");
 assert.deepStrictEqual(Array.from(mapped[4].backTargetCastIds), ["regular-1"], "キャストドリンク対象を維持");
 
-const multiBottle = context.gmsTransactionItems([{
-  ...rawItems[0],
-  backTargetCastIds: ["regular-1", "trial-1"],
-  backTargetCastNames: ["在籍 花子", "体入 美咲"],
-  backAllocation: "equal"
-}])[0];
+const multiBottle = context.gmsTransactionItems([
+  {
+    ...rawItems[0],
+    castId: "regular-1",
+    castName: "在籍 花子",
+    backTargetCastIds: ["regular-1", "trial-1"],
+    backTargetCastNames: ["在籍 花子", "体入 美咲"],
+    backAllocation: "equal"
+  },
+  { id: "hs_regular", label: "本指名料 (在籍 花子)", price: 2000, qty: 1, castId: "regular-1", castName: "在籍 花子", isHonShimei: true },
+  { id: "hs_trial", label: "本指名料 (体入 美咲)", price: 2000, qty: 1, castId: "trial-1", castName: "体入 美咲", isHonShimei: true }
+])[0];
 assert.deepStrictEqual(Array.from(multiBottle.backTargetCastIds), ["regular-1", "trial-1"], "複数ボトルバック対象を全員出力");
 assert.deepStrictEqual(Array.from(multiBottle.backTargetCastNames), ["在籍 花子", "体入 美咲"], "複数対象名をID順に出力");
 assert.strictEqual(multiBottle.castId, "regular-1", "複数対象時も代表castIdは配列先頭と一致");
 assert.strictEqual(multiBottle.backAllocation, "equal", "複数ボトルバックを均等分配として出力");
+
+const freeBottle = context.gmsTransactionItems([rawItems[0]])[0];
+assert.deepStrictEqual(Array.from(freeBottle.backTargetCastIds), [], "本指名・場内延長がない有料ボトルはバック対象外");
+assert.strictEqual(freeBottle.castId, "", "バック対象外ボトルのcastIdを出力しない");
+assert.strictEqual(freeBottle.backType, "", "バック対象外ボトルのbackTypeを出力しない");
+
+const banaiBottle = context.gmsTransactionItems([
+  { id: "ext_banai", label: "延長30分", price: 4000, qty: 1, isExtension: true, isBanaiExtension: true, banaiExtCastIds: ["regular-1", "dispatch-1"] },
+  { ...rawItems[0], castId: "regular-1", castName: "在籍 花子", backTargetCastIds: ["regular-1", "dispatch-1"], backTargetCastNames: ["在籍 花子", "派遣 葵"], backAllocation: "equal" }
+])[1];
+assert.deepStrictEqual(Array.from(banaiBottle.backTargetCastIds), ["regular-1", "dispatch-1"], "場内延長後のボトルは延長売上対象キャストへ出力");
+assert.strictEqual(banaiBottle.backAllocation, "equal", "場内延長対象が複数なら均等分配");
+
+const orderSource = app.slice(app.indexOf("function odq"), app.indexOf("function ofdq"));
+context.S.menus = { drinks: [], champagne: [{ id: "cw-menu", label: "シャンパン", price: 30000 }], keepBottles: [] };
+context.S.sessions = { t1: { items: [] } };
+context.at = "t1";
+context.qv = 1;
+context.qm = null;
+context.md = null;
+context.modalRenders = 0;
+context.qtyOpens = 0;
+context.rModal = () => { context.modalRenders += 1; };
+context.om = name => { if(name === "qty")context.qtyOpens += 1; };
+context.alert = message => { throw new Error(message); };
+vm.runInContext(orderSource, context);
+
+vm.runInContext("odq('cw-menu')", context);
+assert.strictEqual(context.qtyOpens, 1, "フリー卓の有料ボトルはキャスト選択なしで数量選択へ進む");
+assert.strictEqual(context.modalRenders, 0, "フリー卓ではボトルバック選択画面を開かない");
+assert.strictEqual(context.qm.itemData, undefined, "フリー卓のボトルにバック対象を保存しない");
+
+context.S.sessions.t1.items = [
+  { id: "hs-r", isHonShimei: true, castId: "regular-1" },
+  { id: "hs-t", isHonShimei: true, castId: "trial-1" }
+];
+vm.runInContext("odq('cw-menu')", context);
+assert.strictEqual(context.md, "liquor-target", "本指名売上対象がいる場合だけ選択画面を開く");
+assert.deepStrictEqual(Array.from(context.qm.itemData.backTargetCastIds), ["regular-1", "trial-1"], "複数本指名を初期選択して均等分配する");
+
+context.S.sessions.t1.items = [{ id: "banai-only", isBanaiShimei: true, castId: "dispatch-1" }];
+context.modalRenders = 0;
+context.qtyOpens = 0;
+vm.runInContext("odq('cw-menu')", context);
+assert.strictEqual(context.qtyOpens, 1, "場内指名のみで未延長ならキャスト選択を行わない");
+assert.strictEqual(context.modalRenders, 0, "場内指名のみではボトルバック選択画面を開かない");
+
+context.S.sessions.t1.items = [{ id: "banai-ext", isExtension: true, isBanaiExtension: true, banaiExtCastIds: ["regular-1", "dispatch-1"] }];
+vm.runInContext("odq('cw-menu')", context);
+assert.strictEqual(context.md, "liquor-target", "場内延長後はボトルバック選択画面を開く");
+assert.deepStrictEqual(Array.from(context.qm.itemData.backTargetCastIds), ["regular-1", "dispatch-1"], "場内延長売上対象全員を初期選択する");
 
 const transaction = context.gmsTransactions([{
   id: "tx-1",
@@ -178,7 +244,9 @@ const closedRecord = {
   items: [
     { id: "dh", label: "同伴料", price: 3000, qty: 2 },
     { id: "cw-old", label: "シャンパン", category: "champagneWine", price: 30000, qty: 1 },
-    { id: "keep-use", label: "キープ利用", category: "keepBottle", price: 0, qty: 1 }
+    { id: "keep-use", label: "キープ利用", category: "keepBottle", price: 0, qty: 1 },
+    { id: "hs_regular", label: "本指名料 (在籍 花子)", price: 2000, qty: 1, castId: "regular-1", castName: "在籍 花子", isHonShimei: true },
+    { id: "hs_dispatch", label: "本指名料 (派遣 葵)", price: 2000, qty: 1, castId: "dispatch-1", castName: "派遣 葵", isHonShimei: true }
   ]
 };
 const closedDay = { ...day, id: "2026-09-02", history: [closedRecord], assignments: {} };
@@ -202,13 +270,17 @@ assert.strictEqual(applied.record.items.find(item => item.id === "keep-use").bac
 const shortDohan = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1"], item_1: ["regular-1"] }, candidates);
 assert(shortDohan.errors.some(error => error.includes("2名選択")), "同伴料本数と対象人数の不一致を拒否");
 const missingBottle = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1", "trial-1"], item_1: [] }, candidates);
-assert(missingBottle.errors.some(error => error.includes("ボトルバック対象")), "締め済み有料ボトルの対象なしを拒否");
+assert(missingBottle.errors.some(error => error.includes("売上対象キャスト全員")), "締め済み有料ボトルの売上対象不足を拒否");
+
+const freeClosedRecord = { id: "free-closed", items: [{ id: "free-bottle", label: "シャンパン", category: "champagneWine", price: 30000, qty: 1 }] };
+assert.deepStrictEqual(Array.from(context.gmsTargetEntries(freeClosedRecord)), [], "本指名・場内延長がない締め済みボトルは修正対象にしない");
 
 assert.match(app, /md==="liquor-target"/, "有料ボトル対象キャスト選択UIを持つ");
 assert.match(app, /function ciSetDouhanCast/, "同伴キャスト明示選択を持つ");
 assert.match(app, /backAllocation:selected\.length>1\?"equal"/, "注文時の複数ボトルバックを均等分配で保存");
 assert.match(app, /items\.push\(\.\.\.buildDohanChargeItems\(douhanCasts/, "同伴キャストごとに同伴料明細を作成");
 assert.match(app, /md==="gmsTargetEdit"/, "締め済み対象キャスト修正画面を持つ");
-assert.doesNotMatch(source.slice(source.indexOf("function gmsTransactionItems"), source.indexOf("function gmsTransactions")), /currentBanaiIds|splitEvenly|singleCast/, "ボトル対象を場内延長から推測しない");
+assert.match(app, /function gmsBottleBackEligibleCastIds[\s\S]*honIds[\s\S]*isBanaiExtension/, "ボトル対象を本指名・場内延長の売上判定に限定する");
+assert.match(app, /function odq[\s\S]*eligibleIds\.length[\s\S]*liquor-target/, "売上対象キャストがいる場合だけボトル選択画面を開く");
 
 console.log("gms export mapping tests passed");

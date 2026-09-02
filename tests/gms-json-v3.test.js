@@ -30,8 +30,8 @@ function transactionItems() {
     },
     {
       itemId: "cw1", label: "シャンパン", category: "champagneWine", price: 30000, quantity: 1,
-      castId: "trial-1", castName: "体入 美咲", banaiExtCastIds: [], isHonShimei: false,
-      isBanaiShimei: false, isExtension: false, backTargetCastIds: ["trial-1"], backTargetCastNames: ["体入 美咲"],
+      castId: "regular-1", castName: "在籍 花子", banaiExtCastIds: [], isHonShimei: false,
+      isBanaiShimei: false, isExtension: false, backTargetCastIds: ["regular-1"], backTargetCastNames: ["在籍 花子"],
       backType: "champagneWine", backAllocation: "single"
     },
     {
@@ -42,7 +42,7 @@ function transactionItems() {
     {
       itemId: "ext1", label: "延長30分", category: "extension", price: 3000, quantity: 1,
       castId: "", castName: "", banaiExtCastIds: ["dispatch-1"], isHonShimei: false,
-      isBanaiShimei: false, isExtension: true, backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: ""
+      isBanaiShimei: false, isExtension: true, isBanaiExtension: true, backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: ""
     },
     {
       itemId: "drink1", label: "キャストDrink (在籍 花子)", category: "castDrink", price: 2000, quantity: 1,
@@ -169,12 +169,17 @@ recalculate(typeMismatch);
 assert(GmsJson.validatePayload(typeMismatch).some((error) => error.includes("体入 美咲") && error.includes("区分が不一致")), "体入区分の不一致を名前付きで拒否");
 
 const bottle = initial.payload.transactions[0].items.find((item) => item.category === "champagneWine");
-assert.deepStrictEqual(bottle.backTargetCastIds, ["trial-1"], "有料ボトル対象IDを出力");
-assert.deepStrictEqual(bottle.backTargetCastNames, ["体入 美咲"], "有料ボトル対象名を出力");
+assert.deepStrictEqual(bottle.backTargetCastIds, ["regular-1"], "本指名売上対象へ有料ボトル対象IDを出力");
+assert.deepStrictEqual(bottle.backTargetCastNames, ["在籍 花子"], "本指名売上対象へ有料ボトル対象名を出力");
 assert.strictEqual(bottle.backType, "champagneWine");
 assert.strictEqual(bottle.backAllocation, "single");
 
 const multiBottleTargets = GmsJson.clone(initial.payload);
+multiBottleTargets.transactions[0].items.push({
+  itemId: "hs2", label: "本指名料 (体入 美咲)", category: "honShimei", price: 2000, quantity: 1,
+  castId: "trial-1", castName: "体入 美咲", banaiExtCastIds: [], isHonShimei: true,
+  isBanaiShimei: false, isExtension: false, backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: ""
+});
 Object.assign(multiBottleTargets.transactions[0].items[3], {
   castId: "regular-1", castName: "在籍 花子",
   backTargetCastIds: ["regular-1", "trial-1"],
@@ -193,6 +198,31 @@ Object.assign(missingBottleTarget.transactions[0].items[3], { castId: "", castNa
 recalculate(missingBottleTarget);
 assert(GmsJson.validatePayload(missingBottleTarget).some((error) => error.includes("シャンパン") && error.includes("対象キャストがありません")), "対象なし有料ボトルを商品名付きで拒否");
 assert(!GmsJson.validatePayload(initial.payload).some((error) => error.includes("キープ利用")), "価格0円のキープ利用は対象キャスト不要");
+
+const freeBottlePayload = GmsJson.clone(initial.payload);
+freeBottlePayload.transactions.push({
+  transactionId: "tx-free-bottle", tableId: "t2", tableLabel: "テーブル 2", startTime: 1788350500000, endTime: 1788354100000,
+  guests: 1, note: "", payMethod: "cash", splits: [{ method: "cash", amount: 30000 }], subtotal: 30000, discount: 0, tax: 0, total: 30000,
+  items: [{ itemId: "free-cw", label: "フリー卓シャンパン", category: "champagneWine", price: 30000, quantity: 1, castId: "", castName: "", banaiExtCastIds: [], isHonShimei: false, isBanaiShimei: false, isExtension: false, backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: "" }]
+});
+recalculate(freeBottlePayload);
+assert.deepStrictEqual(GmsJson.validatePayload(freeBottlePayload), [], "本指名・場内延長がない有料ボトルは対象なしで受理");
+const invalidFreeBottleTarget = GmsJson.clone(freeBottlePayload);
+Object.assign(invalidFreeBottleTarget.transactions[1].items[0], { castId: "regular-1", castName: "在籍 花子", backTargetCastIds: ["regular-1"], backTargetCastNames: ["在籍 花子"], backType: "champagneWine", backAllocation: "single" });
+recalculate(invalidFreeBottleTarget);
+assert(GmsJson.validatePayload(invalidFreeBottleTarget).some((error) => error.includes("売上対象外")), "売上対象外ボトルへのバック設定を拒否");
+
+const banaiBottlePayload = GmsJson.clone(initial.payload);
+banaiBottlePayload.transactions.push({
+  transactionId: "tx-banai-bottle", tableId: "t3", tableLabel: "テーブル 3", startTime: 1788350600000, endTime: 1788354200000,
+  guests: 1, note: "", payMethod: "cash", splits: [{ method: "cash", amount: 34000 }], subtotal: 34000, discount: 0, tax: 0, total: 34000,
+  items: [
+    { itemId: "ext-banai", label: "場内延長30分", category: "banaiExtension", price: 4000, quantity: 1, castId: "", castName: "", banaiExtCastIds: ["trial-1", "dispatch-1"], isHonShimei: false, isBanaiShimei: false, isExtension: true, isBanaiExtension: true, backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: "" },
+    { itemId: "banai-cw", label: "場内延長後シャンパン", category: "champagneWine", price: 30000, quantity: 1, castId: "trial-1", castName: "体入 美咲", banaiExtCastIds: [], isHonShimei: false, isBanaiShimei: false, isExtension: false, backTargetCastIds: ["trial-1", "dispatch-1"], backTargetCastNames: ["体入 美咲", "派遣 葵"], backType: "champagneWine", backAllocation: "equal" }
+  ]
+});
+recalculate(banaiBottlePayload);
+assert.deepStrictEqual(GmsJson.validatePayload(banaiBottlePayload), [], "場内延長後のボトルを延長売上対象全員への均等分配で受理");
 
 const dohan = initial.payload.transactions[0].items.find((item) => item.category === "dohan");
 assert.deepStrictEqual(dohan.backTargetCastIds, ["regular-1"], "同伴対象IDを出力");
