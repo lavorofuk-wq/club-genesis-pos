@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.138.1";
+const APP_VERSION="6.138.2";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1171,9 +1171,14 @@ async function guardedRootTransaction(mutator,options={}){
   // 子ノード単位の購読では親refのローカルキャッシュが未完成なことがある。
   // 未完成のままtransactionを開始するとcurrent=nullで即時abortするため、
   // サーバーの最新ルートを一度取得してから競合検出を開始する。
-  await ref.once("value");
+  const primedSnapshot=await ref.once("value");
+  const primedRoot=primedSnapshot.val();
+  let transactionAttempt=0;
   const res=await ref.transaction(current=>{
-    const root=(current&&typeof current==="object")?cloneData(current):{};
+    // 初回だけは直前にサーバーから取得した完全な値を使う。
+    // サーバー側で競合が検出されて再実行された場合は、Firebaseが渡す最新値を使う。
+    const source=transactionAttempt++===0?primedRoot:current;
+    const root=(source&&typeof source==="object")?cloneData(source):{};
     blocked=null;
     let next;
     try{next=mutator(root);}
@@ -1214,6 +1219,7 @@ async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
   return guardedRootTransaction(root=>{
     const current=root.activeBizDay||null;
     if(current!==expected){
+      console.warn("Business day guard mismatch",{expected,current});
       throw Object.assign(new Error("business day changed"),{userMessage:message||"営業状態が他端末で変更されています。最新データに更新してから再実行してください。"});
     }
     Object.entries(values||{}).forEach(([k,v])=>setPathValue(root,k,v));

@@ -7,13 +7,13 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.138\.1"/);
-assert.match(index,/Ver6\.138\.1/);
-assert.match(sw,/genesis-pos-v6\.138\.1-auth/);
+assert.match(app,/const APP_VERSION="6\.138\.2"/);
+assert.match(index,/Ver6\.138\.2/);
+assert.match(sw,/genesis-pos-v6\.138\.2-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
-assert.match(app,/async function guardedRootTransaction[\s\S]*await ref\.once\("value"\)[\s\S]*ref\.transaction\(/,"root transactions must prime the parent cache before conflict checks");
+assert.match(app,/async function guardedRootTransaction[\s\S]*const primedSnapshot=await ref\.once\("value"\)[\s\S]*transactionAttempt\+\+===0\?primedRoot:current[\s\S]*ref\.transaction\(/,"the first root transaction attempt must use the complete server snapshot");
 assert.match(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"sessions"[^\]]*"history"[^\]]*"activeBizDay"[^\]]*\]/);
 assert.doesNotMatch(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"bizDays"/);
 assert.doesNotMatch(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"gmsExportMeta"/);
