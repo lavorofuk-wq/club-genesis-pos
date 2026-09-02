@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.138";
+const APP_VERSION="6.138.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1168,6 +1168,10 @@ async function guardedRootTransaction(mutator,options={}){
   if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
   let blocked=null;
   const ref=window._db.ref(FB_ROOT);
+  // 子ノード単位の購読では親refのローカルキャッシュが未完成なことがある。
+  // 未完成のままtransactionを開始するとcurrent=nullで即時abortするため、
+  // サーバーの最新ルートを一度取得してから競合検出を開始する。
+  await ref.once("value");
   const res=await ref.transaction(current=>{
     const root=(current&&typeof current==="object")?cloneData(current):{};
     blocked=null;
