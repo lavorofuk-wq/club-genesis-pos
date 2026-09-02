@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.1";
+const APP_VERSION="6.140.2";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1736,7 +1736,12 @@ function confQty(){
   const s=S.sessions[at];
   const isCastDrink=qm.category==="castDrink";
   const isPaidBottle=(qm.category==="champagneWine"||qm.category==="keepBottle")&&Number(qm.price)>0;
-  if(isPaidBottle&&!(qm.itemData?.backTargetCastIds||[]).length){alert("有料ボトルのバック対象キャストを選択してください。");return;}
+  const eligibleBottleCastIds=isPaidBottle?gmsBottleBackEligibleCastIds(s?.items||[]):[];
+  const selectedBottleCastIds=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
+  if(eligibleBottleCastIds.length&&!gmsSameStringSet(selectedBottleCastIds,eligibleBottleCastIds)){
+    alert("ボトルバックは本指名・場内延長の売上対象キャスト全員を選択してください。");return;
+  }
+  if(isPaidBottle&&!eligibleBottleCastIds.length)qm.itemData=null;
   s.items=[...s.items,{id:qm.id+"_"+Date.now(),label:qm.itemLabel||qm.label,price:qm.price,qty,category:qm.category||"",...(qm.itemData||{})}];
   save("sessions/"+at,S.sessions[at]);qm=null;qv=1;
   if(isCastDrink){cds=0;cdc=null;}
@@ -1760,11 +1765,12 @@ function addCD(cid,did){
 }
 function selectLiquorBackCast(cid){
   if(!qm||(qm.category!=="champagneWine"&&qm.category!=="keepBottle"))return;
-  const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;
+  const candidates=gmsBottleBackTargetCasts(S.sessions[at]?.items||[]);
+  const c=candidates.find(c=>String(c.id)===String(cid));if(!c)return;
   const current=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
   const id=String(c.id);
   const next=current.includes(id)?current.filter(value=>value!==id):[...current,id];
-  const selected=next.map(value=>sc().find(cast=>String(cast.id)===value)).filter(Boolean);
+  const selected=next.map(value=>candidates.find(cast=>String(cast.id)===value)).filter(Boolean);
   qm.itemData={
     castId:selected[0]?.id||"",castName:selected[0]?.name||"",
     backTargetCastIds:selected.map(cast=>String(cast.id)),backTargetCastNames:selected.map(cast=>cast.name),
@@ -1774,7 +1780,10 @@ function selectLiquorBackCast(cid){
 }
 function confirmLiquorBackCasts(){
   if(!qm||(qm.category!=="champagneWine"&&qm.category!=="keepBottle"))return;
-  if(!(qm.itemData?.backTargetCastIds||[]).length){alert("ボトルバック対象キャストを1名以上選択してください。");return;}
+  const eligible=gmsBottleBackEligibleCastIds(S.sessions[at]?.items||[]);
+  const selected=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
+  if(!eligible.length){qm.itemData=null;om("qty");return;}
+  if(!gmsSameStringSet(selected,eligible)){alert("本指名・場内延長の売上対象キャスト全員を選択してください。");return;}
   om("qty");
 }
 function addCustom(){
@@ -2586,10 +2595,15 @@ function gmsTargetEntries(record){
       dohanIndexes.push(index);
       dohanCount+=Math.max(1,Math.floor(Number(item.qty)||1));
     }else if((category==="champagneWine"||category==="keepBottle")&&Number(item.price)*Math.max(1,Number(item.qty)||1)>=1){
-      bottles.push({key:"item_"+index,category,itemIndexes:[index],requiredCount:1,label:String(item.label||"ボトル"),amount:Number(item.price)*Math.max(1,Number(item.qty)||1)});
+      const eligibleCastIds=gmsBottleBackEligibleCastIds(items,index);
+      if(eligibleCastIds.length)bottles.push({key:"item_"+index,category,itemIndexes:[index],requiredCount:eligibleCastIds.length,eligibleCastIds,label:String(item.label||"ボトル"),amount:Number(item.price)*Math.max(1,Number(item.qty)||1)});
     }
   });
   return[...(dohanIndexes.length?[{key:"dohan",category:"dohan",itemIndexes:dohanIndexes,requiredCount:dohanCount,label:"同伴料",amount:dohanIndexes.reduce((sum,index)=>sum+Number(items[index]?.price||0)*Math.max(1,Number(items[index]?.qty)||1),0)}]:[]),...bottles];
+}
+function gmsTargetSelectionComplete(entry,ids){
+  const selected=gmsUniqueStrings(ids||[]);
+  return entry?.category==="dohan"?selected.length===entry.requiredCount:gmsSameStringSet(selected,entry?.eligibleCastIds||[]);
 }
 function gmsTargetCandidates(day,record){
   const candidates=new Map();
@@ -2628,7 +2642,10 @@ function gmsApplyTargetSelections(record,selections,candidates){
     const missing=ids.filter(id=>!candidateMap.has(id));
     if(missing.length)errors.push(entry.label+"の対象キャストを確認できません: "+missing.join(", "));
     if(entry.category==="dohan"&&ids.length!==entry.requiredCount)errors.push("同伴料は"+entry.requiredCount+"本のため、同伴キャストを"+entry.requiredCount+"名選択してください（現在"+ids.length+"名）");
-    if(entry.category!=="dohan"&&!ids.length)errors.push(entry.label+"のボトルバック対象キャストを1名以上選択してください");
+    if(entry.category!=="dohan"&&!gmsSameStringSet(ids,entry.eligibleCastIds||[])){
+      const eligibleNames=(entry.eligibleCastIds||[]).map(id=>candidateMap.get(String(id))?.name||id);
+      errors.push(entry.label+"のボトルバックは売上対象キャスト全員を選択してください: "+eligibleNames.join("、"));
+    }
   });
   if(errors.length)return{record:null,errors};
   const entryMap=new Map(entries.map(entry=>[entry.key,entry]));
@@ -2671,6 +2688,7 @@ function toggleGmsTargetCast(key,castId){
   const entry=gmsTargetEntries(record).find(row=>row.key===String(key));if(!entry)return;
   const id=String(castId),selected=gmsUniqueStrings(gmsTargetEdit.selections[key]||[]);
   if(selected.includes(id))gmsTargetEdit.selections[key]=selected.filter(value=>value!==id);
+  else if(entry.category!=="dohan"&&!gmsUniqueStrings(entry.eligibleCastIds||[]).includes(id))return;
   else if(entry.category==="dohan"&&selected.length>=entry.requiredCount){alert("同伴料は"+entry.requiredCount+"本です。別のキャストを外してから選択してください。");return;}
   else gmsTargetEdit.selections[key]=[...selected,id];
   rModal();
@@ -2733,6 +2751,34 @@ function gmsPaymentTotals(hist){
   return{cash,card};
 }
 function gmsUniqueStrings(list){return[...new Set((list||[]).filter(x=>x!=null&&x!=="").map(String))];}
+function gmsSameStringSet(left,right){
+  const a=gmsUniqueStrings(left),b=gmsUniqueStrings(right);
+  return a.length===b.length&&a.every(id=>b.includes(id));
+}
+function gmsBottleBackEligibleCastIds(items,itemIndex){
+  const src=(items||[]).filter(Boolean);
+  const honIds=gmsUniqueStrings(src.filter(item=>item.isHonShimei).map(item=>item.castId));
+  if(honIds.length)return honIds;
+  const end=itemIndex==null?src.length:Math.max(0,Math.min(src.length,Number(itemIndex)||0));
+  let currentIds=[];
+  for(let index=0;index<end;index++){
+    const item=src[index];
+    if(item.isBanaiExtension)currentIds=gmsUniqueStrings([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId]);
+  }
+  return currentIds;
+}
+function gmsBottleBackTargetCasts(items,itemIndex){
+  const casts=allCasts();
+  return gmsBottleBackEligibleCastIds(items,itemIndex).map(id=>casts.find(cast=>String(cast.id)===id)).filter(Boolean);
+}
+function gmsBottleBackItemData(casts,category){
+  const targets=casts||[];
+  return{
+    castId:targets[0]?.id||"",castName:targets[0]?.name||"",
+    backTargetCastIds:targets.map(cast=>String(cast.id)),backTargetCastNames:targets.map(cast=>cast.name),
+    backType:category,backAllocation:targets.length>1?"equal":targets.length===1?"single":""
+  };
+}
 function gmsItemCategory(item){
   if(item.category)return item.category;
   const id=String(item.id||"");
@@ -2806,15 +2852,22 @@ function gmsCastSalesSummary(rows){
 }
 function gmsTransactionItems(items){
   const src=(items||[]).filter(Boolean);
-  return src.map(item=>{
+  return src.map((item,itemIndex)=>{
     const category=gmsItemCategory(item);
+    const isBottle=category==="champagneWine"||category==="keepBottle";
+    const isPaidBottle=isBottle&&Number(item.price)*Math.max(1,Number(item.qty)||1)>=1;
+    const eligibleBottleCastIds=isPaidBottle?gmsBottleBackEligibleCastIds(src,itemIndex):[];
+    const bottleBackEligible=eligibleBottleCastIds.length>0;
     let backTargetCastIds=gmsUniqueStrings(item.backTargetCastIds);
     const storedTargetNames=Array.isArray(item.backTargetCastNames)?item.backTargetCastNames.map(String):[];
     let backType=item.backType||"",backAllocation=item.backAllocation||"";
+    if(isBottle&&!bottleBackEligible){
+      backTargetCastIds=[];backType="";backAllocation="";
+    }
     if(category==="castDrink"){
       backTargetCastIds=backTargetCastIds.length?backTargetCastIds:gmsUniqueStrings([item.castId]);
       backType=backType||"castDrink";backAllocation=backAllocation||"orderedCast";
-    }else if(category==="champagneWine"||category==="keepBottle"||category==="dohan"){
+    }else if(bottleBackEligible||category==="dohan"){
       backType=backType||category;
       if(backTargetCastIds.length===1)backAllocation=backAllocation||"single";
       else if(backTargetCastIds.length>1)backAllocation=backAllocation||"equal";
@@ -2822,8 +2875,9 @@ function gmsTransactionItems(items){
     const backTargetCastNames=backTargetCastIds.map((id,index)=>storedTargetNames[index]||(String(item.castId||"")===id?String(item.castName||""):"")||gmsCastName(id,""));
     const primaryTargetId=backTargetCastIds[0]||"";
     const targetCategory=category==="champagneWine"||category==="keepBottle"||category==="dohan";
-    const castId=targetCategory&&primaryTargetId?primaryTargetId:item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
-    const castName=targetCategory&&primaryTargetId?(backTargetCastNames[0]||gmsCastName(primaryTargetId,"")):String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
+    const suppressBottleTarget=isBottle&&!bottleBackEligible;
+    const castId=suppressBottleTarget?"":targetCategory&&primaryTargetId?primaryTargetId:item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
+    const castName=suppressBottleTarget?"":targetCategory&&primaryTargetId?(backTargetCastNames[0]||gmsCastName(primaryTargetId,"")):String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
     return{
       itemId:String(item.id||""),label:String(item.label||""),category,
       price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
@@ -3999,8 +4053,14 @@ function odq(id){
   const d=source?.items.find(item=>item.id===id);
   if(d){
     qm={id:d.id,label:d.label,price:d.price,category:source.category};
-    if((source.category==="champagneWine"||source.category==="keepBottle")&&Number(d.price)>0){md="liquor-target";rModal();}
-    else om("qty");
+    const paidBottle=(source.category==="champagneWine"||source.category==="keepBottle")&&Number(d.price)>0;
+    const eligibleIds=paidBottle?gmsBottleBackEligibleCastIds(S.sessions[at]?.items||[]):[];
+    const eligibleCasts=paidBottle?gmsBottleBackTargetCasts(S.sessions[at]?.items||[]):[];
+    if(eligibleIds.length){
+      if(eligibleCasts.length!==eligibleIds.length){alert("本指名・場内延長の売上対象キャスト情報を確認できません。指名情報を確認してください。");qm=null;return;}
+      qm.itemData=gmsBottleBackItemData(eligibleCasts,source.category);
+      md="liquor-target";rModal();
+    }else om("qty");
   }
 }
 function ofdq(){om("fd");}
@@ -6583,8 +6643,10 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div></div>';
   }
   else if(md==="liquor-target"&&s&&qm){
-const candidates=sc();
+const candidates=gmsBottleBackTargetCasts(s.items||[]);
 const selectedIds=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
+const eligibleIds=gmsBottleBackEligibleCastIds(s.items||[]);
+const selectionComplete=gmsSameStringSet(selectedIds,eligibleIds);
 let targetButtons="";
 candidates.forEach(c=>{
   const selected=selectedIds.includes(String(c.id));
@@ -6592,12 +6654,12 @@ candidates.forEach(c=>{
 });
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
   +'<h3 style="margin-bottom:4px;font-size:17px;color:#d4a017;">'+qm.label+'</h3>'
-  +'<div style="font-size:12px;color:#666;margin-bottom:8px;">ボトルバック対象キャストを1名以上選択してください</div>'
-  +'<div style="font-size:11px;color:#888;margin-bottom:16px;">複数選択時はボトルバックを対象人数で均等分配します。現在 '+selectedIds.length+'名選択中</div>'
+  +'<div style="font-size:12px;color:#666;margin-bottom:8px;">本指名・場内延長の売上対象キャスト全員を選択してください</div>'
+  +'<div style="font-size:11px;color:#888;margin-bottom:16px;">複数対象の場合は人数で均等分配します。対象 '+eligibleIds.length+'名／現在 '+selectedIds.length+'名選択中</div>'
   +(candidates.length?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:55vh;overflow-y:auto;">'+targetButtons+'</div>':'<div style="padding:18px;text-align:center;color:#b91c1c;font-size:13px;">選択できるキャストがいません。キャストを登録してから注文してください。</div>')
   +'<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:14px;">'
   +'<button class="btn" onclick="closeM();qm=null;qv=1;" style="padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
-  +'<button class="btn gbg" '+(selectedIds.length?'onclick="confirmLiquorBackCasts()"':'disabled')+' style="padding:10px;border-radius:6px;font-size:14px;font-weight:800;'+(selectedIds.length?'':'opacity:.45;')+'">数量選択へ</button>'
+  +'<button class="btn gbg" '+(selectionComplete?'onclick="confirmLiquorBackCasts()"':'disabled')+' style="padding:10px;border-radius:6px;font-size:14px;font-weight:800;'+(selectionComplete?'':'opacity:.45;')+'">数量選択へ</button>'
   +'</div>'
   +'</div></div>';
   }
@@ -7073,11 +7135,12 @@ const typeLabel=cast=>cast.castType==="trial"?"体入":cast.castType==="dispatch
 let sections="";
 entries.forEach(entry=>{
   const selected=gmsUniqueStrings(gmsTargetEdit.selections[entry.key]||[]);
+  const entryCandidates=entry.category==="dohan"?candidates:candidates.filter(cast=>gmsUniqueStrings(entry.eligibleCastIds||[]).includes(String(cast.id)));
   const note=entry.category==="dohan"
     ?"記録済み同伴料 "+entry.requiredCount+"本に対し、同伴キャストを"+entry.requiredCount+"名選択"
-    :"1名以上選択。複数の場合はバックを対象人数で均等分配";
-  const unknownIds=selected.filter(id=>!candidates.some(cast=>String(cast.id)===id));
-  let buttons=candidates.map(cast=>{
+    :"本指名・場内延長の売上対象 "+entry.requiredCount+"名を全員選択。複数の場合は均等分配";
+  const unknownIds=selected.filter(id=>!entryCandidates.some(cast=>String(cast.id)===id));
+  let buttons=entryCandidates.map(cast=>{
     const active=selected.includes(String(cast.id));
     return '<button class="btn" data-key="'+gmsEscapeHtml(entry.key)+'" data-cid="'+gmsEscapeHtml(cast.id)+'" onclick="toggleGmsTargetCast(this.dataset.key,this.dataset.cid)" style="padding:11px 7px;border-radius:6px;background:'+(active?'rgba(167,139,250,.25)':'rgba(255,255,255,.04)')+';border:1px solid '+(active?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(active?'#d8c8ff':'#aaa')+';font-size:13px;font-weight:700;touch-action:manipulation;">'+(active?'✓ ':'')+gmsEscapeHtml(cast.name)+'<div style="font-size:9px;opacity:.6;margin-top:2px;">'+typeLabel(cast)+'</div></button>';
   }).join("");
@@ -7111,7 +7174,7 @@ hist.forEach((h,i)=>{
     ?h.splits.map(sp=>(sp.method==="card"?"カード":"現金")+"¥"+fmt(sp.amount)).join(" ")
     :(h.payMethod==="card"?"カード":"現金")+"¥"+fmt(h.total);
   const targetEntries=gmsTargetEntries(h),targetSelections=gmsInitialTargetSelections(h);
-  const targetIncomplete=targetEntries.some(entry=>entry.category==="dohan"?targetSelections[entry.key].length!==entry.requiredCount:targetSelections[entry.key].length<1);
+  const targetIncomplete=targetEntries.some(entry=>!gmsTargetSelectionComplete(entry,targetSelections[entry.key]));
   histRows+='<div class="ir" style="font-size:12px;align-items:flex-start;">'
     +'<span style="color:#bbb;">'+gmsEscapeHtml(h.tableLabel)+' '+h.guests+'名</span>'
     +'<div style="display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;">'

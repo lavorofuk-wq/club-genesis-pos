@@ -237,6 +237,29 @@
     if (ids.length > 1 && item.backAllocation !== "equal") errors.push(`${path}.backAllocation は複数対象の均等分配を示す「equal」である必要があります`);
   }
 
+  function uniqueCastIds(values) {
+    return [...new Set((values || []).filter((value) => value != null && value !== "").map(String))];
+  }
+
+  function sameCastIdSet(left, right) {
+    const a = uniqueCastIds(left);
+    const b = uniqueCastIds(right);
+    return a.length === b.length && a.every((id) => b.includes(id));
+  }
+
+  function bottleBackEligibleCastIds(items, itemIndex) {
+    const source = (items || []).filter(Boolean);
+    const honShimeiIds = uniqueCastIds(source.filter((item) => item.isHonShimei).map((item) => item.castId));
+    if (honShimeiIds.length) return honShimeiIds;
+    let currentIds = [];
+    const end = Math.max(0, Math.min(source.length, Number(itemIndex) || 0));
+    for (let index = 0; index < end; index += 1) {
+      const item = source[index];
+      if (item.isBanaiExtension) currentIds = uniqueCastIds([...(item.banaiExtCastIds || []), item.banaiExtCastId, item.castId]);
+    }
+    return currentIds;
+  }
+
   function validatePayload(payload) {
     const errors = [];
     const validIso = (value) => typeof value === "string" && !Number.isNaN(Date.parse(value));
@@ -341,7 +364,16 @@
         (item.banaiExtCastIds || []).forEach((id, index) => { if (!id) errors.push(`${path}.banaiExtCastIds[${index}] が空です`); });
         (item.backTargetCastIds || []).forEach((id, index) => { if (!id) errors.push(`${path}.backTargetCastIds[${index}] が空です`); });
         const amount = Number(item.price || 0) * Number(item.quantity || 0);
-        if ((item.category === "champagneWine" || item.category === "keepBottle") && amount >= 1) validateBackTarget(item, path, errors, item.category, "ボトルバック");
+        if ((item.category === "champagneWine" || item.category === "keepBottle") && amount >= 1) {
+          const eligibleCastIds = bottleBackEligibleCastIds(transaction.items, itemIndex);
+          const targetCastIds = uniqueCastIds(item.backTargetCastIds || []);
+          if (eligibleCastIds.length) {
+            validateBackTarget(item, path, errors, item.category, "ボトルバック");
+            if (!sameCastIdSet(targetCastIds, eligibleCastIds)) errors.push(`${path}「${item.label || item.itemId}」のボトルバック対象は本指名・場内延長の売上対象キャスト全員である必要があります`);
+          } else if (targetCastIds.length || item.castId || item.castName || item.backType || item.backAllocation) {
+            errors.push(`${path}「${item.label || item.itemId}」は本指名・場内延長の売上対象外のため、ボトルバック対象を設定できません`);
+          }
+        }
         if (item.category === "dohan") validateBackTarget(item, path, errors, "dohan", "同伴");
       });
     });
