@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.134";
+const APP_VERSION="6.138";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -12,8 +12,7 @@ const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
 const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
-const REGULAR_CAST_MAX_NO=99;
-const TRIAL_CAST_START_NO=100;
+const BANAI_ATOMIC_VALIDATION_VERSION=613600;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -27,37 +26,14 @@ function normalizeMenus(menus){
   return applyFixedShimeiPrices(normalized);
 }
 function normalizeCasts(list){
-  let nextNo=1;
   return (list||[]).map((cast,idx)=>{
-    const internalNo=Number(cast.internalNo)||nextNo;
-    nextNo=Math.max(nextNo,internalNo+1);
-    return {...cast,internalNo,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
+    return {...cast,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??idx};
   });
 }
-function castSortValue(c){return Number(c.internalNo)||Number.MAX_SAFE_INTEGER;}
-function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>castSortValue(a)-castSortValue(b)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
-function castNo(c){return String(c?.internalNo||"").padStart(3,"0");}
+function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>(Number(a.sortIndex)||0)-(Number(b.sortIndex)||0)||(Number(a.registeredAt)||0)-(Number(b.registeredAt)||0)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
 function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||getBizDate();}
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
 function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
-function nextCastInternalNo(){
-  const nums=allCasts().filter(c=>c.castType!=="trial").map(c=>Number(c.internalNo)||0).filter(no=>no>0&&no<=REGULAR_CAST_MAX_NO);
-  Object.values((typeof S!=="undefined"&&S.castLifecycleLogs)||{}).forEach(log=>{
-    [...(log.enteredCasts||[]),...(log.exitedCasts||[])].forEach(c=>{
-      const no=Number(c.internalNo)||0;
-      if(c.castType!=="trial"&&no>0&&no<=REGULAR_CAST_MAX_NO)nums.push(no);
-    });
-  });
-  return Math.max(0,...nums)+1;
-}
-function nextTrialCastInternalNo(date){
-  const logged=(S.castLifecycleLogs||{})[date]?.trialCasts||[];
-  const nums=[
-    ...allCasts().filter(c=>c.castType==="trial"&&c.trialBizDay===date).map(c=>Number(c.internalNo)||0),
-    ...logged.map(c=>Number(c.internalNo)||0)
-  ].filter(no=>no>=TRIAL_CAST_START_NO);
-  return Math.max(TRIAL_CAST_START_NO-1,...nums)+1;
-}
 function emptyLifecycle(){return{enteredCasts:[],exitedCasts:[],trialCasts:[]};}
 function lifecycleFor(date){
   if(!S.castLifecycleLogs)S.castLifecycleLogs={};
@@ -356,6 +332,7 @@ const sessionSaveQueues={};
 const sessionSaveStates={};
 const sessionSaveLastOwn={};
 let sessionNodeTransactionsSupported=null;
+let banaiAtomicValidationVersion=0;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
   if(!tableId)return;
@@ -400,7 +377,9 @@ function queueSessionUpdate(tableId,makeUpdates,options={}){
     const updates=typeof makeUpdates==="function"?makeUpdates(session):makeUpdates;
     const res=options.sessionOnly
       ?await guardedQueuedSessionSave(tableId,session,options)
-      :await guardedSessionUpdate(tableId,session,updates,options);
+      :options.fastNodeUpdate
+        ?await guardedSessionNodeUpdate(tableId,session,updates,options)
+        :await guardedSessionUpdate(tableId,session,updates,options);
     const saved=getPathValue(res,"sessions/"+tableId);
     if(saved)sessionSaveLastOwn[tableId]={sessionId:saved.sessionId,startTime:saved.startTime,rev:Number(saved._rev||0)};
     setSessionSaveState(tableId,"saved","\u4fdd\u5b58\u5b8c\u4e86");
@@ -431,6 +410,197 @@ function togglePriceHide(){
 }
 
 // ===== FIREBASE =====
+const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
+const BIZ_DAYS_VIEWS=new Set(["history","analysis","histlog","shifts","backupDetail"]);
+const BACKUP_VIEWS=new Set(["admin","backupDetail"]);
+const lazyDataState={
+  bizDays:{status:"idle",loadedAt:0,promise:null},
+  backups:{status:"idle",loadedAt:0,promise:null}
+};
+let initialPosSyncPending=null;
+let activeBizDayRecordRef=null;
+let activeBizDayRecordId=null;
+function finishInitialPosSyncPath(path){
+  if(!initialPosSyncPending)return;
+  initialPosSyncPending.delete(path);
+  if(initialPosSyncPending.size||window._fbFirstSync)return;
+  window._fbFirstSync=true;
+  const loading=document.getElementById("loading");if(loading)loading.style.display="none";
+  vw="home";
+  if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
+  render();
+}
+function handlePosSyncRender(settingsChanged=false){
+  if(!window._fbFirstSync)return;
+  if(at&&!checkoutBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
+    at=null;vw="floor";closeM();const modal=document.getElementById("floor-order-modal");if(modal)modal.style.display="none";render();return;
+  }
+  if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
+    vw="home";closeM();render();return;
+  }
+  if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
+  window._fbRenderTimer=setTimeout(()=>{scheduleFirebaseRender(settingsChanged);refreshFloorModal();},80);
+}
+function subscribeActiveBizDayRecord(db,bizDayId){
+  const nextId=bizDayId?String(bizDayId):null;
+  if(activeBizDayRecordRef&&activeBizDayRecordId===nextId)return;
+  if(activeBizDayRecordRef)activeBizDayRecordRef.off();
+  activeBizDayRecordRef=null;
+  activeBizDayRecordId=nextId;
+  if(!nextId){finishInitialPosSyncPath("$activeBizDayRecord");return;}
+  const ref=db.ref(FB_ROOT+"/bizDays/"+nextId);
+  activeBizDayRecordRef=ref;
+  ref.on("value",snap=>{
+    const day=snap.val();
+    if(day)S.bizDays={...(S.bizDays||{}),[nextId]:day};
+    else if(S.bizDays)delete S.bizDays[nextId];
+    updateRemoteHash("bizDays/"+nextId,day||null);
+    finishInitialPosSyncPath("$activeBizDayRecord");
+    handlePosSyncRender(false);
+  },()=>{finishInitialPosSyncPath("$activeBizDayRecord");sbs(false,"接続エラー");});
+}
+function applyPosCoreValue(db,path,value){
+  let settingsChanged=false;
+  if(path==="appVersion"){
+    if(window._fbFirstSync&&value&&value!==APP_VERSION&&_verNum(value)>_verNum(APP_VERSION)){
+      const overlay=document.getElementById("version-overlay");if(overlay)overlay.style.display="flex";
+    }
+  }else if(path==="castLifecycleLogs"){
+    if(isSettingSaveDirty("casts"))settingSaveState("casts").lastRemoteLifecycle=cloneData(value||{});
+    else{
+      S.castLifecycleLogs=value||{};
+      updateRemoteHash("castLifecycleLogs",S.castLifecycleLogs);
+      const state=settingSaveStates.casts;if(state)state.confirmedLifecycleHash=window._remoteValueHashes.castLifecycleLogs;
+    }
+  }else if(path==="casts"){
+    if(value)settingsChanged=acceptRemoteSettingValue("casts",value,next=>{S.casts=applyPosCastPolicy(next);})||settingsChanged;
+  }else if(path==="menus"){
+    if(value)settingsChanged=acceptRemoteSettingValue("menus",value,next=>{
+      S.menus=normalizeMenus(next);
+      if(!S.menus.champagne)S.menus.champagne=[];
+      if(!S.menus.keepBottles)S.menus.keepBottles=[];
+      if(!S.menus.normalSets)S.menus.normalSets=[];
+      if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
+      if(!S.menus.karaoke)S.menus.karaoke=[];
+    })||settingsChanged;
+  }else if(path==="tables"){
+    if(value)settingsChanged=acceptRemoteSettingValue("tables",value,next=>{S.tables=next;})||settingsChanged;
+  }else if(path==="sessions"){
+    S.sessions=mergeRemoteSessionCollection(stripLegacyActiveDiscounts(value||{}));
+    markSessionGuards(S.sessions);
+  }else if(path==="history"){
+    S.history=value?(Array.isArray(value)?value:Object.values(value)).sort((a,b)=>b.startTime-a.startTime):[];
+  }else if(path==="shifts"){
+    S.shifts=mergeRemoteVersionedCollection("shifts",value);
+  }else if(path==="assignments"){
+    S.assignments=mergeRemoteVersionedCollection("assignments",value);
+  }else if(path==="activeBizDay"){
+    S.activeBizDay=value||null;
+    subscribeActiveBizDayRecord(db,S.activeBizDay);
+  }else if(path==="loMode"){
+    S.loMode=!!value;
+  }else if(path==="loStatus"){
+    S.loStatus=value||{};
+  }else if(path==="_capabilities"){
+    banaiAtomicValidationVersion=Number(value?.banaiAtomicValidationVersion)||0;
+  }else if(path==="config"&&value){
+    settingsChanged=acceptRemoteSettingValue("config",value,next=>{
+      S.config={printerIP:next.printerIP||"192.168.150.76",printerPort:next.printerPort||8008};
+    })||settingsChanged;
+  }
+  finishInitialPosSyncPath(path);
+  if(!hasPendingSettingSaves()&&window._fbFirstSync)sbs(true,"同期済み ✓");
+  handlePosSyncRender(settingsChanged);
+}
+function subscribePosCoreData(db){
+  initialPosSyncPending=new Set([...POS_CORE_SYNC_PATHS,"$activeBizDayRecord"]);
+  POS_CORE_SYNC_PATHS.forEach(path=>{
+    db.ref(FB_ROOT+"/"+path).on("value",snap=>applyPosCoreValue(db,path,snap.val()),()=>{
+      finishInitialPosSyncPath(path);
+      sbs(false,"接続エラー");
+    });
+  });
+}
+function updateBizDayRemoteHashes(days){
+  updateRemoteHash("bizDays",days||{});
+  Object.entries(days||{}).forEach(([id,day])=>updateRemoteHash("bizDays/"+id,day));
+}
+async function ensureBizDaysLoaded(force=false){
+  const state=lazyDataState.bizDays;
+  if(state.promise)return state.promise;
+  if(!force&&state.status==="loaded")return true;
+  if(!window._db)return false;
+  state.status="loading";
+  state.promise=Promise.all([
+    window._db.ref(FB_ROOT+"/bizDays").once("value"),
+    window._db.ref(FB_ROOT+"/gmsExportMeta").once("value")
+  ]).then(([daysSnap,gmsSnap])=>{
+    const days=daysSnap.val()||{};
+    S.bizDays=days;
+    S.gmsExportMeta=gmsSnap.val()||{};
+    updateBizDayRemoteHashes(days);
+    state.status="loaded";state.loadedAt=Date.now();
+    return true;
+  }).catch(()=>{
+    state.status="error";
+    sbs(false,"データ取得エラー");
+    return false;
+  }).finally(()=>{state.promise=null;if(BIZ_DAYS_VIEWS.has(vw))render();});
+  return state.promise;
+}
+async function ensureBackupsLoaded(force=false){
+  const state=lazyDataState.backups;
+  if(state.promise)return state.promise;
+  if(!force&&state.status==="loaded")return true;
+  if(!window._db)return false;
+  state.status="loading";
+  state.promise=window._db.ref(BACKUP_ROOT+"/bizDays").once("value").then(snap=>{
+    S.backups={bizDays:snap.val()||{}};
+    state.status="loaded";state.loadedAt=Date.now();
+    return true;
+  }).catch(()=>{
+    state.status="error";
+    sbs(false,"バックアップ取得エラー");
+    return false;
+  }).finally(()=>{state.promise=null;if(BACKUP_VIEWS.has(vw))render();});
+  return state.promise;
+}
+function cacheBackupDay(key,day){
+  if(!key||!day)return;
+  if(!S.backups)S.backups={};
+  S.backups.bizDays={...(S.backups.bizDays||{}),[key]:cloneData(day)};
+}
+function removeCachedBackupDay(key){
+  if(S.backups?.bizDays)delete S.backups.bizDays[key];
+}
+function startLazyViewDataLoad(view,refresh=false){
+  const tasks=[];
+  const bizState=lazyDataState.bizDays;
+  const backupState=lazyDataState.backups;
+  const refreshBiz=refresh&&bizState.status==="loaded"&&Date.now()-bizState.loadedAt>60000;
+  const refreshBackups=refresh&&backupState.status==="loaded"&&Date.now()-backupState.loadedAt>60000;
+  if(BIZ_DAYS_VIEWS.has(view)&&(bizState.status==="idle"||bizState.status==="loading"||refreshBiz))tasks.push(ensureBizDaysLoaded(refreshBiz));
+  if(BACKUP_VIEWS.has(view)&&(backupState.status==="idle"||backupState.status==="loading"||refreshBackups))tasks.push(ensureBackupsLoaded(refreshBackups));
+  return tasks.length?Promise.all(tasks):null;
+}
+function lazyViewDataState(view){
+  if(view==="admin")return null;
+  const states=[];
+  if(BIZ_DAYS_VIEWS.has(view))states.push(lazyDataState.bizDays);
+  if(BACKUP_VIEWS.has(view))states.push(lazyDataState.backups);
+  if(states.some(state=>state.status==="loading"||state.status==="idle"))return{status:"loading",message:"データを読み込み中..."};
+  const error=states.find(state=>state.status==="error");
+  return error?{status:"error",message:"データを取得できませんでした"}:null;
+}
+function retryLazyViewData(view){
+  if(BIZ_DAYS_VIEWS.has(view))lazyDataState.bizDays.status="idle";
+  if(BACKUP_VIEWS.has(view))lazyDataState.backups.status="idle";
+  startLazyViewDataLoad(view,true);render();
+}
+function renderLazyViewState(view,state){
+  if(state.status==="loading")return '<div style="padding:32px;text-align:center;color:#666;font-size:13px;"><div class="sp" style="margin:0 auto 14px;"></div>'+state.message+'</div>';
+  return '<div style="padding:28px;text-align:center;color:#b91c1c;font-size:13px;">'+state.message+'<br><button class="btn" data-view="'+view+'" onclick="retryLazyViewData(this.dataset.view)" style="margin-top:14px;padding:8px 16px;">再読み込み</button></div>';
+}
 // Firebase config
 function initFB(){
   const db=window._db;
@@ -475,82 +645,7 @@ if(connected){if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");}
 else{sbs(false,"⚠ オフライン");}
   });
 
-  // ===== バックアップノード購読 =====
-  db.ref(BACKUP_ROOT).on("value",(snap)=>{
-S.backups=snap.val()||{};
-if(["admin","backupDetail"].includes(vw))render();
-  });
-
-  db.ref(FB_ROOT).on("value",(snap)=>{
-const d=snap.val();
-if(!d){
-  if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
-  if(!window._fbFirstSync){window._fbFirstSync=true;const _ld=document.getElementById("loading");if(_ld)_ld.style.display="none";vw="home";}
-  render();return;
-}
-rememberRemoteHashes(d);
-let settingsChanged=false;
-// バージョン不一致チェック（初回sync後のみ。自分より新しいバージョンが来たら再読み込みを要求）
-if(window._fbFirstSync&&d.appVersion&&d.appVersion!==APP_VERSION&&_verNum(d.appVersion)>_verNum(APP_VERSION)){
-  const ov=document.getElementById("version-overlay");if(ov)ov.style.display="flex";
-}
-if(isSettingSaveDirty("casts"))settingSaveState("casts").lastRemoteLifecycle=cloneData(d.castLifecycleLogs||{});
-else{
-  S.castLifecycleLogs=d.castLifecycleLogs||{};
-  updateRemoteHash("castLifecycleLogs",S.castLifecycleLogs);
-  const castState=settingSaveStates.casts;if(castState)castState.confirmedLifecycleHash=window._remoteValueHashes.castLifecycleLogs;
-}
-if(d.casts)settingsChanged=acceptRemoteSettingValue("casts",d.casts,value=>{S.casts=applyPosCastPolicy(value);})||settingsChanged;
-if(d.menus){
-  settingsChanged=acceptRemoteSettingValue("menus",d.menus,value=>{
-    S.menus=normalizeMenus(value);
-    // 未定義カテゴリを空配列で初期化
-    if(!S.menus.champagne)S.menus.champagne=[];
-    if(!S.menus.keepBottles)S.menus.keepBottles=[];
-    if(!S.menus.normalSets)S.menus.normalSets=[];
-    if(!S.menus.castCustomItems)S.menus.castCustomItems=[];
-    if(!S.menus.karaoke)S.menus.karaoke=[];
-  })||settingsChanged;
-}
-if(d.tables)settingsChanged=acceptRemoteSettingValue("tables",d.tables,value=>{S.tables=value;})||settingsChanged;
-// Firebaseを正として反映し、古い端末のローカル状態を混ぜ戻さない
-S.sessions=stripLegacyActiveDiscounts(d.sessions||{});
-markSessionGuards(S.sessions);
-// historyはキー付きオブジェクト形式（同時会計対応）と旧来配列形式の両方を受け入れる
-S.history=d.history?(Array.isArray(d.history)?d.history:Object.values(d.history)).sort((a,b)=>b.startTime-a.startTime):[];
-S.shifts=mergeRemoteVersionedCollection("shifts",d.shifts);
-S.assignments=mergeRemoteVersionedCollection("assignments",d.assignments);
-S.bizDays=d.bizDays||{};
-S.gmsExportMeta=d.gmsExportMeta||{};
-S.activeBizDay=d.activeBizDay||null;
-S.loMode=d.loMode||false;
-S.loStatus=d.loStatus||{};
-if(d.config){
-  settingsChanged=acceptRemoteSettingValue("config",d.config,value=>{
-    S.config={printerIP:value.printerIP||'192.168.150.76',printerPort:value.printerPort||8008};
-  })||settingsChanged;
-}
-// config未設定時はデフォルト値を維持（S.configはState初期値で設定済み）
-if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
-// 初回sync: loading解除してホームへ
-if(!window._fbFirstSync){
-  window._fbFirstSync=true;
-  const _ld=document.getElementById("loading");
-  if(_ld)_ld.style.display="none";
-  vw="home";
-  render();return;
-}
-// 自分が開いていたテーブルが他端末で会計終了されていたらフロアへ戻す
-if(at&&!checkoutBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
-  at=null;vw="floor";closeM();const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";render();return;
-}
-// 営業日が終了していたらホームへ
-if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
-  vw="home";closeM();render();return;
-}
-if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-window._fbRenderTimer=setTimeout(()=>{scheduleFirebaseRender(settingsChanged);refreshFloorModal();},80);
-  },(e)=>sbs(false,"接続エラー"));
+  subscribePosCoreData(db);
 }
 async function save(path,val){
   const rootPath=String(path||"").split("/")[0];
@@ -645,10 +740,6 @@ function shouldGuardWholeValue(path){return["bizDays"].includes(String(path||"")
 function updateRemoteHash(path,val){
   if(!window._remoteValueHashes)window._remoteValueHashes={};
   window._remoteValueHashes[path]=stableJson(val);
-}
-function rememberRemoteHashes(d){
-  if(!d)return;
-  ["bizDays"].forEach(k=>updateRemoteHash(k,d[k]===undefined?null:d[k]));
 }
 function acceptRemoteSettingValue(path,value,apply){
   const state=settingSaveStates[path];
@@ -1002,6 +1093,17 @@ function mergeRemoteVersionedCollection(collection,remote){
   });
   return merged;
 }
+function mergeRemoteSessionCollection(remote){
+  const merged={...(remote||{})};
+  optimisticRootPaths.forEach(path=>{
+    const parts=stripRootPath(path).split("/").filter(Boolean);
+    if(parts.length!==2||parts[0]!=="sessions")return;
+    const local=getPathValue(S,path);
+    if(local==null)delete merged[parts[1]];
+    else merged[parts[1]]=cloneData(local);
+  });
+  return merged;
+}
 function shouldFallbackNodeUpdate(error){
   const message=String(error?.message||"");
   return isFirebasePermissionDenied(error)
@@ -1253,6 +1355,71 @@ async function guardedQueuedSessionSave(tableId,session,options={}){
     return guardedSessionUpdate(tableId,session,updates,options);
   }
 }
+async function guardedSessionNodeUpdate(tableId,session,updates,options={}){
+  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for session write");
+  ensureSessionId(session);
+  const sessionRelative="sessions/"+tableId;
+  const sessionPath=FB_ROOT+"/"+sessionRelative;
+  const operationRelative="_banaiOperations/"+tableId;
+  const operationPath=FB_ROOT+"/"+operationRelative;
+  const readPaths=new Set([sessionRelative,operationRelative]);
+  let assignmentInfo=null;
+  Object.keys(updates||{}).forEach(path=>{
+    const info=versionedRecordPathInfo(path);
+    if(info){readPaths.add(info.relative);if(info.collection==="assignments")assignmentInfo=info;}
+  });
+  if(!assignmentInfo)throw new Error("assignment is missing for atomic session update");
+  const root={};
+  const paths=[...readPaths];
+  const values=await Promise.all(paths.map(path=>readRemoteRelative(path)));
+  paths.forEach((path,index)=>setPathValue(root,path,values[index]));
+  const remote=getPathValue(root,sessionRelative)||null;
+  if(!remote||!sameSession(remote,session)){
+    syncRemoteSession(tableId,remote);
+    const message=remote
+      ?"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"
+      :"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。";
+    throw Object.assign(new Error("session conflict"),{userMessage:message});
+  }
+  const checked=options.checker?options.checker(root):{ok:true};
+  if(checked===false||checked?.ok===false){
+    throw Object.assign(new Error(checked?.message||"session update conflict"),{userMessage:checked?.message});
+  }
+  let prepared={...updates};
+  const desired=prepared[sessionPath]||session;
+  prepared[sessionPath]=ensureSessionId({
+    ...cloneData(desired),
+    _rev:Number(remote._rev||0)+1,
+    _nodeWriteVersion:_verNum(APP_VERSION),
+    _nodeWriteNonce:Date.now()+"_"+Math.random().toString(36).slice(2)
+  });
+  prepared=prepareVersionedRecordUpdates(root,prepared,options);
+  const preparedAssignment=prepared[FB_ROOT+"/"+assignmentInfo.relative];
+  const operationNonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  prepared[operationPath]={
+    nonce:operationNonce,
+    version:BANAI_ATOMIC_VALIDATION_VERSION,
+    sessionRev:Number(prepared[sessionPath]._rev)||0,
+    assignmentId:assignmentInfo.id,
+    assignmentRev:Number(preparedAssignment?._rev)||0,
+    updatedAt:Date.now()
+  };
+  try{
+    await window._db.ref("/").update(withWriteGate(prepared));
+  }catch(e){
+    if(isFirebasePermissionDenied(e)){
+      const err=new Error("session or assignment conflict");
+      err.userMessage="注文または付け回し情報が他端末で更新されています。最新状態へ戻してから再実行してください。";
+      throw err;
+    }
+    throw e;
+  }
+  const saved=getPathValue(applyRootUpdates(root,prepared),sessionRelative);
+  syncRemoteSession(tableId,saved);
+  syncVersionedRecordsFromPrepared(prepared);
+  markSessionGuard(session);
+  return root;
+}
 async function guardedSessionUpdate(tableId,session,updates,options={}){
   ensureSessionId(session);
   let conflict=null;
@@ -1401,33 +1568,53 @@ function addRoomCharge(type,itemId){
 }
 async function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
-  const current=S.sessions[at];if(!current)return;
+  const tableId=at;
+  const current=S.sessions[tableId];if(!current)return;
   if((current.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
   if((current.items||[]).some(i=>i.isBanaiShimei&&i.castId===cid))return;
   const desiredSession=cloneData(current);
   desiredSession.items=[...desiredSession.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isBanaiShimei:true}];
   desiredSession.banaiShimeis=[...(desiredSession.banaiShimeis||[]),cid];
-  const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===at&&!a.endTime&&a.type==="free");
+  const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===tableId&&!a.endTime&&a.type==="free");
   const desiredAssignment=freeA?{...cloneData(freeA),type:"banai"}:null;
-  // sessionsとassignmentsをレコード単位でアトミック保存
-  if(window._db){
-const _cu={};
-_cu[FB_ROOT+"/sessions/"+at]=desiredSession;
-if(desiredAssignment)_cu[FB_ROOT+"/assignments/"+freeA.id]=desiredAssignment;
-try{
-  await queueSessionUpdate(at,session=>({..._cu,[FB_ROOT+"/sessions/"+at]:session}),{
-    session:desiredSession,
-    expectedRecords:freeA?{["assignments/"+freeA.id]:cloneData(freeA)}:{}
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"場内指名の保存に失敗しました。最新状態を確認してください。");
-  return;
-}
-  }
+  if(!requireFirebaseReady())return;
+  const updates={[FB_ROOT+"/sessions/"+tableId]:desiredSession};
+  if(desiredAssignment)updates[FB_ROOT+"/assignments/"+freeA.id]=desiredAssignment;
+  const localSnapshot=snapshotLocalRootPaths(updates);
+  markOptimisticPaths(updates);
+  applyLocalRootUpdates(updates);
   closeM();
-  setTimeout(()=>{render();refreshFloorModal();},50);
+  renderOrderPartial();
+  try{
+    if(desiredAssignment){
+      await queueSessionUpdate(tableId,session=>({...updates,[FB_ROOT+"/sessions/"+tableId]:session}),{
+        session:desiredSession,
+        fastNodeUpdate:banaiAtomicValidationVersion>=BANAI_ATOMIC_VALIDATION_VERSION,
+        expectedRecords:{["assignments/"+freeA.id]:cloneData(freeA)}
+      });
+    }else{
+      await queueSessionSave(tableId,desiredSession);
+    }
+    unmarkOptimisticPaths(updates);
+    sbs(true,"同期済み ✓");
+    refreshFloorModal();
+  }catch(e){
+    restoreLocalRootSnapshot(localSnapshot);
+    unmarkOptimisticPaths(updates);
+    try{
+      const reads=[readRemoteSession(tableId)];
+      if(freeA)reads.push(readRemoteRelative("assignments/"+freeA.id));
+      const latest=await Promise.all(reads);
+      syncRemoteSession(tableId,latest[0]);
+      if(freeA){
+        if(latest[1])S.assignments[freeA.id]=latest[1];
+        else delete S.assignments[freeA.id];
+      }
+    }catch(readError){}
+    refreshAfterOptimisticUpdate();
+    sbs(false,"保存エラー");
+    alert(e.userMessage||"場内指名の保存に失敗しました。最新状態を確認してください。");
+  }
 }
 function applyET(){
   const v=document.getElementById("eti")?.value||etv;
@@ -1507,12 +1694,24 @@ b.style.background=sel?'linear-gradient(135deg,#b8960c,#e8c84a)':'rgba(255,255,2
 b.style.color=sel?'#1a1200':'#e8dcc8';
   });
 }
-// 営業日選択モーダル: 日付変更時に警告のみ更新（DOM再構築なし）
-function updateBizDateWarn(val){
+// 営業日選択モーダル: 選択した日付だけFirebaseへ確認する
+let bizDateWarnRequest=0;
+async function updateBizDateWarn(val){
   window._selBizDate=val;
   const el=document.getElementById('biz-date-warn');
   if(!el)return;
-  el.style.display=val&&S.bizDays[val]?'':'none';
+  const request=++bizDateWarnRequest;
+  if(!val){el.style.display='none';return;}
+  if(S.bizDays[val]){el.textContent='この日付は記録済みです。開始すると上書きされます。';el.style.display='';return;}
+  if(!window._db){el.style.display='none';return;}
+  el.textContent='この日付の記録を確認中...';el.style.display='';
+  try{
+    const day=await readRemoteRelative('bizDays/'+val);
+    if(request!==bizDateWarnRequest||window._selBizDate!==val)return;
+    if(day){S.bizDays={...(S.bizDays||{}),[val]:day};updateRemoteHash('bizDays/'+val,day);}
+    el.textContent='この日付は記録済みです。開始すると上書きされます。';
+    el.style.display=day?'':'none';
+  }catch(e){if(request===bizDateWarnRequest)el.style.display='none';}
 }
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
@@ -1845,7 +2044,10 @@ function render(){
   updateNav();
   const m=document.getElementById("m");if(!m)return;
   try{
-if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
+startLazyViewDataLoad(vw,false);
+const lazyState=lazyViewDataState(vw);
+if(lazyState)m.innerHTML=renderLazyViewState(vw,lazyState);
+else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -1898,7 +2100,9 @@ function sv(v,extra){
   const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
-  vw=v;if(!["tableDetail","assignHistory"].includes(v))at=null;render();
+  vw=v;if(!["tableDetail","assignHistory"].includes(v))at=null;
+  startLazyViewDataLoad(v,true);
+  render();
 }
 function tc2(id){if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
@@ -2604,7 +2808,7 @@ return;
   if(window._db){
 const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
 	try{await guardedRootUpdateIfActive(null,{
-  bizDays:S.bizDays,
+  ["bizDays/"+dayId]:day,
   activeBizDay:S.activeBizDay,
   history:Object.keys(_lhObj).length>0?_lhObj:null,
   shifts:S.shifts,
@@ -2618,12 +2822,18 @@ sbs(true,"同期済み ✓");
 }
 async function startBizDay(dateStr){
   if(!requireFirebaseReady())return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr||""))){alert("営業日を選択してください。");return;}
   // 他端末が既に営業を開始していた場合はブロック
   if(S.activeBizDay){
 alert("既に「"+S.activeBizDay+"」の営業が進行中です。\n営業終了後に新しい営業を開始してください。");
 closeM();vw="floor";render();return;
   }
   const id=dateStr;
+  let existingDay=null;
+  try{existingDay=await readRemoteRelative("bizDays/"+id);}catch(e){
+    sbs(false,"確認エラー");alert("営業日の既存データを確認できませんでした。接続状態を確認して再実行してください。");return;
+  }
+  if(existingDay&&!confirm("「"+id+"」は記録済みです。既存の営業日データを上書きして開始しますか？"))return;
   const day={id,date:dateStr,startedAt:Date.now(),endedAt:null,history:[],shifts:{},assignments:{}};
   S.bizDays[id]=day;
   S.activeBizDay=id;
@@ -2631,7 +2841,7 @@ closeM();vw="floor";render();return;
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   if(window._db){
 try{await guardedRootUpdateIfActive(null,{
-  bizDays:S.bizDays,
+  ["bizDays/"+id]:day,
   activeBizDay:S.activeBizDay,
   history:[],shifts:null,assignments:null,sessions:null
 },"他端末で営業が開始されています。最新状態を確認してください。");
@@ -2685,16 +2895,18 @@ const daySnap={
   startedAt:day.startedAt||Date.now(),
   endedAt:day.endedAt
 };
+const backupKey=wasReEdit?day.date+"_edited":day.date;
 if(wasReEdit){
   // 再編集の場合：元バックアップを上書きせず、別キーで保存
   daySnap.edited=true;
   daySnap.editedAt=day.endedAt;
-  await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date+"_edited").set(daySnap).catch(e=>console.warn("backup error",e));
-}else{
-  await window._db.ref(BACKUP_ROOT+"/bizDays/"+day.date).set(daySnap).catch(e=>console.warn("backup error",e));
 }
+try{
+  await window._db.ref(BACKUP_ROOT+"/bizDays/"+backupKey).set(daySnap);
+  cacheBackupDay(backupKey,daySnap);
+}catch(e){console.warn("backup error",e);}
 try{await guardedRootUpdateIfActive(id,{
-  bizDays:S.bizDays,
+  ["bizDays/"+id]:day,
   activeBizDay:null,
   ...(castsChanged?{casts:S.casts}:{}),
   ...(castsChanged?{castLifecycleLogs:S.castLifecycleLogs}:{}),
@@ -3799,10 +4011,9 @@ html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(
 if(stab==="cast"){
 const activeCasts=sc();
 html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">キャスト名簿（入店順）</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">内部番号は登録順に自動付与されます。退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
+html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
 activeCasts.forEach(c=>{
 html+='<div class="ir" style="gap:8px;align-items:center;">'
-  +'<span style="width:48px;font-size:12px;color:#d4a017;font-weight:700;">No.'+castNo(c)+'</span>'
   +(c.castType==="trial"?'<span style="font-size:10px;color:#38bdf8;border:1px solid rgba(56,189,248,.3);border-radius:4px;padding:2px 6px;">体入</span>':'')
   +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
   +(c.castType==="trial"?'<span style="font-size:11px;color:#64748b;white-space:nowrap;">'+(c.trialBizDay||currentCastBizDate())+'</span>':'')
@@ -3956,7 +4167,6 @@ html+='</div>';
 function rAdmin(){
   const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
   if(!isAdmin)return '<div style="padding:20px;color:#666;">管理モードが必要です</div>';
-  const bkDays=Object.values((S.backups||{}).bizDays||{}).sort((a,b)=>b.date.localeCompare(a.date));
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;margin-bottom:16px;">管理</h2>';
   // プリンター設定
@@ -3983,7 +4193,13 @@ function rAdmin(){
   html+='<div style="font-size:11px;color:#666;margin-bottom:10px;">営業終了ごとに当営業日データを個別保存（蓄積）。削除操作の影響を受けません。</div>';
   const bkEntries2=Object.entries((S.backups||{}).bizDays||{}).sort((a,b)=>(b[1].ts||0)-(a[1].ts||0));
   const bkDays2=bkEntries2.map(([,v])=>v);
-  if(bkDays2.length){
+  const backupState=lazyDataState.backups;
+  if(backupState.status==="loading"||backupState.status==="idle"){
+html+='<div style="font-size:12px;color:#666;margin-bottom:10px;">バックアップを読み込み中...</div>';
+  }else if(backupState.status==="error"){
+html+='<div style="font-size:12px;color:#ff6b6b;margin-bottom:10px;">バックアップを取得できませんでした</div>';
+html+='<button class="btn" onclick="retryLazyViewData(\'admin\')" style="padding:7px 12px;margin-bottom:10px;font-size:12px;">再読み込み</button>';
+  }else if(bkDays2.length){
 html+='<div style="font-size:12px;color:#e8dcc8;margin-bottom:8px;">保存済み: '+bkDays2.length+'件</div>';
 html+='<div style="margin-bottom:10px;max-height:140px;overflow-y:auto;">';
 bkDays2.slice(0,6).forEach(d=>{
@@ -4124,6 +4340,7 @@ async function deleteBackupBizDay(date){
   if(window._db){
 try{
   await window._db.ref(BACKUP_ROOT+"/bizDays/"+date).remove();
+  removeCachedBackupDay(date);
   sbs(true,"削除完了 ✓");render();
 }catch(e){sbs(false,"削除エラー");alert("削除に失敗："+e.message);}
   }
@@ -4240,6 +4457,7 @@ endedAt:null
   };
   try{
 await window._db.ref(BACKUP_ROOT+"/bizDays/"+date).set(snap);
+cacheBackupDay(date,snap);
 sbs(true,"バックアップ完了 ✓");
 alert("「"+date+"」のバックアップを更新しました");
 render();
@@ -4296,10 +4514,8 @@ function hasVisibleCastName(name){
 function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
-  const internalNo=nextCastInternalNo();
-  if(internalNo>REGULAR_CAST_MAX_NO){alert("通常キャスト番号がNo."+REGULAR_CAST_MAX_NO+"に達しているため登録できません。管理者へ確認してください。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"regular",internalNo,active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
+  const cast={id:ts,name,castType:"regular",active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"enteredCasts",castSnapshot(cast,{enteredAt:ts}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -4309,7 +4525,7 @@ function actrial(){
   const name=String(ntn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"trial",internalNo:nextTrialCastInternalNo(biz),active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
+  const cast={id:ts,name,castType:"trial",active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"trialCasts",castSnapshot(cast,{trialBizDay:biz,trialRegisteredAt:ts,trialEndedAt:null}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -7064,6 +7280,7 @@ updateEstPreview();
 return;
   }
   c.innerHTML=h;
+  if(md==="startBizDay")setTimeout(()=>{const input=document.getElementById("biz-date-input");if(input)updateBizDateWarn(input.value);},0);
 }
 
 function scc(id){cdc=id;cds=1;rModal();}

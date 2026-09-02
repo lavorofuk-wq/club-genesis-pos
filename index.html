@@ -16,13 +16,28 @@
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700&family=Cormorant+Garamond:wght@400;600&display=swap" rel="stylesheet"/>
-  <script src="boot-compat.js?v=6.134"></script>
+  <script src="boot-compat.js?v=6.138"></script>
   <!-- Firebase SDKはfirebase-init.js内でタイムアウト付きロード -->
-  <script src="firebase-init.js?v=6.134"></script>
+  <script src="firebase-init.js?v=6.138"></script>
   <link rel="stylesheet" href="styles.css"/>
 </head>
 <body>
 <div id="receipt-print-area"></div>
+
+<div id="auth-gate" role="dialog" aria-modal="true" aria-labelledby="auth-title" style="display:none;">
+  <form id="auth-form" class="auth-card">
+    <div class="auth-brand">CLUB GENESIS</div>
+    <h1 id="auth-title">POS LOGIN</h1>
+    <p>許可されたスタッフアカウントでログインしてください</p>
+    <label for="auth-email">メールアドレス</label>
+    <input id="auth-email" name="email" type="email" autocomplete="username" inputmode="email" required/>
+    <label for="auth-password">パスワード</label>
+    <input id="auth-password" name="password" type="password" autocomplete="current-password" required/>
+    <div id="auth-error" role="alert" style="display:none;"></div>
+    <button id="auth-submit" type="submit">ログイン</button>
+    <small>ブラウザを閉じると自動的にログアウトします</small>
+  </form>
+</div>
 
 <div id="loading">
   <div style="font-family:'Cormorant Garamond',serif;font-size:28px;color:#d4a017;letter-spacing:.2em;">CLUB GENESIS</div>
@@ -34,7 +49,7 @@
   <header>
     <div style="display:flex;align-items:baseline;gap:10px;">
       <span style="font-family:'Cormorant Garamond',serif;font-size:22px;font-weight:300;letter-spacing:.2em;color:#d4a017;cursor:pointer;touch-action:manipulation;" onclick="sv('home')" title="ホームへ戻る">CLUB GENESIS</span>
-      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.134</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
+      <span style="font-size:10px;color:#666;letter-spacing:.1em;">POS SYSTEM</span><span style="font-size:9px;color:#555;letter-spacing:.05em;">Ver6.138</span><span style="font-size:9px;color:#444;letter-spacing:.05em;">Created by Uruu</span>
     </div>
     <nav style="display:flex;gap:2px;" id="main-nav">
       <button class="nb" id="nf" onclick="sv('floor')">フロア</button>
@@ -48,6 +63,7 @@
     <div style="display:flex;align-items:center;gap:8px;">
       <button class="btn" id="ops-btn" onclick="om('opsMenu')" style="display:none;padding:4px 10px;background:rgba(212,160,23,.12);border:1px solid rgba(212,160,23,.3);color:#d4a017;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">営業</button>
       <button class="btn" id="mgmt-btn" onclick="om('mgmtMenu')" style="padding:4px 10px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-size:11px;font-weight:700;touch-action:manipulation;">管理</button>
+      <button class="btn" id="logout-btn" onclick="posSignOut()" title="ログアウト">ログアウト</button>
       <div id="sb" style="font-size:10px;color:#4ade80;letter-spacing:.05em;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.2);border-radius:4px;padding:2px 8px;">⟳ 同期済み ✓</div>
       <div id="clk" style="font-size:13px;color:#888;"></div>
     </div>
@@ -69,8 +85,8 @@
 <div id="floor-order-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99;align-items:center;justify-content:center;padding:8px;">
   <div id="fom-inner" style="background:#141418;border:1px solid rgba(184,150,12,.3);border-radius:10px;padding:18px;width:100%;max-width:min(1400px,98vw);max-height:96vh;display:flex;flex-direction:column;overflow:hidden;"></div>
 </div>
-<script src="gms-json-core.js?v=6.134"></script>
-<script src="sync-core.js?v=6.134"></script>
-<script src="app.js?v=6.134"></script>
+<script src="gms-json-core.js?v=6.138"></script>
+<script src="sync-core.js?v=6.138"></script>
+<script src="app.js?v=6.138"></script>
 </body>
 </html>

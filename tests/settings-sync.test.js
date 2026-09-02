@@ -35,13 +35,13 @@ const context={
   window:{_remoteValueHashes:{}},
   document:{getElementById:()=>null},
   FB_ROOT:"pos-dev",
-  APP_VERSION:"6.134",
+  APP_VERSION:"6.138",
   sbs:()=>{},
   requireFirebaseReady:()=>true,
   stableJson:value=>JSON.stringify(value===undefined?null:value),
   cloneData:clone,
   updateRemoteHash:(key,value)=>{context.window._remoteValueHashes[key]=JSON.stringify(value===undefined?null:value);},
-  _verNum:()=>613400,
+  _verNum:()=>613700,
   readRemoteRelative:async key=>clone(getValue(remote,key)),
   guardedRootUpdate:async values=>{
     activeWrites++;
@@ -67,10 +67,14 @@ const versionContext={parseInt};
 vm.createContext(versionContext);
 vm.runInContext(versionSource,versionContext);
 assert.strictEqual(versionContext._verNum("6.133"),613300);
-assert.strictEqual(versionContext._verNum("6.134"),613400);
+assert.strictEqual(versionContext._verNum("6.136"),613600);
+assert.strictEqual(versionContext._verNum("6.137"),613700);
 assert.strictEqual(versionContext._verNum("6.108"),610800);
 assert.strictEqual(versionContext._verNum("6.109"),610900);
 assert.match(rulesDoc,/versionNum'\)\.val\(\) >= 613300/);
+assert.match(rulesDoc,/"_banaiOperations"/);
+assert.match(rulesDoc,/"\.validate"[\s\S]*sessionRev/);
+assert.match(rulesDoc,/banaiAtomicValidationVersion/);
 assert.match(rulesDoc,/_nodeWriteVersion'\)\.val\(\) >= 610800/);
 assert.match(rulesDoc,/_nodeWriteVersion'\)\.val\(\) >= 610900/);
 assert.doesNotMatch(rulesDoc,/>= 6133(?:\D|$)/);
