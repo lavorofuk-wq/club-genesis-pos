@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.2";
+const APP_VERSION="6.140.3";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -2492,6 +2492,9 @@ function deleteBizDay(dayId){
 function closedBizDayConflictMessage(){
   return "対象の営業履歴が他端末で更新されています。履歴画面を閉じて最新データを読み込み直してから再実行してください。";
 }
+function closedHistoryRecordConflictMessage(){
+  return "対象の会計が他端末で更新されています。最新データを読み込みました。内容を確認してから対象キャストを設定し直してください。";
+}
 function closedBizDaySaveErrorMessage(error){
   if(error?.userMessage)return error.userMessage;
   if(isFirebasePermissionDenied(error))return "Firebaseの書込権限を確認できませんでした。ログイン状態とこの端末の利用権限を確認してください。";
@@ -2520,6 +2523,46 @@ async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
   const days=syncBizDaysFromTransactionRoot(result);
   sbs(true,"同期済み ✓");
   return days[id]||null;
+}
+function closedHistoryRecordIndex(history,expectedRecord,expectedIndex){
+  const rows=Array.isArray(history)?history:[];
+  const recordId=expectedRecord?.id;
+  if(recordId!=null&&String(recordId)!=="")return rows.findIndex(row=>String(row?.id)===String(recordId));
+  const fallbackKey=row=>[row?.tableId,row?.startTime,row?.endTime,row?.total].map(value=>String(value??"")).join("|");
+  const expectedKey=fallbackKey(expectedRecord);
+  const matches=rows.map((row,index)=>({row,index})).filter(entry=>fallbackKey(entry.row)===expectedKey);
+  if(matches.length===1)return matches[0].index;
+  const index=Number(expectedIndex);
+  return Number.isInteger(index)&&index>=0&&index<rows.length&&fallbackKey(rows[index])===expectedKey?index:-1;
+}
+async function guardedReplaceClosedHistoryRecord(dayId,expectedRecord,nextRecord,expectedIndex){
+  const id=String(dayId||"");
+  if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
+  let latestRoot=null;
+  try{
+    const result=await guardedRootTransaction(root=>{
+      latestRoot=cloneData(root);
+      if(String(root.activeBizDay||"")===id)throw Object.assign(new Error("active business day"),{userMessage:"営業中の日は変更できません。営業終了後に再実行してください。"});
+      const remoteDay=getPathValue(root,"bizDays/"+id);
+      if(!remoteDay)throw Object.assign(new Error("business day not found"),{userMessage:"対象の営業履歴を確認できません。最新データを読み込み直してください。"});
+      const remoteHistory=Array.isArray(remoteDay.history)?cloneData(remoteDay.history):Object.values(remoteDay.history||{});
+      const recordIndex=closedHistoryRecordIndex(remoteHistory,expectedRecord,expectedIndex);
+      if(recordIndex<0||stableJson(remoteHistory[recordIndex])!==stableJson(expectedRecord)){
+        throw Object.assign(new Error("history record changed"),{_txConflict:true,userMessage:closedHistoryRecordConflictMessage()});
+      }
+      remoteHistory[recordIndex]=cloneData(nextRecord);
+      setPathValue(root,"bizDays/"+id,{...cloneData(remoteDay),history:remoteHistory});
+      return root;
+    });
+    const days=syncBizDaysFromTransactionRoot(result);
+    sbs(true,"同期済み ✓");
+    const savedHistory=Array.isArray(days[id]?.history)?days[id].history:Object.values(days[id]?.history||{});
+    const savedIndex=closedHistoryRecordIndex(savedHistory,nextRecord,expectedIndex);
+    return savedIndex>=0?savedHistory[savedIndex]:null;
+  }catch(error){
+    if(latestRoot)syncBizDaysFromTransactionRoot(latestRoot);
+    throw error;
+  }
 }
 async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
   const oldId=String(dayId||""),newId=String(newDayId||"");
@@ -2699,10 +2742,8 @@ async function saveGmsTargetEdit(){
   const candidates=gmsTargetCandidates(day,record);
   const applied=gmsApplyTargetSelections(record,gmsTargetEdit.selections,candidates);
   if(applied.errors.length){alert("対象キャストを保存できません。\n\n"+applied.errors.join("\n"));return;}
-  const history=(day.history||[]).map((row,rowIndex)=>rowIndex===index?applied.record:row);
-  const nextDay={...cloneData(day),history};
   try{
-    const saved=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedBizDay(dayId,cloneData(day),nextDay));
+    const saved=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedHistoryRecord(dayId,cloneData(record),applied.record,index));
     if(saved===false)return;
   }catch(error){
     console.error("同伴・ボトルバック対象キャストの保存に失敗しました",error);
