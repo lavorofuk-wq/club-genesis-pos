@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.139";
+const APP_VERSION="6.140";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -122,7 +122,7 @@ function applyPosCastPolicy(casts){
 }
 let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
-let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastId:null,freedrink:false,single:false,note:""};
+let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
 let now=Date.now();
@@ -140,6 +140,7 @@ let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let estIncludeRoom=false; // 概算に現在の室料を含めるか
 let banaiExtCastIds=[]; // 場内延長キャスト選択用（複数対応）
+let gmsTargetEdit={dayId:null,historyIndex:-1,selections:{}}; // 締め済み営業日の同伴・ボトル対象修正
 
 // ===== DEVICE DETECTION =====
 function getDevice(){
@@ -658,7 +659,7 @@ async function save(path,val){
       state.requestedVersion++;
       setSettingSaveStatus(path,"error","Firebaseへ接続できないため設定を保存していません。入力内容は保持されています。");
     }
-    return;
+    return false;
   }
   try{
     if(path.startsWith("sessions/")&&val){
@@ -671,8 +672,9 @@ async function save(path,val){
       await guardedSet(path,val);
     }
     if(!LIGHTWEIGHT_SETTING_PATHS.has(rootPath)||!hasPendingSettingSaves())sbs(true,"同期済み ✓");
+    return true;
   }
-  catch(e){sbs(false,LIGHTWEIGHT_SETTING_PATHS.has(rootPath)?"設定保存エラー":"保存エラー");}
+  catch(e){sbs(false,LIGHTWEIGHT_SETTING_PATHS.has(rootPath)?"設定保存エラー":"保存エラー");return false;}
 }
 function writeGate(){
   const ts=(window.firebase&&firebase.database&&firebase.database.ServerValue)?firebase.database.ServerValue.TIMESTAMP:Date.now();
@@ -1484,16 +1486,18 @@ async function guardedSessionUpdate(tableId,session,updates,options={}){
 // ===== SESSIONS =====
 async function startSession(){
   if(checkinBusy||!at)return;
-  const{guests,setMenu,honShimeis,douhan,douhanCastId,freedrink,single}=ci;
+  const{guests,setMenu,honShimeis,freedrink,single}=ci;
   if(!setMenu)return;
-  const douhanCast=douhan?S.casts.find(c=>String(c.id)===String(douhanCastId)):null;
-  if(douhan&&!douhanCast){alert("同伴キャストを選択してください。");return;}
+  const douhanCastIds=gmsUniqueStrings(ci.douhanCastIds||[]);
+  const douhanCasts=douhanCastIds.map(id=>S.casts.find(c=>String(c.id)===id)).filter(Boolean);
+  if(douhanCasts.length!==douhanCastIds.length){alert("同伴キャストの情報を確認できません。選択し直してください。");return;}
   const tableId=at;
   const items=[];
   const sm=[...(S.menus.normalSets||[]),...(S.menus.sets||[])].find(s=>s.id===setMenu);
   if(sm)items.push({id:sm.id,label:sm.label,price:sm.price,qty:guests,minutes:sm.minutes,isSet:true});
   honShimeis.forEach(cid=>{const c=S.casts.find(c=>c.id===cid);items.push({id:"hs_"+cid,label:"本指名料 ("+c?.name+")",price:HON_SHIMEI_PRICE,qty:1,castId:cid,castName:c?.name||"",isHonShimei:true});});
-  if(douhan)items.push({id:"dh",label:"同伴料",price:3000,qty:1,category:"dohan",castId:douhanCast.id,castName:douhanCast.name,backTargetCastIds:[String(douhanCast.id)],backTargetCastNames:[douhanCast.name],backType:"dohan",backAllocation:"single"});
+  const douhanPrice=Number((S.menus.options||[]).find(o=>o.id==="dh")?.price)||3000;
+  items.push(...buildDohanChargeItems(douhanCasts,douhanPrice,Date.now()));
   if(freedrink)items.push({id:"fd",label:freeDrinkLabel(60),price:freeDrinkPriceForMinutes(60),qty:guests,isFreeDrink:true,freeDrinkMinutes:60});
   if(single)items.push({id:"sc",label:"シングルチャージ",price:2000,qty:guests});
   let st=Date.now();
@@ -1757,7 +1761,20 @@ function addCD(cid,did){
 function selectLiquorBackCast(cid){
   if(!qm||(qm.category!=="champagneWine"&&qm.category!=="keepBottle"))return;
   const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;
-  qm.itemData={castId:c.id,castName:c.name,backTargetCastIds:[String(c.id)],backTargetCastNames:[c.name],backType:qm.category,backAllocation:"single"};
+  const current=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
+  const id=String(c.id);
+  const next=current.includes(id)?current.filter(value=>value!==id):[...current,id];
+  const selected=next.map(value=>sc().find(cast=>String(cast.id)===value)).filter(Boolean);
+  qm.itemData={
+    castId:selected[0]?.id||"",castName:selected[0]?.name||"",
+    backTargetCastIds:selected.map(cast=>String(cast.id)),backTargetCastNames:selected.map(cast=>cast.name),
+    backType:qm.category,backAllocation:selected.length>1?"equal":selected.length===1?"single":""
+  };
+  rModal();
+}
+function confirmLiquorBackCasts(){
+  if(!qm||(qm.category!=="champagneWine"&&qm.category!=="keepBottle"))return;
+  if(!(qm.itemData?.backTargetCastIds||[]).length){alert("ボトルバック対象キャストを1名以上選択してください。");return;}
   om("qty");
 }
 function addCustom(){
@@ -2448,9 +2465,11 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   // CSV出力ボタン
   const gmsMeta=gmsGetExportMeta(day.date||day.id);
   const hasGmsSubmission=!!(gmsMeta&&gmsMeta.schemaVersion===3&&gmsMeta.submissionId&&gmsMeta.payload);
+  const targetEditableCount=hist.filter(record=>gmsTargetEntries(record).length).length;
   html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;">';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
-  html+='<button class="btn" data-dayid="'+day.id+'" onclick="'+(hasGmsSubmission?'redownloadGmsClosingJSON':'exportGmsClosingJSON')+'(this.dataset.dayid'+(hasGmsSubmission?'':',false')+')" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">'+(hasGmsSubmission?'前回JSON再ダウンロード':'GMS取込JSON')+'</button>';
+  if(targetEditableCount&&day.id!==S.activeBizDay)html+='<button class="btn" data-dayid="'+day.id+'" onclick="openGmsTargetDayEdit(this.dataset.dayid)" style="padding:8px 16px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">同伴・ボトル対象修正</button>';
+  html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,false)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">'+(hasGmsSubmission?'GMS取込JSON再確認':'GMS取込JSON')+'</button>';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,true)" '+(hasGmsSubmission?'':'disabled title="通常版の出力履歴がありません"')+' style="padding:8px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#d97706;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;'+(hasGmsSubmission?'':'opacity:.4;cursor:not-allowed;')+'">\u8a02\u6b63\u7248JSON</button>';
   html+='</div>';
   html+='</div>';
@@ -2484,6 +2503,125 @@ function deleteBizDayHist(dayId,idx){
   day.history=(day.history||[]).filter((_,i)=>i!==idx);
   save("bizDays",S.bizDays);
   md="editBizDay_"+dayId;rModal();render();
+}
+
+function gmsEscapeHtml(value){return String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);}
+function buildDohanChargeItems(casts,price,stamp){
+  return(casts||[]).map((cast,index)=>({id:"dh_"+String(cast.id)+"_"+String(stamp||Date.now())+"_"+index,label:"同伴料",price:Number(price)||0,qty:1,category:"dohan",castId:cast.id,castName:cast.name,backTargetCastIds:[String(cast.id)],backTargetCastNames:[cast.name],backType:"dohan",backAllocation:"single"}));
+}
+function gmsTargetEntries(record){
+  const items=record?.items||[];
+  const dohanIndexes=[],bottles=[];
+  let dohanCount=0;
+  items.forEach((item,index)=>{
+    const category=gmsItemCategory(item);
+    if(category==="dohan"){
+      dohanIndexes.push(index);
+      dohanCount+=Math.max(1,Math.floor(Number(item.qty)||1));
+    }else if((category==="champagneWine"||category==="keepBottle")&&Number(item.price)*Math.max(1,Number(item.qty)||1)>=1){
+      bottles.push({key:"item_"+index,category,itemIndexes:[index],requiredCount:1,label:String(item.label||"ボトル"),amount:Number(item.price)*Math.max(1,Number(item.qty)||1)});
+    }
+  });
+  return[...(dohanIndexes.length?[{key:"dohan",category:"dohan",itemIndexes:dohanIndexes,requiredCount:dohanCount,label:"同伴料",amount:dohanIndexes.reduce((sum,index)=>sum+Number(items[index]?.price||0)*Math.max(1,Number(items[index]?.qty)||1),0)}]:[]),...bottles];
+}
+function gmsTargetCandidates(day,record){
+  const candidates=new Map();
+  const add=row=>{
+    const id=String(row?.castId??row?.id??"").trim();
+    const name=String(row?.castName||row?.name||"").trim();
+    if(!id||!name)return;
+    if(!candidates.has(id))candidates.set(id,{id,name,castType:normalizeCastType(row?.castType,row?.isTrial,row?.status)});
+  };
+  (day?.rosterSnapshot?.casts||[]).forEach(add);
+  Object.values(day?.shifts||{}).forEach(add);
+  Object.values(day?.assignments||{}).forEach(add);
+  const lifecycle=(S.castLifecycleLogs||{})[day?.date||day?.id]||{};
+  ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>(lifecycle[key]||[]).forEach(add));
+  (record?.items||[]).forEach(item=>{
+    const ids=gmsUniqueStrings(item?.backTargetCastIds||[]),names=Array.isArray(item?.backTargetCastNames)?item.backTargetCastNames:[];
+    ids.forEach((id,index)=>add({castId:id,castName:names[index]||(String(item.castId||"")===id?item.castName:"")}));
+    if(item?.castId&&item?.castName)add(item);
+    (item?.banaiExtCastIds||[]).forEach(id=>add({castId:id,castName:gmsCastName(id,"")}));
+  });
+  if(!day?.rosterSnapshot)allCasts().forEach(add);
+  return[...candidates.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),"ja"));
+}
+function gmsInitialTargetSelections(record){
+  const selections={};
+  gmsTargetEntries(record).forEach(entry=>{
+    selections[entry.key]=gmsUniqueStrings(entry.itemIndexes.flatMap(index=>record.items[index]?.backTargetCastIds||[]));
+  });
+  return selections;
+}
+function gmsApplyTargetSelections(record,selections,candidates){
+  const entries=gmsTargetEntries(record),candidateMap=new Map((candidates||[]).map(c=>[String(c.id),c]));
+  const errors=[];
+  entries.forEach(entry=>{
+    const ids=gmsUniqueStrings(selections?.[entry.key]||[]);
+    const missing=ids.filter(id=>!candidateMap.has(id));
+    if(missing.length)errors.push(entry.label+"の対象キャストを確認できません: "+missing.join(", "));
+    if(entry.category==="dohan"&&ids.length!==entry.requiredCount)errors.push("同伴料は"+entry.requiredCount+"本のため、同伴キャストを"+entry.requiredCount+"名選択してください（現在"+ids.length+"名）");
+    if(entry.category!=="dohan"&&!ids.length)errors.push(entry.label+"のボトルバック対象キャストを1名以上選択してください");
+  });
+  if(errors.length)return{record:null,errors};
+  const entryMap=new Map(entries.map(entry=>[entry.key,entry]));
+  const dohanIds=gmsUniqueStrings(selections?.dohan||[]);
+  let dohanOffset=0;
+  const nextItems=[];
+  (record?.items||[]).forEach((source,index)=>{
+    const item=cloneData(source),category=gmsItemCategory(item);
+    if(category==="dohan"&&entryMap.has("dohan")){
+      const count=Math.max(1,Math.floor(Number(item.qty)||1));
+      for(let n=0;n<count;n++){
+        const target=candidateMap.get(dohanIds[dohanOffset++]);
+        nextItems.push({...item,id:count===1?String(item.id||"dh"):String(item.id||"dh")+"_"+String(target.id)+"_"+index+"_"+n,qty:1,category:"dohan",castId:target.id,castName:target.name,backTargetCastIds:[target.id],backTargetCastNames:[target.name],backType:"dohan",backAllocation:"single"});
+      }
+      return;
+    }
+    const entry=entryMap.get("item_"+index);
+    if(entry){
+      const ids=gmsUniqueStrings(selections?.[entry.key]||[]),targets=ids.map(id=>candidateMap.get(id));
+      nextItems.push({...item,category:entry.category,castId:targets[0].id,castName:targets[0].name,backTargetCastIds:targets.map(target=>target.id),backTargetCastNames:targets.map(target=>target.name),backType:entry.category,backAllocation:targets.length>1?"equal":"single"});
+      return;
+    }
+    nextItems.push(item);
+  });
+  return{record:{...cloneData(record),items:nextItems},errors:[]};
+}
+function openGmsTargetDayEdit(dayId){
+  const day=S.bizDays[dayId];if(!day||dayId===S.activeBizDay)return;
+  md="editBizDay_"+dayId;rModal();
+}
+function openGmsTargetEdit(dayId,historyIndex){
+  const day=S.bizDays[dayId],index=parseInt(historyIndex,10),record=day?.history?.[index];
+  if(!day||dayId===S.activeBizDay||!record){alert("修正対象の会計を確認できません");return;}
+  if(!gmsTargetEntries(record).length){alert("この会計には修正対象の同伴料・有料ボトルがありません");return;}
+  gmsTargetEdit={dayId,historyIndex:index,selections:gmsInitialTargetSelections(record)};
+  md="gmsTargetEdit";rModal();
+}
+function toggleGmsTargetCast(key,castId){
+  const day=S.bizDays[gmsTargetEdit.dayId],record=day?.history?.[gmsTargetEdit.historyIndex];
+  const entry=gmsTargetEntries(record).find(row=>row.key===String(key));if(!entry)return;
+  const id=String(castId),selected=gmsUniqueStrings(gmsTargetEdit.selections[key]||[]);
+  if(selected.includes(id))gmsTargetEdit.selections[key]=selected.filter(value=>value!==id);
+  else if(entry.category==="dohan"&&selected.length>=entry.requiredCount){alert("同伴料は"+entry.requiredCount+"本です。別のキャストを外してから選択してください。");return;}
+  else gmsTargetEdit.selections[key]=[...selected,id];
+  rModal();
+}
+async function saveGmsTargetEdit(){
+  const dayId=gmsTargetEdit.dayId,index=gmsTargetEdit.historyIndex,day=S.bizDays[dayId],record=day?.history?.[index];
+  if(!day||!record)return;
+  const candidates=gmsTargetCandidates(day,record);
+  const applied=gmsApplyTargetSelections(record,gmsTargetEdit.selections,candidates);
+  if(applied.errors.length){alert("対象キャストを保存できません。\n\n"+applied.errors.join("\n"));return;}
+  const previousBizDays=S.bizDays;
+  const history=(day.history||[]).map((row,rowIndex)=>rowIndex===index?applied.record:row);
+  S.bizDays={...S.bizDays,[dayId]:{...day,history}};
+  const saved=await save("bizDays",S.bizDays);
+  if(!saved){S.bizDays=previousBizDays;alert("対象キャストを保存できませんでした。接続状態と他端末の更新を確認してください。");return;}
+  gmsTargetEdit={dayId:null,historyIndex:-1,selections:{}};
+  md="editBizDay_"+dayId;rModal();render();
+  alert("同伴・ボトルバック対象キャストを保存しました。\n会計金額・決済・指名内容は変更していません。");
 }
 
 function exportDayCSV(dayId){
@@ -2606,11 +2744,13 @@ function gmsTransactionItems(items){
     }else if(category==="champagneWine"||category==="keepBottle"||category==="dohan"){
       backType=backType||category;
       if(backTargetCastIds.length===1)backAllocation=backAllocation||"single";
+      else if(backTargetCastIds.length>1)backAllocation=backAllocation||"equal";
     }
     const backTargetCastNames=backTargetCastIds.map((id,index)=>storedTargetNames[index]||(String(item.castId||"")===id?String(item.castName||""):"")||gmsCastName(id,""));
-    const primaryTargetId=backTargetCastIds.length===1?backTargetCastIds[0]:"";
-    const castId=item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
-    const castName=String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
+    const primaryTargetId=backTargetCastIds[0]||"";
+    const targetCategory=category==="champagneWine"||category==="keepBottle"||category==="dohan";
+    const castId=targetCategory&&primaryTargetId?primaryTargetId:item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
+    const castName=targetCategory&&primaryTargetId?(backTargetCastNames[0]||gmsCastName(primaryTargetId,"")):String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
     return{
       itemId:String(item.id||""),label:String(item.label||""),category,
       price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
@@ -3664,20 +3804,30 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
 }
 
 // ===== CHECKIN =====
-function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastId:null,freedrink:false,single:false,note:""};etv=roundHHMM(5);}
+function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};etv=roundHHMM(5);}
 function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
 function cancelCheckin(){if(checkinBusy)return;resetCheckinState();at=null;closeM();render();}
 function ciGo(step){md=step;rModal();}
 function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set-type");}}
 function ciSelectSetType(type){ci.setType=type;ci.setMenu=null;ciGo("ci-set");}
 function ciSelectSet(id){ci.setMenu=id;ciGo("ci-time");}
-function ciToggleHon(id){id=parseInt(id,10);ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];rModal();}
+function ciToggleHon(id){
+  id=parseInt(id,10);
+  ci.honShimeis=ci.honShimeis.includes(id)?ci.honShimeis.filter(x=>x!==id):[...ci.honShimeis,id];
+  ci.douhanCastIds=(ci.douhanCastIds||[]).filter(cid=>ci.honShimeis.some(hid=>String(hid)===String(cid)));
+  ci.douhan=ci.douhanCastIds.length>0;
+  rModal();
+}
 function ciAfterHon(){if(ci.honShimeis.length>0)ciGo("ci-douhan");else if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
 function ciSetDouhanCast(id){
   const value=String(id||"");
   const cast=ci.honShimeis.find(cid=>String(cid)===value);
-  ci.douhan=cast!=null;
-  ci.douhanCastId=cast??null;
+  if(cast==null)ci.douhanCastIds=[];
+  else{
+    const selected=gmsUniqueStrings(ci.douhanCastIds||[]);
+    ci.douhanCastIds=selected.includes(value)?selected.filter(cid=>cid!==value):[...selected,value];
+  }
+  ci.douhan=ci.douhanCastIds.length>0;
   rModal();
 }
 function ciAfterDouhan(){if(ci.guests===1)ciGo("ci-single");else ciGo("ci-note");}
@@ -6361,15 +6511,21 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   }
   else if(md==="liquor-target"&&s&&qm){
 const candidates=sc();
+const selectedIds=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
 let targetButtons="";
 candidates.forEach(c=>{
-  targetButtons+='<button class="btn" data-cid="'+c.id+'" onclick="selectLiquorBackCast(this.dataset.cid)" style="padding:14px 8px;background:rgba(212,160,23,.1);border:1px solid rgba(212,160,23,.3);color:#d4a017;border-radius:7px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'+c.name+'</button>';
+  const selected=selectedIds.includes(String(c.id));
+  targetButtons+='<button class="btn" data-cid="'+c.id+'" onclick="selectLiquorBackCast(this.dataset.cid)" style="padding:14px 8px;background:'+(selected?'rgba(212,160,23,.25)':'rgba(212,160,23,.1)')+';border:1px solid '+(selected?'#d4a017':'rgba(212,160,23,.3)')+';color:#d4a017;border-radius:7px;font-size:14px;font-weight:700;text-align:center;touch-action:manipulation;">'+(selected?'✓ ':'')+c.name+'</button>';
 });
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
   +'<h3 style="margin-bottom:4px;font-size:17px;color:#d4a017;">'+qm.label+'</h3>'
-  +'<div style="font-size:12px;color:#666;margin-bottom:16px;">ボトルバック対象キャストを1名選択してください</div>'
+  +'<div style="font-size:12px;color:#666;margin-bottom:8px;">ボトルバック対象キャストを1名以上選択してください</div>'
+  +'<div style="font-size:11px;color:#888;margin-bottom:16px;">複数選択時はボトルバックを対象人数で均等分配します。現在 '+selectedIds.length+'名選択中</div>'
   +(candidates.length?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:55vh;overflow-y:auto;">'+targetButtons+'</div>':'<div style="padding:18px;text-align:center;color:#b91c1c;font-size:13px;">選択できるキャストがいません。キャストを登録してから注文してください。</div>')
-  +'<button class="btn" onclick="closeM();qm=null;qv=1;" style="width:100%;margin-top:14px;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
+  +'<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:14px;">'
+  +'<button class="btn" onclick="closeM();qm=null;qv=1;" style="padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
+  +'<button class="btn gbg" '+(selectedIds.length?'onclick="confirmLiquorBackCasts()"':'disabled')+' style="padding:10px;border-radius:6px;font-size:14px;font-weight:800;'+(selectedIds.length?'':'opacity:.45;')+'">数量選択へ</button>'
+  +'</div>'
   +'</div></div>';
   }
   else if(md==="ext"&&s){
@@ -6516,9 +6672,10 @@ if(md==="ci-guests"){
   body+='</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-time\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterHon()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
 }else if(md==="ci-douhan"){
-  let body='<div style="font-size:12px;color:#666;margin-bottom:14px;">同伴したキャストを選択（同伴なしも選択可）</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">';
+  const douhanIds=gmsUniqueStrings(ci.douhanCastIds||[]);
+  let body='<div style="font-size:12px;color:#666;margin-bottom:5px;">同伴したキャストを複数選択できます（同伴なしも可）</div><div style="font-size:11px;color:#888;margin-bottom:14px;">選択したキャスト1名につき同伴料を1本登録します。現在 '+douhanIds.length+'名／'+douhanIds.length+'本</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">';
   body+='<button class="btn" onclick="ciSetDouhanCast(\'\')" style="padding:14px 8px;border-radius:7px;background:'+(!ci.douhan?'rgba(255,255,255,.12)':'rgba(255,255,255,.04)')+';border:1px solid '+(!ci.douhan?'#94a3b8':'rgba(255,255,255,.1)')+';color:#aaa;font-weight:700;">'+(!ci.douhan?'&#10003; ':'')+'同伴なし</button>';
-  ci.honShimeis.forEach(cid=>{const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;const sel=ci.douhan&&String(ci.douhanCastId)===String(cid);body+='<button class="btn" data-cid="'+c.id+'" onclick="ciSetDouhanCast(this.dataset.cid)" style="padding:14px 8px;border-radius:7px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(124,77,255,.1)')+';border:1px solid '+(sel?'#d4a017':'rgba(124,77,255,.3)')+';color:'+(sel?'#d4a017':'#a78bfa')+';font-weight:800;">'+(sel?'&#10003; ':'')+c.name+'</button>';});
+  ci.honShimeis.forEach(cid=>{const c=sc().find(c=>String(c.id)===String(cid));if(!c)return;const sel=douhanIds.includes(String(cid));body+='<button class="btn" data-cid="'+c.id+'" onclick="ciSetDouhanCast(this.dataset.cid)" style="padding:14px 8px;border-radius:7px;background:'+(sel?'rgba(212,160,23,.22)':'rgba(124,77,255,.1)')+';border:1px solid '+(sel?'#d4a017':'rgba(124,77,255,.3)')+';color:'+(sel?'#d4a017':'#a78bfa')+';font-weight:800;">'+(sel?'&#10003; ':'')+c.name+'</button>';});
   body+='</div>';
   body+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;"><button class="btn" onclick="ciGo(\'ci-hon\')" style="padding:10px;background:rgba(255,255,255,.04);color:#888;border-radius:4px;">&#25147;&#12427;</button><button class="btn gbg" onclick="ciAfterDouhan()" style="padding:10px;font-weight:700;border-radius:4px;">&#27425;&#12408;</button></div>';
   h=head+body+foot;
@@ -6835,6 +6992,39 @@ else{
     +'</div></div></div>';
 }
   }
+  else if(md==="gmsTargetEdit"){
+const day=S.bizDays[gmsTargetEdit.dayId],record=day?.history?.[gmsTargetEdit.historyIndex];
+if(!day||!record){closeM();return;}
+const entries=gmsTargetEntries(record),candidates=gmsTargetCandidates(day,record);
+const typeLabel=cast=>cast.castType==="trial"?"体入":cast.castType==="dispatch"?"派遣":"在籍";
+let sections="";
+entries.forEach(entry=>{
+  const selected=gmsUniqueStrings(gmsTargetEdit.selections[entry.key]||[]);
+  const note=entry.category==="dohan"
+    ?"記録済み同伴料 "+entry.requiredCount+"本に対し、同伴キャストを"+entry.requiredCount+"名選択"
+    :"1名以上選択。複数の場合はバックを対象人数で均等分配";
+  const unknownIds=selected.filter(id=>!candidates.some(cast=>String(cast.id)===id));
+  let buttons=candidates.map(cast=>{
+    const active=selected.includes(String(cast.id));
+    return '<button class="btn" data-key="'+gmsEscapeHtml(entry.key)+'" data-cid="'+gmsEscapeHtml(cast.id)+'" onclick="toggleGmsTargetCast(this.dataset.key,this.dataset.cid)" style="padding:11px 7px;border-radius:6px;background:'+(active?'rgba(167,139,250,.25)':'rgba(255,255,255,.04)')+';border:1px solid '+(active?'#a78bfa':'rgba(255,255,255,.1)')+';color:'+(active?'#d8c8ff':'#aaa')+';font-size:13px;font-weight:700;touch-action:manipulation;">'+(active?'✓ ':'')+gmsEscapeHtml(cast.name)+'<div style="font-size:9px;opacity:.6;margin-top:2px;">'+typeLabel(cast)+'</div></button>';
+  }).join("");
+  buttons+=unknownIds.map(id=>'<button class="btn" data-key="'+gmsEscapeHtml(entry.key)+'" data-cid="'+gmsEscapeHtml(id)+'" onclick="toggleGmsTargetCast(this.dataset.key,this.dataset.cid)" style="padding:11px 7px;border-radius:6px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.35);color:#ff9b9b;font-size:12px;">✓ 不明 ('+gmsEscapeHtml(id)+')<div style="font-size:9px;margin-top:2px;">解除してください</div></button>').join("");
+  sections+='<div style="padding:12px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.08);border-radius:8px;margin-bottom:12px;">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px;"><div style="font-size:14px;font-weight:800;color:#e8dcc8;">'+gmsEscapeHtml(entry.label)+'</div><div style="font-size:11px;color:#d4a017;">¥'+fmt(entry.amount)+'</div></div>'
+    +'<div style="font-size:10px;color:#777;margin-bottom:10px;">'+note+'（現在 '+selected.length+'名）</div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:7px;max-height:34vh;overflow-y:auto;">'+(buttons||'<div style="font-size:12px;color:#ff6b6b;">選択できるキャストがいません</div>')+'</div>'
+    +'</div>';
+});
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:560px;">'
+  +'<h3 style="margin-bottom:4px;font-size:17px;color:#a78bfa;">同伴・ボトルバック対象修正</h3>'
+  +'<div style="font-size:12px;color:#888;margin-bottom:4px;">'+gmsEscapeHtml(day.date)+' ／ '+gmsEscapeHtml(record.tableLabel||"")+'</div>'
+  +'<div style="font-size:11px;color:#666;margin-bottom:14px;">対象キャストだけを修正します。会計金額・決済・本指名・場内指名は変更しません。</div>'
+  +sections
+  +'<div style="display:grid;grid-template-columns:1fr 2fr;gap:8px;margin-top:14px;">'
+  +'<button class="btn" onclick="md=\'editBizDay_'+gmsEscapeHtml(gmsTargetEdit.dayId)+'\';rModal()" style="padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;">戻る</button>'
+  +'<button class="btn gbg" onclick="saveGmsTargetEdit()" style="padding:11px;border-radius:6px;font-weight:800;">対象キャストを保存</button>'
+  +'</div></div></div>';
+  }
   else if(md&&md.startsWith("editBizDay_")){
 const dayId=md.replace("editBizDay_","");
 const day=S.bizDays[dayId];
@@ -6847,11 +7037,14 @@ hist.forEach((h,i)=>{
   const payBadge=h.splits&&h.splits.length>0
     ?h.splits.map(sp=>(sp.method==="card"?"カード":"現金")+"¥"+fmt(sp.amount)).join(" ")
     :(h.payMethod==="card"?"カード":"現金")+"¥"+fmt(h.total);
-  histRows+='<div class="ir" style="font-size:12px;">'
-    +'<span style="color:#bbb;">'+h.tableLabel+' '+h.guests+'名</span>'
-    +'<div style="display:flex;align-items:center;gap:8px;">'
+  const targetEntries=gmsTargetEntries(h),targetSelections=gmsInitialTargetSelections(h);
+  const targetIncomplete=targetEntries.some(entry=>entry.category==="dohan"?targetSelections[entry.key].length!==entry.requiredCount:targetSelections[entry.key].length<1);
+  histRows+='<div class="ir" style="font-size:12px;align-items:flex-start;">'
+    +'<span style="color:#bbb;">'+gmsEscapeHtml(h.tableLabel)+' '+h.guests+'名</span>'
+    +'<div style="display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;">'
     +'<span style="color:#d4a017;">'+pAmt(h.total)+'</span>'
     +'<span style="color:#666;font-size:10px;">'+payBadge+'</span>'
+    +(!isActive&&targetEntries.length?'<button class="btn" data-dayid="'+gmsEscapeHtml(dayId)+'" data-idx="'+i+'" onclick="openGmsTargetEdit(this.dataset.dayid,parseInt(this.dataset.idx))" style="padding:3px 7px;background:'+(targetIncomplete?'rgba(255,165,0,.13)':'rgba(167,139,250,.1)')+';border:1px solid '+(targetIncomplete?'rgba(255,165,0,.4)':'rgba(167,139,250,.3)')+';color:'+(targetIncomplete?'#ffa500':'#a78bfa')+';border-radius:3px;font-size:10px;font-weight:700;touch-action:manipulation;">'+(targetIncomplete?'要設定 ':'')+'対象キャスト</button>':'')
     +(isActive?'':'<button class="btn" data-dayid="'+dayId+'" data-idx="'+i+'" onclick="deleteBizDayHist(this.dataset.dayid,parseInt(this.dataset.idx))" style="padding:2px 7px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:3px;font-size:10px;touch-action:manipulation;">削除</button>')
     +'</div></div>';
 });

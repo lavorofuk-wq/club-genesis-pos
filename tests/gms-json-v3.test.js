@@ -174,6 +174,20 @@ assert.deepStrictEqual(bottle.backTargetCastNames, ["体入 美咲"], "有料ボ
 assert.strictEqual(bottle.backType, "champagneWine");
 assert.strictEqual(bottle.backAllocation, "single");
 
+const multiBottleTargets = GmsJson.clone(initial.payload);
+Object.assign(multiBottleTargets.transactions[0].items[3], {
+  castId: "regular-1", castName: "在籍 花子",
+  backTargetCastIds: ["regular-1", "trial-1"],
+  backTargetCastNames: ["在籍 花子", "体入 美咲"],
+  backAllocation: "equal"
+});
+recalculate(multiBottleTargets);
+assert.deepStrictEqual(GmsJson.validatePayload(multiBottleTargets), [], "複数ボトル対象の均等分配を受理");
+const badBottleAllocation = GmsJson.clone(multiBottleTargets);
+badBottleAllocation.transactions[0].items[3].backAllocation = "single";
+recalculate(badBottleAllocation);
+assert(GmsJson.validatePayload(badBottleAllocation).some((error) => error.includes("equal")), "複数ボトル対象は均等分配以外を拒否");
+
 const missingBottleTarget = GmsJson.clone(initial.payload);
 Object.assign(missingBottleTarget.transactions[0].items[3], { castId: "", castName: "", backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: "" });
 recalculate(missingBottleTarget);
@@ -185,6 +199,15 @@ assert.deepStrictEqual(dohan.backTargetCastIds, ["regular-1"], "同伴対象ID�
 assert.strictEqual(dohan.castId, "regular-1");
 assert.strictEqual(dohan.backType, "dohan");
 assert.strictEqual(dohan.backAllocation, "single");
+
+const multiDohan = GmsJson.clone(initial.payload);
+multiDohan.transactions[0].items.push({
+  ...GmsJson.clone(dohan), itemId: "dh2", castId: "trial-1", castName: "体入 美咲",
+  backTargetCastIds: ["trial-1"], backTargetCastNames: ["体入 美咲"]
+});
+recalculate(multiDohan);
+assert.deepStrictEqual(GmsJson.validatePayload(multiDohan), [], "同伴2名を1名1明細で受理");
+assert.strictEqual(multiDohan.transactions[0].items.filter(item => item.category === "dohan").length, 2, "同伴対象人数分の明細を保持");
 
 const missingDohanTarget = GmsJson.clone(initial.payload);
 Object.assign(missingDohanTarget.transactions[0].items[2], { castId: "", castName: "", backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: "" });
@@ -263,6 +286,7 @@ assert(appSource.includes("schema:\"club-genesis-pos-closing\",schemaVersion:3")
 assert(appSource.includes("GMS_JSON.prepareSubmission"), "POS本体が共通提出処理を使用");
 assert(appSource.includes("GMS_JSON.validatePayload"), "ダウンロード前に共通検証処理を使用");
 assert(appSource.includes("backAllocation:\"single\""), "注文時に単一対象を明示保存");
+assert(appSource.includes('backAllocation:selected.length>1?"equal"'), "複数ボトル対象を均等分配で保存");
 assert(appSource.includes("gmsCastTypeSourceErrors"), "元データの区分不一致も出力前に検査");
 assert.doesNotMatch(appSource.slice(appSource.indexOf("function gmsClosingBasePayload"), appSource.indexOf("function gmsClosingPayload")), /staffWork|expenses|allowances|cashReconciliation|castSalesSummary/, "不要項目をベースpayloadに含めない");
 

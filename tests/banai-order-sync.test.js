@@ -32,7 +32,7 @@ function createContext(updateImpl){
   const writes=[];
   const synced={};
   const context={
-    APP_VERSION:"6.139",
+    APP_VERSION:"6.140",
     BANAI_ATOMIC_VALIDATION_VERSION:613600,
     FB_ROOT:"pos-dev",
     requireFirebaseReady:()=>true,
