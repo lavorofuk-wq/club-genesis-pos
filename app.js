@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140";
+const APP_VERSION="6.140.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -2480,29 +2480,96 @@ function deleteBizDay(dayId){
   if(dayId===S.activeBizDay){alert("現在営業中の日は削除できません");return;}
   md="deleteBizDay_"+dayId;rModal();
 }
-function confirmDeleteBizDay(dayId){
-  delete S.bizDays[dayId];
-  save("bizDays",S.bizDays);
-  closeM();render();
+function closedBizDayConflictMessage(){
+  return "対象の営業履歴が他端末で更新されています。履歴画面を閉じて最新データを読み込み直してから再実行してください。";
 }
-function saveBizDayEdit(dayId){
+function closedBizDaySaveErrorMessage(error){
+  if(error?.userMessage)return error.userMessage;
+  if(isFirebasePermissionDenied(error))return "Firebaseの書込権限を確認できませんでした。ログイン状態とこの端末の利用権限を確認してください。";
+  return "Firebaseへ保存できませんでした。接続状態を確認し、履歴画面を読み込み直してから再実行してください。";
+}
+function syncBizDaysFromTransactionRoot(root){
+  const days=cloneData(root?.bizDays||{});
+  S.bizDays=days;
+  updateBizDayRemoteHashes(days);
+  lazyDataState.bizDays.status="loaded";
+  lazyDataState.bizDays.loadedAt=Date.now();
+  return days;
+}
+async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
+  const id=String(dayId||"");
+  if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
+  const result=await guardedCheckedUpdate(
+    {[FB_ROOT+"/bizDays/"+id]:cloneData(nextDay)},
+    root=>{
+      if(String(root.activeBizDay||"")===id)return{ok:false,message:"営業中の日は変更できません。営業終了後に再実行してください。"};
+      const remote=getPathValue(root,"bizDays/"+id);
+      if(stableJson(remote)!==stableJson(expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
+      return{ok:true};
+    }
+  );
+  const days=syncBizDaysFromTransactionRoot(result);
+  sbs(true,"同期済み ✓");
+  return days[id]||null;
+}
+async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
+  const oldId=String(dayId||""),newId=String(newDayId||"");
+  if(!oldId||!newId)throw Object.assign(new Error("business day is required"),{userMessage:"変更前後の営業日を確認できません。"});
+  if(oldId===newId)return guardedReplaceClosedBizDay(oldId,expectedDay,nextDay);
+  const result=await guardedCheckedUpdate(
+    {[FB_ROOT+"/bizDays/"+oldId]:null,[FB_ROOT+"/bizDays/"+newId]:cloneData(nextDay)},
+    root=>{
+      const active=String(root.activeBizDay||"");
+      if(active===oldId||active===newId)return{ok:false,message:"営業中の日付へは変更できません。営業終了後に再実行してください。"};
+      if(stableJson(getPathValue(root,"bizDays/"+oldId))!==stableJson(expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
+      if(getPathValue(root,"bizDays/"+newId)!=null)return{ok:false,message:"変更先の日付には既に営業履歴があります。別の日付を指定してください。"};
+      return{ok:true};
+    }
+  );
+  const days=syncBizDaysFromTransactionRoot(result);
+  sbs(true,"同期済み ✓");
+  return days[newId]||null;
+}
+async function confirmDeleteBizDay(dayId){
+  const day=S.bizDays[dayId];if(!day)return;
+  try{
+    const result=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedBizDay(dayId,cloneData(day),null));
+    if(result===false)return;
+    closeM();render();
+  }catch(error){
+    console.error("営業履歴の削除に失敗しました",error);
+    sbs(false,"保存エラー");
+    alert("営業履歴を削除できませんでした。\n\n"+closedBizDaySaveErrorMessage(error));
+  }
+}
+async function saveBizDayEdit(dayId){
   const day=S.bizDays[dayId];if(!day)return;
   const dateEl=document.getElementById("edit-biz-date");
-  if(dateEl&&dateEl.value&&dateEl.value!==day.date){
-// 日付変更：古いキーを削除して新キーで保存
-const newDate=dateEl.value;
-const newDay={...day,id:newDate,date:newDate};
-delete S.bizDays[dayId];
-S.bizDays[newDate]=newDay;
+  const newDate=String(dateEl?.value||day.date||dayId);
+  if(newDate===String(day.date||dayId)){closeM();render();return;}
+  const newDay={...cloneData(day),id:newDate,date:newDate};
+  try{
+    const result=await withDataOperation("bizDay:"+dayId,()=>guardedMoveClosedBizDay(dayId,cloneData(day),newDate,newDay));
+    if(result===false)return;
+    closeM();render();
+  }catch(error){
+    console.error("営業日の変更に失敗しました",error);
+    sbs(false,"保存エラー");
+    alert("営業日を変更できませんでした。\n\n"+closedBizDaySaveErrorMessage(error));
   }
-  save("bizDays",S.bizDays);
-  closeM();render();
 }
-function deleteBizDayHist(dayId,idx){
+async function deleteBizDayHist(dayId,idx){
   const day=S.bizDays[dayId];if(!day)return;
-  day.history=(day.history||[]).filter((_,i)=>i!==idx);
-  save("bizDays",S.bizDays);
-  md="editBizDay_"+dayId;rModal();render();
+  const nextDay={...cloneData(day),history:(day.history||[]).filter((_,i)=>i!==idx)};
+  try{
+    const result=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedBizDay(dayId,cloneData(day),nextDay));
+    if(result===false)return;
+    md="editBizDay_"+dayId;rModal();render();
+  }catch(error){
+    console.error("会計履歴の削除に失敗しました",error);
+    sbs(false,"保存エラー");
+    alert("会計履歴を削除できませんでした。\n\n"+closedBizDaySaveErrorMessage(error));
+  }
 }
 
 function gmsEscapeHtml(value){return String(value??"").replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[char]);}
@@ -2614,11 +2681,17 @@ async function saveGmsTargetEdit(){
   const candidates=gmsTargetCandidates(day,record);
   const applied=gmsApplyTargetSelections(record,gmsTargetEdit.selections,candidates);
   if(applied.errors.length){alert("対象キャストを保存できません。\n\n"+applied.errors.join("\n"));return;}
-  const previousBizDays=S.bizDays;
   const history=(day.history||[]).map((row,rowIndex)=>rowIndex===index?applied.record:row);
-  S.bizDays={...S.bizDays,[dayId]:{...day,history}};
-  const saved=await save("bizDays",S.bizDays);
-  if(!saved){S.bizDays=previousBizDays;alert("対象キャストを保存できませんでした。接続状態と他端末の更新を確認してください。");return;}
+  const nextDay={...cloneData(day),history};
+  try{
+    const saved=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedBizDay(dayId,cloneData(day),nextDay));
+    if(saved===false)return;
+  }catch(error){
+    console.error("同伴・ボトルバック対象キャストの保存に失敗しました",error);
+    sbs(false,"保存エラー");
+    alert("対象キャストを保存できませんでした。\n\n"+closedBizDaySaveErrorMessage(error));
+    return;
+  }
   gmsTargetEdit={dayId:null,historyIndex:-1,selections:{}};
   md="editBizDay_"+dayId;rModal();render();
   alert("同伴・ボトルバック対象キャストを保存しました。\n会計金額・決済・指名内容は変更していません。");
