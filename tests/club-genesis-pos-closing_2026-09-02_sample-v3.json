@@ -1,0 +1,345 @@
+{
+  "schema": "club-genesis-pos-closing",
+  "schemaVersion": 3,
+  "businessDate": "2026-09-02",
+  "status": "submitted",
+  "sales": {
+    "totalSales": 50000,
+    "cashSales": 20000,
+    "cardSales": 30000,
+    "discountTotal": 0,
+    "taxServiceTotal": 0
+  },
+  "customers": {
+    "groupCount": 1,
+    "totalCustomers": 2,
+    "customerUnitPrice": 25000
+  },
+  "nominations": {
+    "honShimeiCount": 1,
+    "jonaiCount": 1
+  },
+  "transactions": [
+    {
+      "transactionId": "tx-20260902-1",
+      "tableId": "t1",
+      "tableLabel": "テーブル 1",
+      "startTime": 1788350400000,
+      "endTime": 1788361200000,
+      "guests": 2,
+      "note": "",
+      "payMethod": "cash",
+      "splits": [
+        {
+          "method": "cash",
+          "amount": 20000
+        },
+        {
+          "method": "card",
+          "amount": 30000
+        }
+      ],
+      "subtotal": 50000,
+      "discount": 0,
+      "tax": 0,
+      "total": 50000,
+      "items": [
+        {
+          "itemId": "set1",
+          "label": "同伴セット",
+          "category": "set",
+          "price": 12000,
+          "quantity": 1,
+          "castId": "",
+          "castName": "",
+          "banaiExtCastIds": [],
+          "isSet": true,
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [],
+          "backTargetCastNames": [],
+          "backType": "",
+          "backAllocation": ""
+        },
+        {
+          "itemId": "hs1",
+          "label": "本指名料 (在籍 花子)",
+          "category": "honShimei",
+          "price": 2000,
+          "quantity": 1,
+          "castId": "regular-1",
+          "castName": "在籍 花子",
+          "banaiExtCastIds": [],
+          "isHonShimei": true,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [],
+          "backTargetCastNames": [],
+          "backType": "",
+          "backAllocation": ""
+        },
+        {
+          "itemId": "dh1",
+          "label": "同伴料",
+          "category": "dohan",
+          "price": 3000,
+          "quantity": 1,
+          "castId": "regular-1",
+          "castName": "在籍 花子",
+          "banaiExtCastIds": [],
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [
+            "regular-1"
+          ],
+          "backTargetCastNames": [
+            "在籍 花子"
+          ],
+          "backType": "dohan",
+          "backAllocation": "single"
+        },
+        {
+          "itemId": "cw1",
+          "label": "シャンパン",
+          "category": "champagneWine",
+          "price": 30000,
+          "quantity": 1,
+          "castId": "trial-1",
+          "castName": "体入 美咲",
+          "banaiExtCastIds": [],
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [
+            "trial-1"
+          ],
+          "backTargetCastNames": [
+            "体入 美咲"
+          ],
+          "backType": "champagneWine",
+          "backAllocation": "single"
+        },
+        {
+          "itemId": "keep0",
+          "label": "キープ利用",
+          "category": "keepBottle",
+          "price": 0,
+          "quantity": 1,
+          "castId": "",
+          "castName": "",
+          "banaiExtCastIds": [],
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [],
+          "backTargetCastNames": [],
+          "backType": "",
+          "backAllocation": ""
+        },
+        {
+          "itemId": "ext1",
+          "label": "延長30分",
+          "category": "extension",
+          "price": 3000,
+          "quantity": 1,
+          "castId": "",
+          "castName": "",
+          "banaiExtCastIds": [
+            "dispatch-1"
+          ],
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": true,
+          "backTargetCastIds": [],
+          "backTargetCastNames": [],
+          "backType": "",
+          "backAllocation": ""
+        },
+        {
+          "itemId": "drink1",
+          "label": "キャストDrink (在籍 花子)",
+          "category": "castDrink",
+          "price": 2000,
+          "quantity": 1,
+          "castId": "regular-1",
+          "castName": "在籍 花子",
+          "banaiExtCastIds": [],
+          "isHonShimei": false,
+          "isBanaiShimei": false,
+          "isExtension": false,
+          "backTargetCastIds": [
+            "regular-1"
+          ],
+          "backTargetCastNames": [
+            "在籍 花子"
+          ],
+          "backType": "castDrink",
+          "backAllocation": "orderedCast"
+        }
+      ]
+    }
+  ],
+  "castSales": [
+    {
+      "castId": "regular-1",
+      "castName": "在籍 花子",
+      "honShimeiSales": 50000,
+      "jonaiExtensionSales": 0,
+      "drinkSales": 2000,
+      "totalAttributedSales": 50000
+    },
+    {
+      "castId": "trial-1",
+      "castName": "体入 美咲",
+      "honShimeiSales": 0,
+      "jonaiExtensionSales": 0,
+      "drinkSales": 0,
+      "totalAttributedSales": 0
+    },
+    {
+      "castId": "dispatch-1",
+      "castName": "派遣 葵",
+      "honShimeiSales": 0,
+      "jonaiExtensionSales": 0,
+      "drinkSales": 0,
+      "totalAttributedSales": 0
+    }
+  ],
+  "castWork": [
+    {
+      "castId": "regular-1",
+      "castName": "在籍 花子",
+      "name": "在籍 花子",
+      "castType": "regular",
+      "isTrial": false,
+      "startTime": "20:00",
+      "endTime": "01:00",
+      "breakMinutes": 0,
+      "hours": 5
+    },
+    {
+      "castId": "trial-1",
+      "castName": "体入 美咲",
+      "name": "体入 美咲",
+      "castType": "trial",
+      "isTrial": true,
+      "startTime": "20:30",
+      "endTime": "00:30",
+      "breakMinutes": 0,
+      "hours": 4
+    },
+    {
+      "castId": "dispatch-1",
+      "castName": "派遣 葵",
+      "name": "派遣 葵",
+      "castType": "dispatch",
+      "isTrial": false,
+      "startTime": "21:00",
+      "endTime": "02:00",
+      "breakMinutes": 0,
+      "hours": 5
+    }
+  ],
+  "enteredCasts": [
+    {
+      "castId": "regular-1",
+      "castName": "在籍 花子",
+      "castType": "regular",
+      "isTrial": false,
+      "enteredAt": 1788350400000
+    },
+    {
+      "castId": "dispatch-1",
+      "castName": "派遣 葵",
+      "castType": "dispatch",
+      "isTrial": false,
+      "enteredAt": 1788350400000
+    }
+  ],
+  "exitedCasts": [],
+  "trialCasts": [
+    {
+      "castId": "trial-1",
+      "castName": "体入 美咲",
+      "castType": "trial",
+      "isTrial": true,
+      "trialRegisteredAt": 1788350400000
+    }
+  ],
+  "rosterSnapshot": {
+    "complete": true,
+    "capturedAt": "2026-09-02T18:00:00.000Z",
+    "casts": [
+      {
+        "castId": "regular-1",
+        "name": "在籍 花子",
+        "castName": "在籍 花子",
+        "status": "active",
+        "castType": "regular",
+        "isTrial": false
+      },
+      {
+        "castId": "trial-1",
+        "name": "体入 美咲",
+        "castName": "体入 美咲",
+        "status": "trial",
+        "castType": "trial",
+        "isTrial": true
+      },
+      {
+        "castId": "dispatch-1",
+        "name": "派遣 葵",
+        "castName": "派遣 葵",
+        "status": "active",
+        "castType": "dispatch",
+        "isTrial": false
+      }
+    ]
+  },
+  "lifecycleEvents": [
+    {
+      "eventId": "evt_regular",
+      "eventType": "entered",
+      "eventAt": "2026-09-02T11:00:00.000Z",
+      "castId": "regular-1",
+      "castName": "在籍 花子",
+      "castType": "regular",
+      "isTrial": false,
+      "entryDate": "2026-09-02"
+    },
+    {
+      "eventId": "evt_trial",
+      "eventType": "trial",
+      "eventAt": "2026-09-02T11:30:00.000Z",
+      "castId": "trial-1",
+      "castName": "体入 美咲",
+      "castType": "trial",
+      "isTrial": true,
+      "entryDate": "2026-09-02"
+    },
+    {
+      "eventId": "evt_dispatch",
+      "eventType": "entered",
+      "eventAt": "2026-09-02T12:00:00.000Z",
+      "castId": "dispatch-1",
+      "castName": "派遣 葵",
+      "castType": "dispatch",
+      "isTrial": false,
+      "entryDate": "2026-09-02"
+    }
+  ],
+  "source": {
+    "exportMethod": "file",
+    "exportedBy": "POS",
+    "businessStartedAt": 1788350400000,
+    "businessEndedAt": 1788361200000,
+    "submissionId": "pos_d2f9eb8ffe3bcc24"
+  },
+  "checksumAlgorithm": "sha256",
+  "checksumCanonicalization": "recursive-key-sort-v1",
+  "submissionId": "pos_d2f9eb8ffe3bcc24",
+  "generatedAt": "2026-09-02T18:00:00.000Z",
+  "checksum": "be3f9e4ca205de7805a51c0b683228c6eca286ea48769109dc59203dc56dacc4"
+}
