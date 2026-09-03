@@ -15,11 +15,20 @@ assert.match(clockOut,/guardedCheckedUpdateOptimistic/);
 assert.match(clockOut,/readActiveAssignCasts:\[current\.castId\]/);
 
 const shiftOps=app.slice(app.indexOf("async function clockIn"),app.indexOf("async function deleteShift"));
+const deleteShiftOp=app.slice(app.indexOf("async function deleteShift"),app.indexOf("function exportShiftCSV"));
+const shiftDeleteHelper=app.slice(app.indexOf("async function guardedShiftDelete"),app.indexOf("function syncVersionedRecordsFromPrepared"));
 assert.match(app,/function readRemoteActiveShiftsForCast\(castId\)/);
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
 assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readActiveShiftCasts:\[castId\]/);
 assert.match(shiftOps,/async function cancelClockOut[\s\S]*readActiveShiftCasts:\[current\.castId\]/);
 assert.match(shiftOps,/async function saveShiftEdit[\s\S]*readActiveShiftCasts:\[current\.castId\][\s\S]*readActiveAssignCasts:\[current\.castId\]/);
+assert.match(deleteShiftOp,/await guardedShiftDelete\(sid,expected\)/);
+assert.doesNotMatch(deleteShiftOp,/guardedCheckedUpdate|guardedRootTransaction/);
+assert.match(shiftDeleteHelper,/await readRemoteRelative\(relative\)/);
+assert.match(shiftDeleteHelper,/readRemoteActiveAssignmentsForCast\(remote\.castId\)/);
+assert.match(shiftDeleteHelper,/\[FB_ROOT\+"\/shifts\/"\+shiftId\]:null/);
+assert.match(shiftDeleteHelper,/\[FB_ROOT\+"\/_shiftDeleteOperations\/"\+shiftId\]:operation/);
+assert.doesNotMatch(shiftDeleteHelper,/withWriteGate|guardedRootTransaction/);
 
 const startAssign=app.slice(app.indexOf("async function startAssignAt"),app.indexOf("async function changeAssignType"));
 assert.match(startAssign,/remoteSession/);
