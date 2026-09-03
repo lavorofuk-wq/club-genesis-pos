@@ -23,6 +23,13 @@
           ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
         }
       },
+      "gmsTargetCorrections": {
+        "$dayId": {
+          "$transactionId": {
+            ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && root.child('pos').child('activeBizDay').val() != $dayId && newData.exists() && newData.child('schemaVersion').val() == 1 && newData.child('dayId').val() == $dayId && newData.child('transactionId').val() == $transactionId && newData.child('recordFingerprint').isString() && newData.child('selections').exists() && newData.child('casts').exists() && newData.child('_nodeWriteVersion').val() >= 614004 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          }
+        }
+      },
       "shifts": {
         "$shiftId": {
           ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610900 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
@@ -50,6 +57,13 @@
       "sessions": {
         "$tableId": {
           ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.exists() && newData.child('_nodeWriteVersion').val() >= 610800 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+        }
+      },
+      "gmsTargetCorrections": {
+        "$dayId": {
+          "$transactionId": {
+            ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && root.child('pos-dev').child('activeBizDay').val() != $dayId && newData.exists() && newData.child('schemaVersion').val() == 1 && newData.child('dayId').val() == $dayId && newData.child('transactionId').val() == $transactionId && newData.child('recordFingerprint').isString() && newData.child('selections').exists() && newData.child('casts').exists() && newData.child('_nodeWriteVersion').val() >= 614004 && newData.child('_nodeWriteNonce').isString() && newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val() && newData.child('_rev').val() == (data.exists() && data.child('_rev').isNumber() ? data.child('_rev').val() + 1 : 1)"
+          }
         }
       },
       "shifts": {

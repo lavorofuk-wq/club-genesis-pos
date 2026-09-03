@@ -14,9 +14,10 @@ const casts = [
 ];
 const context = {
   GMS_JSON,
-  S: { casts, castLifecycleLogs: {} },
+  S: { casts, castLifecycleLogs: {}, bizDays: {}, gmsTargetCorrections: {}, activeBizDay: null },
   allCasts: () => casts,
   cloneData: value => value == null ? null : JSON.parse(JSON.stringify(value)),
+  stableJson: value => GMS_JSON.canonicalJson(value === undefined ? null : value),
   normalizeCastType: GMS_JSON.normalizeCastType,
   roomTypeFromItem: () => "",
   Map,
@@ -251,8 +252,9 @@ const closedRecord = {
 };
 const closedDay = { ...day, id: "2026-09-02", history: [closedRecord], assignments: {} };
 const candidates = context.gmsTargetCandidates(closedDay, closedRecord);
+assert.deepStrictEqual(Array.from(context.gmsTargetEntries(closedRecord).find(entry => entry.category === "dohan").eligibleCastIds), ["regular-1", "dispatch-1"], "締め済み同伴の選択候補を本指名キャストだけに限定");
 const applied = context.gmsApplyTargetSelections(closedRecord, {
-  dohan: ["regular-1", "trial-1"],
+  dohan: ["regular-1", "dispatch-1"],
   item_1: ["regular-1", "dispatch-1"]
 }, candidates);
 assert.deepStrictEqual(Array.from(applied.errors), [], "締め済み明細へ対象キャストを手動設定できる");
@@ -260,7 +262,7 @@ assert.strictEqual(applied.record.total, closedRecord.total, "対象修正で会
 assert.strictEqual(applied.record.payMethod, closedRecord.payMethod, "対象修正で決済を変えない");
 const repairedDohan = applied.record.items.filter(item => item.category === "dohan");
 assert.strictEqual(repairedDohan.length, 2, "同伴料2本を1名1明細へ分割");
-assert.deepStrictEqual(Array.from(repairedDohan, item => item.backTargetCastIds[0]), ["regular-1", "trial-1"], "同伴2名を各同伴料へ明示");
+assert.deepStrictEqual(Array.from(repairedDohan, item => item.backTargetCastIds[0]), ["regular-1", "dispatch-1"], "本指名の同伴2名を各同伴料へ明示");
 assert.strictEqual(repairedDohan.reduce((sum, item) => sum + item.price * item.qty, 0), 6000, "同伴料総額を維持");
 const repairedBottle = applied.record.items.find(item => item.id === "cw-old");
 assert.deepStrictEqual(Array.from(repairedBottle.backTargetCastIds), ["regular-1", "dispatch-1"], "締め済みボトルへ複数対象を保存");
@@ -268,9 +270,24 @@ assert.strictEqual(repairedBottle.backAllocation, "equal", "締め済みボト�
 assert.strictEqual(applied.record.items.find(item => item.id === "keep-use").backTargetCastIds, undefined, "0円キープ利用は修正対象外");
 
 const shortDohan = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1"], item_1: ["regular-1"] }, candidates);
-assert(shortDohan.errors.some(error => error.includes("2名選択")), "同伴料本数と対象人数の不一致を拒否");
-const missingBottle = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1", "trial-1"], item_1: [] }, candidates);
+assert(shortDohan.errors.some(error => error.includes("同伴料は2本") && error.includes("現在1名")), "同伴料本数と対象人数の不一致を拒否");
+const outsideHonDohan = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1", "trial-1"], item_1: ["regular-1", "dispatch-1"] }, candidates);
+assert(outsideHonDohan.errors.some(error => error.includes("本指名キャストだけ")), "同伴対象に本指名ではないキャストを選べない");
+const missingBottle = context.gmsApplyTargetSelections(closedRecord, { dohan: ["regular-1", "dispatch-1"], item_1: [] }, candidates);
 assert(missingBottle.errors.some(error => error.includes("売上対象キャスト全員")), "締め済み有料ボトルの売上対象不足を拒否");
+
+context.S.bizDays["2026-09-02"] = closedDay;
+const correctionKey = context.gmsTargetCorrectionKey(closedRecord, 0);
+context.S.gmsTargetCorrections["2026-09-02"] = {
+  [correctionKey]: {
+    ...context.gmsBuildTargetCorrection("2026-09-02", closedRecord, 0, { dohan: ["regular-1", "dispatch-1"], item_1: ["regular-1", "dispatch-1"] }, candidates),
+    _rev: 1
+  }
+};
+const effective = context.gmsEffectiveHistoryResult("2026-09-02");
+assert.deepStrictEqual(Array.from(effective.errors), [], "専用ノードに保存した対象指定をGMS出力へ適用");
+assert.deepStrictEqual(Array.from(effective.history[0].items.filter(item => item.category === "dohan"), item => item.castId), ["regular-1", "dispatch-1"]);
+assert.strictEqual(closedRecord.items[0].castId, undefined, "対象指定の適用時も営業履歴本体を変更しない");
 
 const freeClosedRecord = { id: "free-closed", items: [{ id: "free-bottle", label: "シャンパン", category: "champagneWine", price: 30000, qty: 1 }] };
 assert.deepStrictEqual(Array.from(context.gmsTargetEntries(freeClosedRecord)), [], "本指名・場内延長がない締め済みボトルは修正対象にしない");

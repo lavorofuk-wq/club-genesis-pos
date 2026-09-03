@@ -27,6 +27,20 @@ test("database rules deny by default and require an allowlisted authenticated UI
   assert.equal(rules.rules.access.authorizedUsers["$uid"][".write"],false);
 });
 
+test("GMS target corrections use a narrow authenticated child transaction rule",()=>{
+  const rules=JSON.parse(read("database.rules.json"));
+  for(const key of ["pos","pos-dev"]){
+    const write=rules.rules[key].gmsTargetCorrections["$dayId"]["$transactionId"][".write"];
+    assert.match(write,/auth != null/);
+    assert.match(write,/authorizedUsers/);
+    assert.match(write,/activeBizDay/);
+    assert.match(write,/schemaVersion'\)\.val\(\) == 1/);
+    assert.match(write,/transactionId'\)\.val\(\) == \$transactionId/);
+    assert.match(write,/_nodeWriteVersion'\)\.val\(\) >= 614004/);
+    assert.match(write,/_rev'\)\.val\(\) ==/);
+  }
+});
+
 test("login form does not offer public account registration",()=>{
   const html=read("index.html");
   assert.match(html,/id="auth-form"/);

@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.3";
+const APP_VERSION="6.140.4";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -120,7 +120,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -536,11 +536,13 @@ async function ensureBizDaysLoaded(force=false){
   state.status="loading";
   state.promise=Promise.all([
     window._db.ref(FB_ROOT+"/bizDays").once("value"),
-    window._db.ref(FB_ROOT+"/gmsExportMeta").once("value")
-  ]).then(([daysSnap,gmsSnap])=>{
+    window._db.ref(FB_ROOT+"/gmsExportMeta").once("value"),
+    window._db.ref(FB_ROOT+"/gmsTargetCorrections").once("value")
+  ]).then(([daysSnap,gmsSnap,targetSnap])=>{
     const days=daysSnap.val()||{};
     S.bizDays=days;
     S.gmsExportMeta=gmsSnap.val()||{};
+    S.gmsTargetCorrections=targetSnap.val()||{};
     updateBizDayRemoteHashes(days);
     state.status="loaded";state.loadedAt=Date.now();
     return true;
@@ -2492,9 +2494,6 @@ function deleteBizDay(dayId){
 function closedBizDayConflictMessage(){
   return "対象の営業履歴が他端末で更新されています。履歴画面を閉じて最新データを読み込み直してから再実行してください。";
 }
-function closedHistoryRecordConflictMessage(){
-  return "対象の会計が他端末で更新されています。最新データを読み込みました。内容を確認してから対象キャストを設定し直してください。";
-}
 function closedBizDaySaveErrorMessage(error){
   if(error?.userMessage)return error.userMessage;
   if(isFirebasePermissionDenied(error))return "Firebaseの書込権限を確認できませんでした。ログイン状態とこの端末の利用権限を確認してください。";
@@ -2523,46 +2522,6 @@ async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
   const days=syncBizDaysFromTransactionRoot(result);
   sbs(true,"同期済み ✓");
   return days[id]||null;
-}
-function closedHistoryRecordIndex(history,expectedRecord,expectedIndex){
-  const rows=Array.isArray(history)?history:[];
-  const recordId=expectedRecord?.id;
-  if(recordId!=null&&String(recordId)!=="")return rows.findIndex(row=>String(row?.id)===String(recordId));
-  const fallbackKey=row=>[row?.tableId,row?.startTime,row?.endTime,row?.total].map(value=>String(value??"")).join("|");
-  const expectedKey=fallbackKey(expectedRecord);
-  const matches=rows.map((row,index)=>({row,index})).filter(entry=>fallbackKey(entry.row)===expectedKey);
-  if(matches.length===1)return matches[0].index;
-  const index=Number(expectedIndex);
-  return Number.isInteger(index)&&index>=0&&index<rows.length&&fallbackKey(rows[index])===expectedKey?index:-1;
-}
-async function guardedReplaceClosedHistoryRecord(dayId,expectedRecord,nextRecord,expectedIndex){
-  const id=String(dayId||"");
-  if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
-  let latestRoot=null;
-  try{
-    const result=await guardedRootTransaction(root=>{
-      latestRoot=cloneData(root);
-      if(String(root.activeBizDay||"")===id)throw Object.assign(new Error("active business day"),{userMessage:"営業中の日は変更できません。営業終了後に再実行してください。"});
-      const remoteDay=getPathValue(root,"bizDays/"+id);
-      if(!remoteDay)throw Object.assign(new Error("business day not found"),{userMessage:"対象の営業履歴を確認できません。最新データを読み込み直してください。"});
-      const remoteHistory=Array.isArray(remoteDay.history)?cloneData(remoteDay.history):Object.values(remoteDay.history||{});
-      const recordIndex=closedHistoryRecordIndex(remoteHistory,expectedRecord,expectedIndex);
-      if(recordIndex<0||stableJson(remoteHistory[recordIndex])!==stableJson(expectedRecord)){
-        throw Object.assign(new Error("history record changed"),{_txConflict:true,userMessage:closedHistoryRecordConflictMessage()});
-      }
-      remoteHistory[recordIndex]=cloneData(nextRecord);
-      setPathValue(root,"bizDays/"+id,{...cloneData(remoteDay),history:remoteHistory});
-      return root;
-    });
-    const days=syncBizDaysFromTransactionRoot(result);
-    sbs(true,"同期済み ✓");
-    const savedHistory=Array.isArray(days[id]?.history)?days[id].history:Object.values(days[id]?.history||{});
-    const savedIndex=closedHistoryRecordIndex(savedHistory,nextRecord,expectedIndex);
-    return savedIndex>=0?savedHistory[savedIndex]:null;
-  }catch(error){
-    if(latestRoot)syncBizDaysFromTransactionRoot(latestRoot);
-    throw error;
-  }
 }
 async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
   const oldId=String(dayId||""),newId=String(newDayId||"");
@@ -2628,6 +2587,9 @@ function gmsEscapeHtml(value){return String(value??"").replace(/[&<>"']/g,char=>
 function buildDohanChargeItems(casts,price,stamp){
   return(casts||[]).map((cast,index)=>({id:"dh_"+String(cast.id)+"_"+String(stamp||Date.now())+"_"+index,label:"同伴料",price:Number(price)||0,qty:1,category:"dohan",castId:cast.id,castName:cast.name,backTargetCastIds:[String(cast.id)],backTargetCastNames:[cast.name],backType:"dohan",backAllocation:"single"}));
 }
+function gmsDohanEligibleCastIds(items){
+  return gmsUniqueStrings((items||[]).filter(item=>item?.isHonShimei).map(item=>item.castId));
+}
 function gmsTargetEntries(record){
   const items=record?.items||[];
   const dohanIndexes=[],bottles=[];
@@ -2642,11 +2604,14 @@ function gmsTargetEntries(record){
       if(eligibleCastIds.length)bottles.push({key:"item_"+index,category,itemIndexes:[index],requiredCount:eligibleCastIds.length,eligibleCastIds,label:String(item.label||"ボトル"),amount:Number(item.price)*Math.max(1,Number(item.qty)||1)});
     }
   });
-  return[...(dohanIndexes.length?[{key:"dohan",category:"dohan",itemIndexes:dohanIndexes,requiredCount:dohanCount,label:"同伴料",amount:dohanIndexes.reduce((sum,index)=>sum+Number(items[index]?.price||0)*Math.max(1,Number(items[index]?.qty)||1),0)}]:[]),...bottles];
+  const dohanEligibleCastIds=gmsDohanEligibleCastIds(items);
+  return[...(dohanIndexes.length?[{key:"dohan",category:"dohan",itemIndexes:dohanIndexes,requiredCount:dohanCount,eligibleCastIds:dohanEligibleCastIds,label:"同伴料",amount:dohanIndexes.reduce((sum,index)=>sum+Number(items[index]?.price||0)*Math.max(1,Number(items[index]?.qty)||1),0)}]:[]),...bottles];
 }
 function gmsTargetSelectionComplete(entry,ids){
   const selected=gmsUniqueStrings(ids||[]);
-  return entry?.category==="dohan"?selected.length===entry.requiredCount:gmsSameStringSet(selected,entry?.eligibleCastIds||[]);
+  if(entry?.category!=="dohan")return gmsSameStringSet(selected,entry?.eligibleCastIds||[]);
+  const eligible=gmsUniqueStrings(entry?.eligibleCastIds||[]);
+  return selected.length===entry.requiredCount&&selected.every(id=>eligible.includes(id));
 }
 function gmsTargetCandidates(day,record){
   const candidates=new Map();
@@ -2670,6 +2635,44 @@ function gmsTargetCandidates(day,record){
   if(!day?.rosterSnapshot)allCasts().forEach(add);
   return[...candidates.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),"ja"));
 }
+function gmsTargetRecordFingerprint(record){
+  const basis={
+    id:String(record?.id??""),
+    tableId:String(record?.tableId??""),
+    startTime:Number(record?.startTime)||0,
+    items:(record?.items||[]).map(item=>({
+      id:String(item?.id??""),label:String(item?.label||""),category:gmsItemCategory(item),
+      price:Number(item?.price)||0,qty:Math.max(1,Number(item?.qty)||1),
+      castId:item?.isHonShimei||item?.isBanaiShimei?String(item?.castId||""):"",
+      isHonShimei:!!item?.isHonShimei,isBanaiShimei:!!item?.isBanaiShimei,
+      isExtension:!!item?.isExtension,isBanaiExtension:!!item?.isBanaiExtension,
+      banaiExtCastIds:gmsUniqueStrings(item?.banaiExtCastIds||[])
+    }))
+  };
+  return GMS_JSON.sha256Hex(stableJson(basis));
+}
+function gmsTargetCorrectionKey(record,index){
+  const recordId=String(record?.id??"").trim();
+  const identity=recordId?"id|"+recordId:["legacy",record?.tableId,record?.startTime,record?.endTime,Number(index)||0].map(value=>String(value??"")).join("|");
+  return"tx_"+GMS_JSON.sha256Hex(identity).slice(0,32);
+}
+function gmsGetTargetCorrection(dayId,record,index){
+  return S.gmsTargetCorrections?.[String(dayId)]?.[gmsTargetCorrectionKey(record,index)]||null;
+}
+function gmsSetTargetCorrectionLocal(dayId,key,value){
+  const id=String(dayId),days={...(S.gmsTargetCorrections||{})},day={...(days[id]||{})};
+  if(value)day[key]=cloneData(value);else delete day[key];
+  if(Object.keys(day).length)days[id]=day;else delete days[id];
+  S.gmsTargetCorrections=days;
+}
+function gmsTargetCandidatesWithCorrection(day,record,correction){
+  const candidates=new Map(gmsTargetCandidates(day,record).map(cast=>[String(cast.id),cast]));
+  (correction?.casts||[]).forEach(cast=>{
+    const id=String(cast?.castId??cast?.id??"").trim(),name=String(cast?.castName||cast?.name||"").trim();
+    if(id&&name&&!candidates.has(id))candidates.set(id,{id,name,castType:normalizeCastType(cast.castType,cast.isTrial,cast.status)});
+  });
+  return[...candidates.values()].sort((a,b)=>String(a.name).localeCompare(String(b.name),"ja"));
+}
 function gmsInitialTargetSelections(record){
   const selections={};
   gmsTargetEntries(record).forEach(entry=>{
@@ -2684,7 +2687,12 @@ function gmsApplyTargetSelections(record,selections,candidates){
     const ids=gmsUniqueStrings(selections?.[entry.key]||[]);
     const missing=ids.filter(id=>!candidateMap.has(id));
     if(missing.length)errors.push(entry.label+"の対象キャストを確認できません: "+missing.join(", "));
-    if(entry.category==="dohan"&&ids.length!==entry.requiredCount)errors.push("同伴料は"+entry.requiredCount+"本のため、同伴キャストを"+entry.requiredCount+"名選択してください（現在"+ids.length+"名）");
+    if(entry.category==="dohan"){
+      const eligible=gmsUniqueStrings(entry.eligibleCastIds||[]),outside=ids.filter(id=>!eligible.includes(id));
+      if(!eligible.length)errors.push("同伴料がありますが、本指名キャストを確認できません。本指名内容を確認してください");
+      if(outside.length)errors.push("同伴対象は本指名キャストだけ選択できます: "+outside.map(id=>candidateMap.get(id)?.name||id).join("、"));
+      if(ids.length!==entry.requiredCount)errors.push("同伴料は"+entry.requiredCount+"本のため、本指名キャストから同伴した"+entry.requiredCount+"名を選択してください（現在"+ids.length+"名）");
+    }
     if(entry.category!=="dohan"&&!gmsSameStringSet(ids,entry.eligibleCastIds||[])){
       const eligibleNames=(entry.eligibleCastIds||[]).map(id=>candidateMap.get(String(id))?.name||id);
       errors.push(entry.label+"のボトルバックは売上対象キャスト全員を選択してください: "+eligibleNames.join("、"));
@@ -2715,6 +2723,77 @@ function gmsApplyTargetSelections(record,selections,candidates){
   });
   return{record:{...cloneData(record),items:nextItems},errors:[]};
 }
+function gmsApplyStoredTargetCorrection(dayId,day,record,index){
+  const correction=gmsGetTargetCorrection(dayId,record,index);
+  if(!correction)return{record:cloneData(record),errors:[]};
+  if(String(correction.recordFingerprint||"")!==gmsTargetRecordFingerprint(record)){
+    return{record:cloneData(record),errors:["会計「"+String(record?.tableLabel||record?.id||index+1)+"」は対象指定の保存後に注文明細が更新されています。対象キャストを設定し直してください"]};
+  }
+  const candidates=gmsTargetCandidatesWithCorrection(day,record,correction);
+  const applied=gmsApplyTargetSelections(record,correction.selections||{},candidates);
+  if(applied.errors.length)return{record:cloneData(record),errors:applied.errors.map(error=>"会計「"+String(record?.tableLabel||record?.id||index+1)+"」: "+error)};
+  return applied;
+}
+function gmsEffectiveHistoryResult(dayId){
+  const day=S.bizDays?.[dayId];
+  if(!day)return{history:[],errors:["出力対象の営業日が見つかりません"]};
+  const history=[],errors=[];
+  (day.history||[]).forEach((record,index)=>{
+    const applied=gmsApplyStoredTargetCorrection(dayId,day,record,index);
+    history.push(applied.record);
+    errors.push(...applied.errors);
+  });
+  return{history,errors};
+}
+function gmsBuildTargetCorrection(dayId,record,index,selections,candidates){
+  const normalizedSelections={};
+  gmsTargetEntries(record).forEach(entry=>{normalizedSelections[entry.key]=gmsUniqueStrings(selections?.[entry.key]||[]);});
+  const candidateMap=new Map((candidates||[]).map(cast=>[String(cast.id),cast]));
+  const selectedIds=gmsUniqueStrings(Object.values(normalizedSelections).flat());
+  return{
+    schemaVersion:1,dayId:String(dayId),transactionId:gmsTargetCorrectionKey(record,index),
+    sourceTransactionId:String(record?.id??""),recordFingerprint:gmsTargetRecordFingerprint(record),
+    selections:normalizedSelections,
+    casts:selectedIds.map(id=>{const cast=candidateMap.get(id);return{castId:id,castName:String(cast?.name||""),castType:normalizeCastType(cast?.castType,cast?.isTrial,cast?.status),isTrial:normalizeCastType(cast?.castType,cast?.isTrial,cast?.status)==="trial"};}),
+    updatedAt:Date.now()
+  };
+}
+async function saveGmsTargetCorrection(dayId,record,index,selections,candidates){
+  const id=String(dayId||"");
+  if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
+  if(S.activeBizDay===id)throw Object.assign(new Error("active business day"),{userMessage:"営業中の日は変更できません。営業終了後に再実行してください。"});
+  if(!requireFirebaseReady())throw Object.assign(new Error("Firebase is not ready for write"),{userMessage:"Firebaseへ接続できません。接続状態を確認してください。"});
+  const historyPath=FB_ROOT+"/bizDays/"+id+"/history/"+String(index);
+  const latestSnapshot=await window._db.ref(historyPath).once("value"),latestRecord=latestSnapshot.val();
+  if(!latestRecord||gmsTargetRecordFingerprint(latestRecord)!==gmsTargetRecordFingerprint(record)){
+    if(latestRecord&&S.bizDays?.[id]?.history?.[index])S.bizDays[id].history[index]=cloneData(latestRecord);
+    throw Object.assign(new Error("history record changed"),{userMessage:"対象の会計が他端末で更新されています。最新データを読み込みました。内容を確認してから対象キャストを設定し直してください。"});
+  }
+  const desired=gmsBuildTargetCorrection(id,record,index,selections,candidates),key=desired.transactionId;
+  const expected=gmsGetTargetCorrection(id,record,index),expectedRev=Number(expected?._rev)||0;
+  let conflict=null;
+  const correctionRef=window._db.ref(FB_ROOT+"/gmsTargetCorrections/"+id+"/"+key);
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const result=await correctionRef.transaction(remote=>{
+    conflict=null;
+    const remoteRev=Number(remote?._rev)||0;
+    if(remoteRev!==expectedRev){conflict=remote||null;return;}
+    return{...cloneData(desired),_rev:remoteRev+1,_nodeWriteVersion:_verNum(APP_VERSION),_nodeWriteNonce:nonce};
+  },null,false);
+  if(!result.committed){
+    gmsSetTargetCorrectionLocal(id,key,conflict);
+    throw Object.assign(new Error("target correction conflict"),{userMessage:"対象キャストの指定が他端末で更新されています。最新の指定を読み込みました。内容を確認してから再実行してください。"});
+  }
+  const saved=result.snapshot.val();
+  gmsSetTargetCorrectionLocal(id,key,saved);
+  sbs(true,"同期済み ✓");
+  return saved;
+}
+function gmsTargetCorrectionSaveErrorMessage(error){
+  if(error?.userMessage)return error.userMessage;
+  if(isFirebasePermissionDenied(error))return"対象指定の保存権限を確認できませんでした。POSが最新版であること、ログイン状態、営業終了済みであることを確認してください。";
+  return"対象指定をFirebaseへ保存できませんでした。接続状態を確認して、もう一度実行してください。";
+}
 function openGmsTargetDayEdit(dayId){
   const day=S.bizDays[dayId];if(!day||dayId===S.activeBizDay)return;
   md="editBizDay_"+dayId;rModal();
@@ -2723,7 +2802,9 @@ function openGmsTargetEdit(dayId,historyIndex){
   const day=S.bizDays[dayId],index=parseInt(historyIndex,10),record=day?.history?.[index];
   if(!day||dayId===S.activeBizDay||!record){alert("修正対象の会計を確認できません");return;}
   if(!gmsTargetEntries(record).length){alert("この会計には修正対象の同伴料・有料ボトルがありません");return;}
-  gmsTargetEdit={dayId,historyIndex:index,selections:gmsInitialTargetSelections(record)};
+  const applied=gmsApplyStoredTargetCorrection(dayId,day,record,index);
+  if(applied.errors.length)alert("保存済みの対象指定をそのまま使用できません。再設定してください。\n\n"+applied.errors.join("\n"));
+  gmsTargetEdit={dayId,historyIndex:index,selections:gmsInitialTargetSelections(applied.errors.length?record:applied.record)};
   md="gmsTargetEdit";rModal();
 }
 function toggleGmsTargetCast(key,castId){
@@ -2731,7 +2812,7 @@ function toggleGmsTargetCast(key,castId){
   const entry=gmsTargetEntries(record).find(row=>row.key===String(key));if(!entry)return;
   const id=String(castId),selected=gmsUniqueStrings(gmsTargetEdit.selections[key]||[]);
   if(selected.includes(id))gmsTargetEdit.selections[key]=selected.filter(value=>value!==id);
-  else if(entry.category!=="dohan"&&!gmsUniqueStrings(entry.eligibleCastIds||[]).includes(id))return;
+  else if(!gmsUniqueStrings(entry.eligibleCastIds||[]).includes(id))return;
   else if(entry.category==="dohan"&&selected.length>=entry.requiredCount){alert("同伴料は"+entry.requiredCount+"本です。別のキャストを外してから選択してください。");return;}
   else gmsTargetEdit.selections[key]=[...selected,id];
   rModal();
@@ -2739,16 +2820,16 @@ function toggleGmsTargetCast(key,castId){
 async function saveGmsTargetEdit(){
   const dayId=gmsTargetEdit.dayId,index=gmsTargetEdit.historyIndex,day=S.bizDays[dayId],record=day?.history?.[index];
   if(!day||!record)return;
-  const candidates=gmsTargetCandidates(day,record);
+  const candidates=gmsTargetCandidatesWithCorrection(day,record,gmsGetTargetCorrection(dayId,record,index));
   const applied=gmsApplyTargetSelections(record,gmsTargetEdit.selections,candidates);
   if(applied.errors.length){alert("対象キャストを保存できません。\n\n"+applied.errors.join("\n"));return;}
   try{
-    const saved=await withDataOperation("bizDay:"+dayId,()=>guardedReplaceClosedHistoryRecord(dayId,cloneData(record),applied.record,index));
+    const saved=await withDataOperation("gmsTarget:"+dayId+":"+gmsTargetCorrectionKey(record,index),()=>saveGmsTargetCorrection(dayId,cloneData(record),index,gmsTargetEdit.selections,candidates));
     if(saved===false)return;
   }catch(error){
     console.error("同伴・ボトルバック対象キャストの保存に失敗しました",error);
     sbs(false,"保存エラー");
-    alert("対象キャストを保存できませんでした。\n\n"+closedBizDaySaveErrorMessage(error));
+    alert("対象キャストを保存できませんでした。\n\n"+gmsTargetCorrectionSaveErrorMessage(error));
     return;
   }
   gmsTargetEdit={dayId:null,historyIndex:-1,selections:{}};
@@ -3059,7 +3140,9 @@ function validateGmsClosingPayload(payload){
 }
 function gmsClosingBasePayload(dayId){
   const day=S.bizDays[dayId];if(!day)return null;
-  const hist=day.history||[],pay=gmsPaymentTotals(hist);
+  const effective=gmsEffectiveHistoryResult(dayId);
+  if(effective.errors.length)return{_gmsError:"保存済みの同伴・ボトルバック対象を確認してください。\n"+effective.errors.slice(0,12).join("\n"),_gmsMeta:{previous:{}}};
+  const hist=effective.history,pay=gmsPaymentTotals(hist);
   const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
   const businessDate=day.date||dayId,transactions=gmsTransactions(hist),castSales=gmsCastSales(hist);
   const capturedAt=gmsIso(day.endedAt||Date.now());
@@ -3078,6 +3161,7 @@ function gmsClosingBasePayload(dayId){
 }
 function gmsClosingPayload(dayId,opts={}){
   const base=gmsClosingBasePayload(dayId);if(!base)return null;
+  if(base._gmsError)return base;
   const sourceTypeErrors=gmsCastTypeSourceErrors(S.bizDays[dayId],base.businessDate);
   if(sourceTypeErrors.length)return{_gmsError:"キャスト区分の不一致を修正してから再度出力してください。\n"+sourceTypeErrors.slice(0,12).join("\n"),_gmsMeta:{previous:{}}};
   const storedPrev=gmsGetExportMeta(base.businessDate)||{};
@@ -7171,14 +7255,14 @@ else{
   else if(md==="gmsTargetEdit"){
 const day=S.bizDays[gmsTargetEdit.dayId],record=day?.history?.[gmsTargetEdit.historyIndex];
 if(!day||!record){closeM();return;}
-const entries=gmsTargetEntries(record),candidates=gmsTargetCandidates(day,record);
+const entries=gmsTargetEntries(record),correction=gmsGetTargetCorrection(gmsTargetEdit.dayId,record,gmsTargetEdit.historyIndex),candidates=gmsTargetCandidatesWithCorrection(day,record,correction);
 const typeLabel=cast=>cast.castType==="trial"?"体入":cast.castType==="dispatch"?"派遣":"在籍";
 let sections="";
 entries.forEach(entry=>{
   const selected=gmsUniqueStrings(gmsTargetEdit.selections[entry.key]||[]);
-  const entryCandidates=entry.category==="dohan"?candidates:candidates.filter(cast=>gmsUniqueStrings(entry.eligibleCastIds||[]).includes(String(cast.id)));
+  const entryCandidates=candidates.filter(cast=>gmsUniqueStrings(entry.eligibleCastIds||[]).includes(String(cast.id)));
   const note=entry.category==="dohan"
-    ?"記録済み同伴料 "+entry.requiredCount+"本に対し、同伴キャストを"+entry.requiredCount+"名選択"
+    ?"記録済み同伴料 "+entry.requiredCount+"本に対し、本指名キャストから同伴した"+entry.requiredCount+"名を選択"
     :"本指名・場内延長の売上対象 "+entry.requiredCount+"名を全員選択。複数の場合は均等分配";
   const unknownIds=selected.filter(id=>!entryCandidates.some(cast=>String(cast.id)===id));
   let buttons=entryCandidates.map(cast=>{
@@ -7214,8 +7298,9 @@ hist.forEach((h,i)=>{
   const payBadge=h.splits&&h.splits.length>0
     ?h.splits.map(sp=>(sp.method==="card"?"カード":"現金")+"¥"+fmt(sp.amount)).join(" ")
     :(h.payMethod==="card"?"カード":"現金")+"¥"+fmt(h.total);
-  const targetEntries=gmsTargetEntries(h),targetSelections=gmsInitialTargetSelections(h);
-  const targetIncomplete=targetEntries.some(entry=>!gmsTargetSelectionComplete(entry,targetSelections[entry.key]));
+  const effective=gmsApplyStoredTargetCorrection(dayId,day,h,i);
+  const targetEntries=gmsTargetEntries(h),targetSelections=gmsInitialTargetSelections(effective.errors.length?h:effective.record);
+  const targetIncomplete=effective.errors.length>0||targetEntries.some(entry=>!gmsTargetSelectionComplete(entry,targetSelections[entry.key]));
   histRows+='<div class="ir" style="font-size:12px;align-items:flex-start;">'
     +'<span style="color:#bbb;">'+gmsEscapeHtml(h.tableLabel)+' '+h.guests+'名</span>'
     +'<div style="display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;">'

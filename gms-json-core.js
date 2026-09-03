@@ -354,6 +354,7 @@
         errors.push(`${transactionPath}.items は配列である必要があります`);
         return;
       }
+      const honShimeiCastIds = uniqueCastIds(transaction.items.filter((item) => item?.isHonShimei).map((item) => item.castId));
       transaction.items.forEach((item, itemIndex) => {
         const path = `${transactionPath}.items[${itemIndex}]`;
         if ((item.isHonShimei || item.isBanaiShimei || item.category === "castDrink") && !item.castId) errors.push(`${path}.castId が空です`);
@@ -374,7 +375,14 @@
             errors.push(`${path}「${item.label || item.itemId}」は本指名・場内延長の売上対象外のため、ボトルバック対象を設定できません`);
           }
         }
-        if (item.category === "dohan") validateBackTarget(item, path, errors, "dohan", "同伴");
+        if (item.category === "dohan") {
+          validateBackTarget(item, path, errors, "dohan", "同伴");
+          const targetCastIds = uniqueCastIds(item.backTargetCastIds || []);
+          if (!honShimeiCastIds.length) errors.push(`${path}「${item.label || item.itemId}」に対応する本指名キャストが会計内にありません`);
+          const outside = targetCastIds.filter((id) => !honShimeiCastIds.includes(id));
+          if (outside.length) errors.push(`${path}「${item.label || item.itemId}」の同伴対象「${outside.join("、")}」は会計内の本指名キャストではありません`);
+          if (Number(item.quantity) !== 1 || targetCastIds.length !== 1) errors.push(`${path}「${item.label || item.itemId}」は同伴キャスト1名につき数量1の明細である必要があります`);
+        }
       });
     });
     validateFiniteNumbers(payload, "payload", errors);
