@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.5";
+const APP_VERSION="6.140.6";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1028,6 +1028,47 @@ async function readRemoteActiveShiftsForCast(castId){
     });
   }
   return found;
+}
+async function guardedShiftDelete(shiftId,expected){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for shift deletion");
+  const relative="shifts/"+shiftId;
+  const remote=await readRemoteRelative(relative);
+  if(!remote||!POS_SYNC.sameRecord(remote,expected)){
+    if(remote)S.shifts[shiftId]=remote;else delete S.shifts[shiftId];
+    throw Object.assign(new Error("record changed"),{userMessage:remote
+      ?"出退勤情報が他端末で更新されています。最新状態を確認してください。"
+      :"この出退勤記録は他端末で削除されています。最新状態を確認してください。"});
+  }
+  if(!remote.clockOut&&Object.keys(await readRemoteActiveAssignmentsForCast(remote.castId)).length){
+    throw Object.assign(new Error("active assignment"),{userMessage:"付け回し中の出退勤記録は削除できません。先に付け回しを終了してください。"});
+  }
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const operation={
+    version:_verNum(APP_VERSION),
+    nonce,
+    expectedRev:POS_SYNC.revision(remote),
+    castId:remote.castId,
+    updatedAt:Date.now()
+  };
+  try{
+    await window._db.ref("/").update({
+      [FB_ROOT+"/shifts/"+shiftId]:null,
+      [FB_ROOT+"/_shiftDeleteOperations/"+shiftId]:operation
+    });
+  }catch(e){
+    if(!isFirebasePermissionDenied(e))throw e;
+    let latest;
+    try{latest=await readRemoteRelative(relative);}catch(readError){latest=undefined;}
+    if(latest)S.shifts[shiftId]=latest;else if(latest===null)delete S.shifts[shiftId];
+    const changed=latest&&(!POS_SYNC.sameRecord(latest,remote));
+    throw Object.assign(new Error("shift delete rejected"),{userMessage:latest===null
+      ?"この出退勤記録は他端末で削除されています。最新状態を確認してください。"
+      :changed
+        ?"出退勤情報が他端末で更新されています。最新状態を確認してください。"
+        :"出勤記録の削除が許可されませんでした。画面を再読み込みしてから再実行してください。"});
+  }
+  delete S.shifts[shiftId];
+  return true;
 }
 function syncVersionedRecordsFromPrepared(prepared){
   Object.entries(prepared||{}).forEach(([path,val])=>{
@@ -8089,14 +8130,7 @@ async function deleteShift(sid){
   const expected=cloneData(current);
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedCheckedUpdate(
-        {[FB_ROOT+"/shifts/"+sid]:null},
-        root=>{
-          if(!current.clockOut&&remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中の出退勤記録は削除できません。"};
-          return{ok:true};
-        },
-        {expectedRecords:{["shifts/"+sid]:expected}}
-      );
+      await guardedShiftDelete(sid,expected);
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");

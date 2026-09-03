@@ -42,6 +42,25 @@ test("GMS target corrections use a narrow authenticated child transaction rule",
   }
 });
 
+test("shift deletion requires an atomic revision-bound companion operation",()=>{
+  const rules=JSON.parse(read("database.rules.json"));
+  for(const key of ["pos","pos-dev"]){
+    const shiftWrite=rules.rules[key].shifts["$shiftId"][".write"];
+    const operationWrite=rules.rules[key]._shiftDeleteOperations["$shiftId"][".write"];
+    assert.match(shiftWrite,/_shiftDeleteOperations/);
+    assert.match(shiftWrite,/version'\)\.val\(\) >= 614006/);
+    assert.match(shiftWrite,/expectedRev/);
+    assert.match(shiftWrite,/castId/);
+    assert.match(operationWrite,/auth != null/);
+    assert.match(operationWrite,/authorizedUsers/);
+    assert.match(operationWrite,/version'\)\.val\(\) >= 614006/);
+    assert.match(operationWrite,/expectedRev/);
+    assert.match(operationWrite,/castId/);
+    assert.match(operationWrite,/!newData\.parent\(\)\.parent\(\)\.child\('shifts'\)\.child\(\$shiftId\)\.exists\(\)/);
+    assert.match(operationWrite,new RegExp(`root\\.child\\('${key}'\\)\\.child\\('shifts'\\)`));
+  }
+});
+
 test("login form does not offer public account registration",()=>{
   const html=read("index.html");
   assert.match(html,/id="auth-form"/);

@@ -62,7 +62,7 @@ const mockDb = { ref: refPath => {
 
 const context = {
   GMS_JSON,
-  APP_VERSION: "6.140.5",
+  APP_VERSION: "6.140.6",
   FB_ROOT: "pos-dev",
   S: { casts, castLifecycleLogs: {}, bizDays: { "2026-09-02": day }, gmsTargetCorrections: {}, activeBizDay: null },
   window: { _db: mockDb },
@@ -87,7 +87,7 @@ vm.runInContext(targetSource, context);
   const saved = await context.saveGmsTargetCorrection("2026-09-02", record, 1, selections, candidates);
 
   assert.strictEqual(saved._rev, 1, "初回保存のrevisionは1");
-  assert.strictEqual(saved._nodeWriteVersion, 614005, "保存ノードへアプリ版を記録");
+  assert.strictEqual(saved._nodeWriteVersion, 614006, "保存ノードへアプリ版を記録");
   assert.deepStrictEqual(saved.selections, selections, "対象指定だけを小さな専用ノードへ保存");
   assert.deepStrictEqual(context.S.bizDays["2026-09-02"].history[1], record, "営業履歴本体を変更しない");
   assert.strictEqual(refs.length, 2, "対象会計の確認と対象指定の保存だけを行う");
