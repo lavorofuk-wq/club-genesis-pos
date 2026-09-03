@@ -232,12 +232,25 @@ assert.strictEqual(dohan.backAllocation, "single");
 
 const multiDohan = GmsJson.clone(initial.payload);
 multiDohan.transactions[0].items.push({
+  ...GmsJson.clone(multiDohan.transactions[0].items.find((item) => item.isHonShimei)),
+  itemId: "hs-trial", castId: "trial-1", castName: "体入 美咲", label: "本指名料 (体入 美咲)", price: 0
+});
+multiDohan.transactions[0].items.push({
   ...GmsJson.clone(dohan), itemId: "dh2", castId: "trial-1", castName: "体入 美咲",
   backTargetCastIds: ["trial-1"], backTargetCastNames: ["体入 美咲"]
+});
+Object.assign(multiDohan.transactions[0].items.find((item) => item.category === "champagneWine"), {
+  castId: "regular-1", castName: "在籍 花子", backTargetCastIds: ["regular-1", "trial-1"],
+  backTargetCastNames: ["在籍 花子", "体入 美咲"], backAllocation: "equal"
 });
 recalculate(multiDohan);
 assert.deepStrictEqual(GmsJson.validatePayload(multiDohan), [], "同伴2名を1名1明細で受理");
 assert.strictEqual(multiDohan.transactions[0].items.filter(item => item.category === "dohan").length, 2, "同伴対象人数分の明細を保持");
+
+const nonHonDohan = GmsJson.clone(initial.payload);
+Object.assign(nonHonDohan.transactions[0].items[2], { castId: "trial-1", castName: "体入 美咲", backTargetCastIds: ["trial-1"], backTargetCastNames: ["体入 美咲"] });
+recalculate(nonHonDohan);
+assert(GmsJson.validatePayload(nonHonDohan).some((error) => error.includes("本指名キャストではありません")), "同伴対象に本指名ではないキャストを拒否");
 
 const missingDohanTarget = GmsJson.clone(initial.payload);
 Object.assign(missingDohanTarget.transactions[0].items[2], { castId: "", castName: "", backTargetCastIds: [], backTargetCastNames: [], backType: "", backAllocation: "" });

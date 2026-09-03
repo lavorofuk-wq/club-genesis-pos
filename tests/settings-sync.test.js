@@ -35,7 +35,7 @@ const context={
   window:{_remoteValueHashes:{}},
   document:{getElementById:()=>null},
   FB_ROOT:"pos-dev",
-  APP_VERSION:"6.140.3",
+  APP_VERSION:"6.140.4",
   sbs:()=>{},
   requireFirebaseReady:()=>true,
   stableJson:value=>JSON.stringify(value===undefined?null:value),
