@@ -31,6 +31,7 @@ test("GMS target corrections use a narrow authenticated child transaction rule",
   const rules=JSON.parse(read("database.rules.json"));
   for(const key of ["pos","pos-dev"]){
     const write=rules.rules[key].gmsTargetCorrections["$dayId"]["$transactionId"][".write"];
+    assert.deepEqual(rules.rules[key].bizDays["$dayId"].history[".indexOn"],["id","startTime"]);
     assert.match(write,/auth != null/);
     assert.match(write,/authorizedUsers/);
     assert.match(write,/activeBizDay/);
