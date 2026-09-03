@@ -13,6 +13,13 @@
     "pos": {
       ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
       ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "bizDays": {
+        "$dayId": {
+          "history": {
+            ".indexOn": ["id", "startTime"]
+          }
+        }
+      },
       "_settingsRevisions": {
         "$key": {
           ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"
@@ -49,6 +56,13 @@
     "pos-dev": {
       ".read": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true",
       ".write": "auth != null && root.child('access').child('authorizedUsers').child(auth.uid).val() == true && newData.child('_writeGate/versionNum').val() >= 613300 && newData.child('_writeGate/nonce').isString() && newData.child('_writeGate/nonce').val() != data.child('_writeGate/nonce').val()",
+      "bizDays": {
+        "$dayId": {
+          "history": {
+            ".indexOn": ["id", "startTime"]
+          }
+        }
+      },
       "_settingsRevisions": {
         "$key": {
           ".validate": "newData.isNumber() && ((newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() == data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == data.val()) || (newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').isString() && newData.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() != data.parent().parent().child('_settingsWriteMeta').child($key).child('nonce').val() && newData.val() == (data.isNumber() ? data.val() + 1 : 1)))"

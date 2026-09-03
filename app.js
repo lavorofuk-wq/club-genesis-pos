@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.4";
+const APP_VERSION="6.140.5";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -2444,7 +2444,7 @@ function rPastAssignHistory(day){
 function rDayDetail(day){
   let html='<div style="padding:16px;border-top:1px solid rgba(255,255,255,.08);">';
   // 売上
-  const hist=(day.history||[]).sort((a,b)=>a.startTime-b.startTime);
+  const hist=[...(day.history||[])].sort((a,b)=>a.startTime-b.startTime);
   const sales=hist.reduce((a,h)=>a+h.total,0);
   html+='<div class="st" style="margin-bottom:10px;">売上 ('+hist.length+'件 合計 '+pAmt(sales)+')</div>';
   hist.forEach(h=>{
@@ -2763,10 +2763,24 @@ async function saveGmsTargetCorrection(dayId,record,index,selections,candidates)
   if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
   if(S.activeBizDay===id)throw Object.assign(new Error("active business day"),{userMessage:"営業中の日は変更できません。営業終了後に再実行してください。"});
   if(!requireFirebaseReady())throw Object.assign(new Error("Firebase is not ready for write"),{userMessage:"Firebaseへ接続できません。接続状態を確認してください。"});
-  const historyPath=FB_ROOT+"/bizDays/"+id+"/history/"+String(index);
-  const latestSnapshot=await window._db.ref(historyPath).once("value"),latestRecord=latestSnapshot.val();
-  if(!latestRecord||gmsTargetRecordFingerprint(latestRecord)!==gmsTargetRecordFingerprint(record)){
-    if(latestRecord&&S.bizDays?.[id]?.history?.[index])S.bizDays[id].history[index]=cloneData(latestRecord);
+  const historyRef=window._db.ref(FB_ROOT+"/bizDays/"+id+"/history");
+  const recordId=record?.id,startTime=Number(record?.startTime)||0;
+  let latestSnapshot;
+  if(recordId!=null&&String(recordId)!=="")latestSnapshot=await historyRef.orderByChild("id").equalTo(recordId).limitToFirst(2).once("value");
+  else if(startTime)latestSnapshot=await historyRef.orderByChild("startTime").equalTo(startTime).limitToFirst(5).once("value");
+  else latestSnapshot=await historyRef.child(String(index)).once("value");
+  const latestValue=latestSnapshot.val();
+  const latestRows=Array.isArray(latestValue)?latestValue.filter(Boolean)
+    :latestValue&&typeof latestValue==="object"&&!(latestValue.items||latestValue.id||latestValue.tableId)?Object.values(latestValue).filter(Boolean)
+    :latestValue?[latestValue]:[];
+  const expectedFingerprint=gmsTargetRecordFingerprint(record);
+  const latestRecord=latestRows.find(row=>gmsTargetRecordFingerprint(row)===expectedFingerprint)||null;
+  if(!latestRecord){
+    const changedRecord=latestRows.find(row=>recordId!=null&&String(row?.id??"")===String(recordId))||latestRows[0]||null;
+    if(changedRecord&&S.bizDays?.[id]?.history){
+      const localIndex=(S.bizDays[id].history||[]).findIndex(row=>recordId!=null&&String(row?.id??"")===String(recordId));
+      if(localIndex>=0)S.bizDays[id].history[localIndex]=cloneData(changedRecord);
+    }
     throw Object.assign(new Error("history record changed"),{userMessage:"対象の会計が他端末で更新されています。最新データを読み込みました。内容を確認してから対象キャストを設定し直してください。"});
   }
   const desired=gmsBuildTargetCorrection(id,record,index,selections,candidates),key=desired.transactionId;
