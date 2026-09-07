@@ -20,6 +20,12 @@ POS Ver6.141 以降は、営業開始・過去営業日の再読込・営業終�
 
 重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `_verNum("6.133")` の実値である `613300` へ更新してください。`pos` を `613300` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
 
+## Ver6.143 TC
+
+TCの詳細と残存する全体トランザクションは [TRANSACTION_AUDIT.md](TRANSACTION_AUDIT.md) を参照してください。`_tableChangeOperations/{fromTableId}`で対象セッション・移動先・付け回しrevisionを照合し、`_tableAssignmentRevisions/{tableId}`でTC確認中の付け回し追加を検出します。`assignments`には`tableId`と`castId`のインデックスを設定します。
+
+ルール適用とdev端末のVer6.143への更新後に、`pos-dev/_capabilities/tableChangeAtomicValidationVersion=614300`を有効化します。main公開と本番端末の更新前に`pos`側を有効化しないでください。
+
 ## ルール例
 
 既存ルールに認証条件がある場合は丸ごと置き換えず、条件を統合してください。`_settingsRevisions/$key` の検証は、nonceが変わる設定保存ではrevisionが必ず1増えること、同じnonceの再送では値が変わらないことを要求します。

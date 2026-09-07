@@ -178,7 +178,7 @@ assert.match(checkout,/function failCheckout[\s\S]*checkoutBusy=false[\s\S]*chec
 assert.ok(checkout.indexOf("await waitForSessionSaveQueue")<checkout.indexOf("await ensureSessionCurrent"));
 assert.ok(checkout.indexOf("await ensureSessionCurrent")<checkout.indexOf("await queueSessionUpdate"));
 assert.ok(checkout.indexOf("await queueSessionUpdate")<checkout.indexOf("at=null"));
-assert.match(app,/if\(at&&!checkoutBusy&&!\(md&&String\(md\)\.indexOf\("ci-"\)===0\)&&!S\.sessions\[at\]\)/);
+assert.match(app,/if\(at&&!checkoutBusy&&!tableChangeBusy&&!\(md&&String\(md\)\.indexOf\("ci-"\)===0\)&&!S\.sessions\[at\]\)/);
 assert.match(app,/function closeM\(\)\{if\(checkoutBusy&&md==="co2"\)return;/);
 assert.match(app,/role="progressbar"[\s\S]*aria-valuenow=/);
 assert.match(app,/通信に時間がかかっています。このままお待ちください/);

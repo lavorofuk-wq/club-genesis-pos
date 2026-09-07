@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.142";
+const APP_VERSION="6.143";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -14,6 +14,7 @@ const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
 const BANAI_ATOMIC_VALIDATION_VERSION=613600;
 const BIZ_DAY_ATOMIC_VALIDATION_VERSION=614100;
+const TABLE_CHANGE_ATOMIC_VALIDATION_VERSION=614300;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -349,12 +350,14 @@ const sessionSaveLastOwn={};
 let sessionNodeTransactionsSupported=null;
 let banaiAtomicValidationVersion=0;
 let bizDayAtomicValidationVersion=0;
+let tableChangeAtomicValidationVersion=0;
+let tableChangeBusy=false;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
   if(!tableId)return;
   sessionSaveStates[tableId]={status,message:message||"",updatedAt:Date.now()};
   if(status==="saving")sbs(false,"\u4fdd\u5b58\u4e2d...");
-  else if(status==="saved")sbs(true,"\u540c\u671f\u6e08\u307f \u2713");
+  else if(status==="saved"&&!tableChangeBusy)sbs(true,"\u540c\u671f\u6e08\u307f \u2713");
   else if(status==="error")sbs(false,"\u4fdd\u5b58\u30a8\u30e9\u30fc");
   refreshFloorModal();
   if(status==="saved"){
@@ -450,7 +453,7 @@ function finishInitialPosSyncPath(path){
 }
 function handlePosSyncRender(settingsChanged=false){
   if(!window._fbFirstSync)return;
-  if(at&&!checkoutBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
+  if(at&&!checkoutBusy&&!tableChangeBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
     at=null;vw="floor";closeM();const modal=document.getElementById("floor-order-modal");if(modal)modal.style.display="none";render();return;
   }
   if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
@@ -527,13 +530,14 @@ function applyPosCoreValue(db,path,value){
   }else if(path==="_capabilities"){
     banaiAtomicValidationVersion=Number(value?.banaiAtomicValidationVersion)||0;
     bizDayAtomicValidationVersion=Number(value?.bizDayAtomicValidationVersion)||0;
+    tableChangeAtomicValidationVersion=Number(value?.tableChangeAtomicValidationVersion)||0;
   }else if(path==="config"&&value){
     settingsChanged=acceptRemoteSettingValue("config",value,next=>{
       S.config={printerIP:next.printerIP||"192.168.150.76",printerPort:next.printerPort||8008};
     })||settingsChanged;
   }
   finishInitialPosSyncPath(path);
-  if(!hasPendingSettingSaves()&&window._fbFirstSync)sbs(true,"同期済み ✓");
+  if(!hasPendingSettingSaves()&&!tableChangeBusy&&window._fbFirstSync)sbs(true,"同期済み ✓");
   handlePosSyncRender(settingsChanged);
 }
 function subscribePosCoreData(db){
@@ -913,6 +917,7 @@ function recordConflictMessage(collection){
 }
 function prepareVersionedRecordUpdates(root,updates,options={}){
   const prepared={...updates};
+  const addedAssignmentTables=new Set();
   Object.entries(updates||{}).forEach(([path,desired])=>{
     const info=versionedRecordPathInfo(path);
     if(!info)return;
@@ -940,7 +945,14 @@ function prepareVersionedRecordUpdates(root,updates,options={}){
       _verNum(APP_VERSION),
       Date.now()+"_"+Math.random().toString(36).slice(2)
     );
+    if(info.collection==="assignments"&&(!remote||(remote.endTime&&!desired.endTime)))addedAssignmentTables.add(desired.tableId);
   });
+  if(tableChangeAtomicValidationVersion>=TABLE_CHANGE_ATOMIC_VALIDATION_VERSION){
+    addedAssignmentTables.forEach(tableId=>{
+      const relative="_tableAssignmentRevisions/"+tableId;
+      prepared[FB_ROOT+"/"+relative]=(Number(getPathValue(root,relative))||0)+1;
+    });
+  }
   return prepared;
 }
 function syncVersionedRecordsFromRoot(root,updates){
@@ -1219,10 +1231,13 @@ async function guardedCheckedNodeUpdate(updates,checker,options={}){
   Object.keys(updates||{}).forEach(path=>{
     const info=versionedRecordPathInfo(path);
     if(info)readPaths.add(info.relative);
+    if(info?.collection==="assignments"&&updates[path]&&((options.createRecords||[]).includes(info.relative)||(options.expectedRecords?.[info.relative]?.endTime&&!updates[path].endTime))&&tableChangeAtomicValidationVersion>=TABLE_CHANGE_ATOMIC_VALIDATION_VERSION){
+      readPaths.add("_tableAssignmentRevisions/"+updates[path].tableId);
+    }
   });
-  for(const path of readPaths){
-    setPathValue(root,path,await readRemoteRelative(path));
-  }
+  const paths=[...readPaths];
+  const values=await Promise.all(paths.map(path=>readRemoteRelative(path)));
+  paths.forEach((path,i)=>setPathValue(root,path,values[i]));
   for(const collection of (options.readCollections||[])){
     root[collection]=await readRemoteRelative(collection)||{};
   }
@@ -2198,54 +2213,107 @@ function failCheckout(error,fallback){
   sbs(false,"保存エラー");
   if(md==="co2")rModal();
 }
-async function tableChange(newId){
-  if(!at||!newId||newId===at)return;
-  if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
-  return withDataOperation("table:"+at,async()=>{
-  const oldTid=at;
-  const oldSession=cloneData(S.sessions[oldTid]);
+function tableChangeAssignments(assignments,tableId,session){
+  return Object.entries(assignments||{}).filter(([,a])=>
+    a.tableId===tableId&&(!a.endTime||(session.startTime&&a.sessionId===session.startTime))
+  );
+}
+function tableChangeUpdates(oldId,newId,session,assignments){
+  const updates={
+    [FB_ROOT+"/sessions/"+oldId]:null,
+    [FB_ROOT+"/sessions/"+newId]:{...cloneData(session),tableId:newId}
+  };
+  const expectedRecords={};
+  tableChangeAssignments(assignments,oldId,session).forEach(([id,a])=>{
+    updates[FB_ROOT+"/assignments/"+id]={...cloneData(a),tableId:newId};
+    expectedRecords["assignments/"+id]=cloneData(a);
+  });
+  return{updates,expectedRecords};
+}
+async function guardedAtomicTableChange(oldId,newId,expected,trace=()=>{}){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for table change");
+  const paths=["sessions/"+oldId,"sessions/"+newId,"_tableAssignmentRevisions/"+oldId,"_tableAssignmentRevisions/"+newId,"activeBizDay"];
+  const root={};
+  const snapshots=await Promise.all(paths.map(path=>window._db.ref(FB_ROOT+"/"+path).get()));
+  paths.forEach((path,i)=>setPathValue(root,path,snapshots[i].val()));
+  const remote=root.sessions?.[oldId];
+  if(!remote||!sameSession(remote,expected))throw Object.assign(new Error("source session changed"),{userMessage:"移動元の注文が他端末で変更されています。最新状態を確認してから再実行してください。"});
+  if(root.sessions?.[newId])throw Object.assign(new Error("target occupied"),{userMessage:"移動先テーブルは他端末で使用中になりました。"});
+  // 追加番号を先に取得し、その後で対象卓の付け回しを取得する。途中の追加はルールが拒否する。
+  const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(oldId).get();
+  root.assignments=snap.val()||{};
+  const {updates,expectedRecords}=tableChangeUpdates(oldId,newId,remote,root.assignments);
+  const prepared=prepareVersionedRecordUpdates(root,updates,{expectedRecords});
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const moved=ensureSessionId({...prepared[FB_ROOT+"/sessions/"+newId],_rev:1,_nodeWriteVersion:_verNum(APP_VERSION),_nodeWriteNonce:nonce});
+  prepared[FB_ROOT+"/sessions/"+newId]=moved;
+  const assignmentRevs={};
+  Object.keys(expectedRecords).forEach(path=>{assignmentRevs[path.split("/")[1]]=Number(getPathValue(root,path)._rev)||0;});
+  prepared[FB_ROOT+"/_tableChangeOperations/"+oldId]={
+    version:TABLE_CHANGE_ATOMIC_VALIDATION_VERSION,nonce,toTableId:newId,
+    expectedSessionRev:Number(remote._rev)||0,expectedStartTime:remote.startTime,
+    expectedSessionId:remote.sessionId||null,expectedActiveBizDay:root.activeBizDay||null,
+    expectedFromAssignmentsRev:Number(root._tableAssignmentRevisions?.[oldId])||0,
+    expectedToAssignmentsRev:Number(root._tableAssignmentRevisions?.[newId])||0,
+    assignments:assignmentRevs,updatedAt:Date.now()
+  };
+  [oldId,newId].forEach(id=>{prepared[FB_ROOT+"/_tableAssignmentRevisions/"+id]=(Number(root._tableAssignmentRevisions?.[id])||0)+1;});
+  trace("validated",{assignmentCount:Object.keys(assignmentRevs).length,pathCount:Object.keys(prepared).length});
   try{
-    await waitForSessionSaveQueue(oldTid);
-    await ensureSessionCurrent(oldTid,oldSession);
-    await ensureSessionCurrent(newId,null,{expectEmpty:true});
-  }catch(e){return;}
-  const tcSessionId=oldSession.startTime||null;
-  const movedSession={...cloneData(oldSession),tableId:newId};
-  // アクティブなアサイン＋同セッションの終了済みアサイン（付け回し履歴）のtableIdも移動先に更新
-  const movedAssignments=[];
-  Object.values(S.assignments||{}).forEach(a=>{
-if(a.tableId===oldTid&&(!a.endTime||(tcSessionId&&a.sessionId===tcSessionId))){
-  movedAssignments.push({expected:cloneData(a),desired:{...cloneData(a),tableId:newId}});
-}
-  });
-  // レコード単位書き込みで他端末のアサインを上書きしない
-  if(window._db){
-const _cu={};
-const expectedRecords={};
-_cu[FB_ROOT+"/sessions/"+newId]=movedSession;
-_cu[FB_ROOT+"/sessions/"+oldTid]=null;
-movedAssignments.forEach(({expected,desired})=>{
-  _cu[FB_ROOT+"/assignments/"+expected.id]=desired;
-  expectedRecords["assignments/"+expected.id]=expected;
-});
-try{
-  await queueSessionUpdate(oldTid,()=>_cu,{
-    session:oldSession,
-    expectedRecords,
-    checker:root=>(root.sessions||{})[newId]
-      ?{ok:false,message:"移動先テーブルは他端末で使用中になりました。"}
-      :{ok:true}
-  });
-  sbs(true,"同期済み ✓");
-}catch(e){
-  sbs(false,"保存エラー");
-  alert(e.userMessage||"テーブル移動に失敗しました。最新状態を確認してください。");
-  return;
-}
+    trace("saveStart");
+    await window._db.ref("/").update(withWriteGate(prepared));
+  }catch(error){
+    if(isFirebasePermissionDenied(error))throw Object.assign(new Error("table change conflict"),{userMessage:"注文・付け回し・移動先が他端末で変更されています。最新状態を確認してから再実行してください。"});
+    throw error;
   }
-  at=newId;
-  closeM();render();refreshFloorModal();
-  });
+  syncRemoteSession(oldId,null);
+  syncRemoteSession(newId,moved);
+  syncVersionedRecordsFromPrepared(prepared);
+  trace("saveDone");
+}
+async function tableChange(newId){
+  if(tableChangeBusy||!at||!newId||newId===at||!S.sessions[at])return;
+  if(S.sessions[newId]){alert("移動先のテーブルは使用中です");return;}
+  const oldId=at;
+  const identity=cloneData(S.sessions[oldId]);
+  return withDataOperation("table:"+oldId,()=>withDataOperation("table:"+newId,async()=>{
+    tableChangeBusy=true;
+    const started=performance.now();
+    const opId="tableChange_"+Date.now();
+    const trace=(phase,details={})=>{if(window.POS_PERF===true)console.info("[POS_PERF]",{opId,phase,elapsedMs:Math.round((performance.now()-started)*10)/10,...details});};
+    trace("queueWaitStart");
+    try{
+      rModal();
+      await Promise.all([waitForSessionSaveQueue(oldId),waitForSessionSaveQueue(newId)]);
+      if([oldId,newId].some(id=>sessionSaveStates[id]?.status==="error"))throw Object.assign(new Error("unsaved orders"),{userMessage:"未保存のオーダーがあります。保存エラーを解消してから移動してください。"});
+      const session=cloneData(S.sessions[oldId]);
+      if(!sameSessionIdOnly(session,identity))throw Object.assign(new Error("session changed"),{userMessage:"移動元テーブルが変更されています。最新状態を確認してください。"});
+      if(tableChangeAssignments(S.assignments,oldId,session).some(([id])=>isPendingAssignment(id)))throw Object.assign(new Error("pending assignment"),{userMessage:"付け回しの保存中です。保存完了後に移動してください。"});
+      trace("queueWaitDone");
+      if(tableChangeAtomicValidationVersion>=TABLE_CHANGE_ATOMIC_VALIDATION_VERSION){
+        await guardedAtomicTableChange(oldId,newId,session,trace);
+      }else{
+        trace("legacyRootTransaction");
+        const {updates,expectedRecords}=tableChangeUpdates(oldId,newId,session,S.assignments);
+        await guardedSessionUpdate(oldId,session,updates,{expectedRecords,checker:root=>root.sessions?.[newId]?{ok:false,message:"移動先テーブルは他端末で使用中になりました。"}:{ok:true}});
+      }
+      at=newId;
+      tableChangeBusy=false;
+      sbs(true,"同期済み ✓");
+      closeM();render();refreshFloorModal();
+      trace("done");
+    }catch(error){
+      trace("failed",{code:error.code||error.message});
+      sbs(false,"保存エラー");
+      alert(error.userMessage||"テーブル移動に失敗しました。最新状態を確認してから再実行してください。");
+    }finally{
+      tableChangeBusy=false;
+      if(md==="tc"){
+        if(S.sessions[oldId])rModal();
+        else{at=null;vw="floor";closeM();render();refreshFloorModal();}
+      }
+    }
+  }));
 }
 
 // ===== RENDER ENGINE =====
@@ -2337,6 +2405,7 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
+  if(tableChangeBusy)return;
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
@@ -2362,6 +2431,7 @@ inner.innerHTML=buildFloorOrderContent();
   }
 }
 function closeFloorDetail(){
+  if(tableChangeBusy)return;
   const fom=document.getElementById("floor-order-modal");if(fom)fom.style.display="none";
   at=null;render();
 }
@@ -5400,8 +5470,8 @@ function dta(id){if(S.sessions[id])return;S.tables=S.tables.filter(t=>t.id!==id)
 function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
-function om(name){md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;md=null;document.getElementById("md").innerHTML="";}
+function om(name){if(tableChangeBusy)return;md=name;rModal();}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy)return;md=null;document.getElementById("md").innerHTML="";}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -8031,19 +8101,19 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   else if(md==="dh"){
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:340px;"><h3 style="margin-bottom:12px;font-size:16px;">この履歴を削除しますか？</h3><p style="font-size:13px;color:#888;margin-bottom:20px;">削除した履歴は元に戻せません。</p><div style="display:flex;gap:10px;"><button class="btn" onclick="doh()" style="flex:1;padding:10px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;border-radius:4px;font-weight:600;touch-action:manipulation;">削除する</button><button class="btn" onclick="closeM()" style="flex:1;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">キャンセル</button></div></div></div>';
   }
-  else if(md==="tc"&&s){
+  else if(md==="tc"&&(s||tableChangeBusy)){
 const tl=S.tables.find(t=>t.id===at)?.label||"";
 let tbs="";
 S.tables.filter(t=>t.id!==at).forEach(t=>{
-  const inuse=!!S.sessions[t.id];
+  const inuse=tableChangeBusy||!!S.sessions[t.id];
   tbs+='<button class="btn" '+(inuse?"disabled":"")+' data-tid="'+t.id+'" onclick="tableChange(this.dataset.tid)" style="padding:14px 10px;text-align:center;background:'+(inuse?"rgba(255,255,255,.02)":"rgba(0,200,255,.08)")+';border:1px solid '+(inuse?"rgba(255,255,255,.05)":"rgba(0,200,255,.25)")+';color:'+(inuse?"#444":"#38bdf8")+';border-radius:6px;font-size:14px;cursor:'+(inuse?"not-allowed":"pointer")+';touch-action:manipulation;">'
     +t.label+(inuse?'<div style="font-size:10px;color:#555;margin-top:3px;">使用中</div>':'<div style="font-size:10px;margin-top:3px;opacity:.6;">移動</div>')+'</button>';
 });
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:#38bdf8;">テーブルチェンジ</h3>'
   +'<div style="font-size:12px;color:#666;margin-bottom:16px;">'+tl+' の内容を別のテーブルへ移動</div>'
-  +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+tbs+'</div>'
-  +'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
+  +(tableChangeBusy?'<div role="status" aria-live="polite" style="padding:28px 0;text-align:center;color:#38bdf8;"><span class="tc-save-spinner" aria-hidden="true"></span><div style="margin-top:12px;">テーブルを移動・同期中...</div></div>':'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+tbs+'</div>')
+  +'<button class="btn" '+(tableChangeBusy?'disabled':'')+' onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">キャンセル</button>'
   +'</div></div>';
   }
   else if(md==="est"&&s){

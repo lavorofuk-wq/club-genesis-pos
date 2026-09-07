@@ -868,6 +868,16 @@ textarea:focus-visible{
   font-size:10px;
   text-align:center;
 }
+.tc-save-spinner{
+  display:inline-block;
+  width:28px;
+  height:28px;
+  border:3px solid rgba(56,189,248,.2);
+  border-top-color:#38bdf8;
+  border-radius:50%;
+  animation:tc-save-spin .8s linear infinite;
+}
+@keyframes tc-save-spin{to{transform:rotate(360deg);}}
 #logout-btn{
   padding:4px 8px;
   border:1px solid rgba(255,255,255,.12);
