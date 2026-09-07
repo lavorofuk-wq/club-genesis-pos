@@ -69,6 +69,7 @@ vm.runInContext(versionSource,versionContext);
 assert.strictEqual(versionContext._verNum("6.133"),613300);
 assert.strictEqual(versionContext._verNum("6.136"),613600);
 assert.strictEqual(versionContext._verNum("6.137"),613700);
+assert.strictEqual(versionContext._verNum("6.141"),614100);
 assert.strictEqual(versionContext._verNum("6.108"),610800);
 assert.strictEqual(versionContext._verNum("6.109"),610900);
 assert.match(rulesDoc,/versionNum'\)\.val\(\) >= 613300/);

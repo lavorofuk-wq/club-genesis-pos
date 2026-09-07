@@ -7,10 +7,10 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.140\.6"/);
-assert.match(index,/Ver6\.140\.6/);
-assert.match(index,/app\.js\?v=6\.140\.6/);
-assert.match(sw,/genesis-pos-v6\.140\.6-auth/);
+assert.match(app,/const APP_VERSION="6\.141"/);
+assert.match(index,/Ver6\.141/);
+assert.match(index,/app\.js\?v=6\.141/);
+assert.match(sw,/genesis-pos-v6\.141-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
@@ -21,11 +21,15 @@ assert.doesNotMatch(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"gmsExportMeta"/);
 assert.match(app,/db\.ref\(FB_ROOT\+"\/"\+path\)\.on\("value"/);
 
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/bizDays"\)\.once\("value"\)/);
-assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsExportMeta"\)\.once\("value"\)/);
-assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsTargetCorrections"\)\.once\("value"\)/);
+assert.doesNotMatch(app,/window\._db\.ref\(FB_ROOT\+"\/gmsExportMeta"\)\.once\("value"\)/);
+assert.doesNotMatch(app,/window\._db\.ref\(FB_ROOT\+"\/gmsTargetCorrections"\)\.once\("value"\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsExportMeta\/"\+id\)\.once\("value"\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsTargetCorrections\/"\+id\)\.once\("value"\)/);
 assert.match(app,/window\._db\.ref\(BACKUP_ROOT\+"\/bizDays"\)\.once\("value"\)/);
 assert.match(app,/db\.ref\(FB_ROOT\+"\/bizDays\/"\+nextId\)/,"the active business day must remain realtime");
-assert.match(app,/const BIZ_DAYS_VIEWS=new Set\(\["history","analysis","histlog","shifts","backupDetail"\]\)/);
+assert.match(app,/const BIZ_DAYS_VIEWS=new Set\(\["analysis","shifts","backupDetail"\]\)/);
+assert.match(app,/const HISTORY_PAGE_SIZE=24/);
+assert.match(app,/async function ensureBizDayListLoaded[\s\S]*readHistoryPage\("bizDaySummaries"[\s\S]*readHistoryPage\("bizDays"/);
 assert.match(app,/const BACKUP_VIEWS=new Set\(\["admin","backupDetail"\]\)/);
 
 assert.match(app,/async function loadBizDayForReEdit[\s\S]*\["bizDays\/"\+dayId\]:day/);
@@ -48,8 +52,8 @@ const subscribed=[];
 const reads=[];
 const snapshots={
   "pos-dev/bizDays":{d1:{id:"d1",date:"2026-09-01"}},
-  "pos-dev/gmsExportMeta":{d1:{submissionId:"g1"}},
-  "pos-dev/gmsTargetCorrections":{d1:{tx_1:{_rev:1}}},
+  "pos-dev/gmsExportMeta/d1":{submissionId:"g1"},
+  "pos-dev/gmsTargetCorrections/d1":{tx_1:{_rev:1}},
   "backup-dev/bizDays":{d1:{date:"2026-09-01",history:[]}}
 };
 const mockDb={ref:refPath=>({
@@ -81,12 +85,13 @@ vm.runInContext(syncSource,context);
   assert.ok(!subscribed.some(entry=>entry.refPath==="pos-dev"||entry.refPath.includes("/bizDays")||entry.refPath.includes("gmsExportMeta")));
 
   await vm.runInContext("ensureBizDaysLoaded()",context);
+  await vm.runInContext("ensureGmsDayLoaded('d1')",context);
   await vm.runInContext("ensureBackupsLoaded()",context);
   assert.deepStrictEqual(reads.map(entry=>entry.refPath).sort(),[
     "backup-dev/bizDays",
     "pos-dev/bizDays",
-    "pos-dev/gmsExportMeta",
-    "pos-dev/gmsTargetCorrections"
+    "pos-dev/gmsExportMeta/d1",
+    "pos-dev/gmsTargetCorrections/d1"
   ]);
   assert.strictEqual(context.S.bizDays.d1.id,"d1");
   assert.strictEqual(context.S.gmsExportMeta.d1.submissionId,"g1");
