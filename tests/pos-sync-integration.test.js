@@ -18,16 +18,16 @@ const shiftOps=app.slice(app.indexOf("async function clockIn"),app.indexOf("asyn
 const deleteShiftOp=app.slice(app.indexOf("async function deleteShift"),app.indexOf("function exportShiftCSV"));
 const shiftDeleteHelper=app.slice(app.indexOf("async function guardedShiftDelete"),app.indexOf("function syncVersionedRecordsFromPrepared"));
 assert.match(app,/function readRemoteActiveShiftsForCast\(castId\)/);
-assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.get\(\)/);
 assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readActiveShiftCasts:\[castId\]/);
 assert.match(shiftOps,/async function cancelClockOut[\s\S]*readActiveShiftCasts:\[current\.castId\]/);
 assert.match(shiftOps,/async function saveShiftEdit[\s\S]*readActiveShiftCasts:\[current\.castId\][\s\S]*readActiveAssignCasts:\[current\.castId\]/);
 assert.match(deleteShiftOp,/await guardedShiftDelete\(sid,expected\)/);
 assert.doesNotMatch(deleteShiftOp,/guardedCheckedUpdate|guardedRootTransaction/);
-assert.match(shiftDeleteHelper,/await readRemoteRelative\(relative\)/);
-assert.match(shiftDeleteHelper,/readRemoteActiveAssignmentsForCast\(remote\.castId\)/);
-assert.match(shiftDeleteHelper,/\[FB_ROOT\+"\/shifts\/"\+shiftId\]:null/);
-assert.match(shiftDeleteHelper,/\[FB_ROOT\+"\/_shiftDeleteOperations\/"\+shiftId\]:operation/);
+assert.match(shiftDeleteHelper,/guardedCheckedNodeUpdate/);
+assert.match(shiftDeleteHelper,/readActiveAssignCasts/);
+assert.match(shiftDeleteHelper,/\[FB_ROOT\+"\/"\+relative\]:null/);
+assert.match(shiftDeleteHelper,/expectedRecords/);
 assert.doesNotMatch(shiftDeleteHelper,/withWriteGate|guardedRootTransaction/);
 
 const startAssign=app.slice(app.indexOf("async function startAssignAt"),app.indexOf("async function changeAssignType"));
@@ -49,9 +49,9 @@ assert.doesNotMatch(assignmentOps,/readCollections:\["assignments"\]/);
 assert.match(app,/function mergeRemoteVersionedCollection\(collection,remote\)/);
 assert.match(app,/path==="shifts"[\s\S]*S\.shifts=mergeRemoteVersionedCollection\("shifts",value\)/);
 assert.match(app,/path==="assignments"[\s\S]*S\.assignments=mergeRemoteVersionedCollection\("assignments",value\)/);
-assert.match(app,/function shouldFallbackNodeUpdate\(error\)[\s\S]*message==="record changed"[\s\S]*message==="record create conflict"/);
+assert.doesNotMatch(app,/shouldFallbackNodeUpdate|guardedRootTransaction/);
 assert.match(app,/function readRemoteActiveAssignmentsForCast\(castId\)/);
-assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.once\("value"\)/);
+assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/assignments"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.get\(\)/);
 assert.match(app,/window\._db\.ref\("\/"\)\.update\(withWriteGate\(prepared\)\)/);
 
 const salesData=app.slice(app.indexOf("function _salesDataStatsFromHist"),app.indexOf("function _castDrinkRowsFromHist"));
@@ -168,16 +168,16 @@ assert.deepStrictEqual(drinkRows[3],["全キャスト合計","4杯","2杯","2500
 
 const checkout=app.slice(app.indexOf("async function checkout"),app.indexOf("async function tableChange"));
 assert.match(checkout,/expectedRecords/);
-assert.ok(checkout.indexOf("queueSessionUpdate")<checkout.indexOf("eposPrint"));
+assert.ok(checkout.indexOf("guardedCloseSession")<checkout.indexOf("eposPrint"));
 assert.match(checkout,/setCheckoutProgress\("未保存のオーダーを保存中",20\)/);
 assert.match(checkout,/setCheckoutProgress\("会計データを確認中",45\)/);
 assert.match(checkout,/setCheckoutProgress\("会計を確定・同期中",75\)/);
 assert.match(checkout,/setCheckoutProgress\("会計完了 \\u2713",100\)/);
 assert.match(checkout,/setTimeout\(\(\)=>\{[\s\S]*checkoutProgress=\{\.\.\.checkoutProgress,slow:true\}[\s\S]*\},4000\)/);
 assert.match(checkout,/function failCheckout[\s\S]*checkoutBusy=false[\s\S]*checkoutError=[\s\S]*rModal\(\)/);
-assert.ok(checkout.indexOf("await waitForSessionSaveQueue")<checkout.indexOf("await ensureSessionCurrent"));
-assert.ok(checkout.indexOf("await ensureSessionCurrent")<checkout.indexOf("await queueSessionUpdate"));
-assert.ok(checkout.indexOf("await queueSessionUpdate")<checkout.indexOf("at=null"));
+assert.ok(checkout.indexOf("await waitForSessionSaveQueue")<checkout.indexOf("s=cloneData(S.sessions[checkoutTableId])"));
+assert.ok(checkout.indexOf("s=cloneData(S.sessions[checkoutTableId])")<checkout.indexOf("await guardedCloseSession"));
+assert.ok(checkout.indexOf("await guardedCloseSession")<checkout.indexOf("at=null"));
 assert.match(app,/if\(at&&!checkoutBusy&&!tableChangeBusy&&!\(md&&String\(md\)\.indexOf\("ci-"\)===0\)&&!S\.sessions\[at\]\)/);
 assert.match(app,/function closeM\(\)\{if\(checkoutBusy&&md==="co2"\)return;/);
 assert.match(app,/role="progressbar"[\s\S]*aria-valuenow=/);
@@ -195,6 +195,6 @@ assert.match(settingsSave,/const LIGHTWEIGHT_SETTING_PATHS=new Set\(\["menus","t
 assert.match(settingsSave,/function queueSettingSave\(/);
 assert.match(app,/function scheduleFirebaseRender\(settingsChanged\)/);
 assert.doesNotMatch(settingsSave,/guardedRootTransaction/);
-assert.match(app,/function shouldGuardWholeValue\(path\)\{return\["bizDays"\]/);
+assert.doesNotMatch(app,/shouldGuardWholeValue/);
 
 console.log("pos-sync integration guards passed");

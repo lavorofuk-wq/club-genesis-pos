@@ -15,6 +15,14 @@ test("business-day transitions use one narrow atomic multipath update",async()=>
     BIZ_DAY_ATOMIC_VALIDATION_VERSION:614100,
     bizDayAtomicValidationVersion:614100,
     FB_ROOT:"pos-dev",
+    SCOPED_ATOMIC_VALIDATION_VERSION:614400,
+    S:{bizDays:{}},
+    requireScopedAtomic:()=>{},
+    readScopedPaths:async()=>({activeBizDay:writes.length?'2026-09-07':null}),
+    getPathValue:()=>null,
+    stableJson:value=>JSON.stringify(value||null),
+    sameFirebaseValue:(a,b)=>JSON.stringify(a||null)===JSON.stringify(b||null),
+    cloneData:value=>value==null?null:JSON.parse(JSON.stringify(value)),
     requireFirebaseReady:()=>true,
     guardedUpdate:async updates=>{writes.push(updates);},
     Date,Math,String,Object,Error
@@ -27,7 +35,7 @@ test("business-day transitions use one narrow atomic multipath update",async()=>
     "bizDays/2026-09-07":{id:"2026-09-07"},activeBizDay:"2026-09-07",history:null,sessions:null
   }),true);
   assert.deepEqual(Object.keys(writes[0]).sort(),[
-    "pos-dev/_bizDayOperation","pos-dev/activeBizDay","pos-dev/bizDays/2026-09-07","pos-dev/history","pos-dev/sessions"
+    "pos-dev/_bizDayOperation","pos-dev/_bizDayRevisions/2026-09-07","pos-dev/activeBizDay","pos-dev/bizDays/2026-09-07","pos-dev/history","pos-dev/sessions"
   ]);
   assert.equal(writes[0]["pos-dev/_bizDayOperation"].type,"start");
   assert.equal(writes[0]["pos-dev/_bizDayOperation"].expectedActiveBizDay,null);
@@ -40,15 +48,15 @@ test("business-day transitions use one narrow atomic multipath update",async()=>
   assert.deepEqual(writes[1]["backup-dev/bizDays/2026-09-07"],{date:"2026-09-07",endedAt:123});
 
   context.bizDayAtomicValidationVersion=0;
-  assert.equal(await update("start","2026-09-08",null,"2026-09-08",{}),false);
+  await assert.rejects(update("start","2026-09-08",null,"2026-09-08",{}));
   assert.equal(writes.length,2);
 });
 
-test("start, reopen and end choose the atomic transition before the legacy fallback",()=>{
+test("start, reopen and end use atomic transitions without any legacy fallback",()=>{
   for(const [name,next] of [["loadBizDayForReEdit","startBizDay"],["startBizDay","endBizDay"],["endBizDay","// ===== FLOOR ====="]]){
     const source=app.slice(app.indexOf("async function "+name),app.indexOf(next,name==="loadBizDayForReEdit"?app.indexOf("async function "+name)+1:app.indexOf("async function "+name)+1));
     assert.match(source,/guardedAtomicBizDayUpdate\(/,name+" must use the atomic path");
-    assert.ok(source.indexOf("guardedAtomicBizDayUpdate(")<source.indexOf("guardedRootUpdateIfActive("),name+" must only use the root transaction as a rollout fallback");
+    assert.doesNotMatch(source,/guardedRootUpdateIfActive/,name+" must not retry using a root transaction");
     assert.ok(source.indexOf("guardedAtomicBizDayUpdate(")<source.indexOf("S.bizDays="),name+" must not commit local business state before Firebase accepts the write");
   }
   const endSource=app.slice(app.indexOf("async function endBizDay"),app.indexOf("// ===== FLOOR ====="));

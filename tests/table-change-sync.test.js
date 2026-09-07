@@ -33,7 +33,7 @@ function contextFor(db,state=fixture()){
     S:clone(state),at:'t1',md:'tc',sessionSaveStates:{},
     performance,console,Date,Promise,Set,window:{_db:db},
     POS_SYNC:require('../sync-core.js'),cloneData:clone,
-    requireFirebaseReady:()=>true,_verNum:()=>614300,
+    requireFirebaseReady:()=>true,requireScopedAtomic:()=>{},_verNum:()=>614300,
     getPathValue:get,setPathValue:put,
     versionedRecordPathInfo:key=>{const relative=key.replace(/^pos-dev\//,'');const [collection,id]=relative.split('/');return collection==='assignments'?{collection,id,relative}:null;},
     recordConflictMessage:()=> 'record conflict',
@@ -49,7 +49,7 @@ function contextFor(db,state=fixture()){
     alert:message=>context.alerts.push(message),alerts:[]
   };
   vm.createContext(context);
-  vm.runInContext(app.slice(app.indexOf('function prepareVersionedRecordUpdates'),app.indexOf('function syncVersionedRecordsFromRoot')),context);
+  vm.runInContext(app.slice(app.indexOf('function prepareVersionedRecordUpdates'),app.indexOf('async function guardedRecordSet')),context);
   vm.runInContext(app.slice(app.indexOf('function tableChangeAssignments'),app.indexOf('// ===== RENDER ENGINE =====')),context);
   return context;
 }
@@ -132,12 +132,10 @@ test('TC does not move after a failed queued order',async()=>{
   assert.equal(context.tableChangeBusy,false);
 });
 test('normal cast assignment reads and advances its table membership revision',async()=>{
-  const state=fixture(),db=fakeDb(state),context=contextFor(db,state),reads=[];
-  context.readRemoteRelative=async key=>{reads.push(key);return clone(get(state,key));};
-  context.applyRootUpdates=(root,updates)=>{Object.entries(updates).forEach(([key,v])=>put(root,key.replace(/^pos-dev\//,''),v));return root;};
-  vm.runInContext(app.slice(app.indexOf('async function guardedCheckedNodeUpdate'),app.indexOf('const optimisticRootPaths')),context);
+  const harness=require('./helpers/scoped-runtime.cjs');
+  const state=fixture(),db=harness.fakeDb(state),context=harness.contextFor(db,state);
   await context.guardedCheckedNodeUpdate({'pos-dev/assignments/new':{id:'new',tableId:'t1',castId:'new-cast',sessionId:100,startTime:160}},()=>true,{createRecords:['assignments/new']});
-  assert.ok(reads.includes('_tableAssignmentRevisions/t1'));
+  assert.ok(db.reads.some(r=>r.key==='pos-dev/_tableAssignmentRevisions/t1'));
   assert.equal(db.writes[0]['pos-dev/_tableAssignmentRevisions/t1'],4);
 });
 

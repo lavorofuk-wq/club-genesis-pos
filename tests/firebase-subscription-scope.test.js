@@ -7,14 +7,14 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.143"/);
-assert.match(index,/Ver6\.143/);
-assert.match(index,/app\.js\?v=6\.143/);
-assert.match(sw,/genesis-pos-v6\.143-auth/);
+assert.match(app,/const APP_VERSION="6\.144"/);
+assert.match(index,/Ver6\.144/);
+assert.match(index,/app\.js\?v=6\.144/);
+assert.match(sw,/genesis-pos-v6\.144-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
-assert.match(app,/async function guardedRootTransaction[\s\S]*const primedSnapshot=await ref\.once\("value"\)[\s\S]*transactionAttempt\+\+===0\?primedRoot:current[\s\S]*ref\.transaction\(/,"the first root transaction attempt must use the complete server snapshot");
+assert.doesNotMatch(app,/guardedRootTransaction|primedRoot/,"no save may read and transact the complete POS root");
 assert.match(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"sessions"[^\]]*"history"[^\]]*"activeBizDay"[^\]]*\]/);
 assert.doesNotMatch(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"bizDays"/);
 assert.doesNotMatch(app,/const POS_CORE_SYNC_PATHS=\[[^\]]*"gmsExportMeta"/);
@@ -40,7 +40,7 @@ assert.match(app,/async function updateBizDateWarn[\s\S]*readRemoteRelative\('bi
 assert.match(app,/async function endBizDay[\s\S]*\["bizDays\/"\+id\]:day/);
 assert.doesNotMatch(app,/bizDays:S\.bizDays/,"business operations must not rewrite every historical day");
 assert.doesNotMatch(app,/save\("bizDays",S\.bizDays\)/,"historical edits must not rewrite the complete business-day collection");
-assert.match(app,/async function guardedReplaceClosedBizDay[\s\S]*\[FB_ROOT\+"\/bizDays\/"\+id\][\s\S]*stableJson\(remote\)!==stableJson\(expectedDay\)/,"closed-day edits must compare and update only their target day");
+assert.match(app,/async function guardedReplaceClosedBizDay[\s\S]*\[FB_ROOT\+"\/bizDays\/"\+id\][\s\S]*sameFirebaseValue\(remote,expectedDay\)/,"closed-day edits must compare and update only their target day");
 assert.match(app,/function rDayDetail[\s\S]*const hist=\[\.\.\.\(day\.history\|\|\[\]\)\]\.sort/ ,"history rendering must not reorder the stored history array in place");
 assert.match(app,/async function saveGmsTargetCorrection[\s\S]*\/bizDays\/"\+id\+"\/history"\)[\s\S]*orderByChild\("id"\)\.equalTo\(recordId\)\.limitToFirst\(2\)[\s\S]*\/gmsTargetCorrections\/"\+id\+"\/"\+key[\s\S]*correctionRef\.transaction\(/,"GMS target corrections must find one record by transaction id and transact only their correction node");
 assert.doesNotMatch(app,/async function saveGmsTargetEdit[\s\S]*guardedRootTransaction/ ,"GMS target corrections must not run a POS-root transaction");

@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.143";
+const APP_VERSION="6.144";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -12,9 +12,9 @@ const TAX_RATE=.30;
 const TOTAL_ROUND_UNIT=100;
 const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
-const BANAI_ATOMIC_VALIDATION_VERSION=613600;
 const BIZ_DAY_ATOMIC_VALIDATION_VERSION=614100;
 const TABLE_CHANGE_ATOMIC_VALIDATION_VERSION=614300;
+const SCOPED_ATOMIC_VALIDATION_VERSION=614400;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -347,10 +347,9 @@ function setSettingSaveStatus(path,status,message){
 const sessionSaveQueues={};
 const sessionSaveStates={};
 const sessionSaveLastOwn={};
-let sessionNodeTransactionsSupported=null;
-let banaiAtomicValidationVersion=0;
 let bizDayAtomicValidationVersion=0;
 let tableChangeAtomicValidationVersion=0;
+let scopedAtomicValidationVersion=0;
 let tableChangeBusy=false;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
@@ -396,9 +395,7 @@ function queueSessionUpdate(tableId,makeUpdates,options={}){
     const updates=typeof makeUpdates==="function"?makeUpdates(session):makeUpdates;
     const res=options.sessionOnly
       ?await guardedQueuedSessionSave(tableId,session,options)
-      :options.fastNodeUpdate
-        ?await guardedSessionNodeUpdate(tableId,session,updates,options)
-        :await guardedSessionUpdate(tableId,session,updates,options);
+      :await guardedSessionNodeUpdate(tableId,session,updates,options);
     const saved=getPathValue(res,"sessions/"+tableId);
     if(saved)sessionSaveLastOwn[tableId]={sessionId:saved.sessionId,startTime:saved.startTime,rev:Number(saved._rev||0)};
     setSessionSaveState(tableId,"saved","\u4fdd\u5b58\u5b8c\u4e86");
@@ -528,9 +525,9 @@ function applyPosCoreValue(db,path,value){
   }else if(path==="loStatus"){
     S.loStatus=value||{};
   }else if(path==="_capabilities"){
-    banaiAtomicValidationVersion=Number(value?.banaiAtomicValidationVersion)||0;
     bizDayAtomicValidationVersion=Number(value?.bizDayAtomicValidationVersion)||0;
     tableChangeAtomicValidationVersion=Number(value?.tableChangeAtomicValidationVersion)||0;
+    scopedAtomicValidationVersion=Number(value?.scopedAtomicValidationVersion)||0;
   }else if(path==="config"&&value){
     settingsChanged=acceptRemoteSettingValue("config",value,next=>{
       S.config={printerIP:next.printerIP||"192.168.150.76",printerPort:next.printerPort||8008};
@@ -575,7 +572,7 @@ async function ensureBizDaysLoaded(force=false){
 function bizDaySummary(day,id){
   const value=day||{};
   return{
-    id:String(value.id||id||""),date:String(value.date||id||""),
+    id:String(value.id||id||""),date:String(value.date||id||""),_dayRev:Number(value._rev)||0,
     startedAt:Number(value.startedAt)||0,endedAt:Number(value.endedAt)||null,
     sales:(value.history||[]).reduce((sum,row)=>sum+(Number(row?.total)||0),0),
     updatedAt:Date.now()
@@ -806,8 +803,8 @@ async function save(path,val){
       await queueSessionSave(path.split("/")[1],val);
     }else if(LIGHTWEIGHT_SETTING_PATHS.has(rootPath)){
       await queueSettingSave(path,val);
-    }else if(shouldGuardWholeValue(path)){
-      await guardedSetIfUnchanged(path,val);
+    }else if(rootPath==="bizDays"){
+      throw new Error("Business days require a scoped operation");
     }else{
       await guardedSet(path,val);
     }
@@ -821,7 +818,6 @@ function writeGate(){
   return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:ts};
 }
 function withWriteGate(updates){return{...updates,[FB_ROOT+"/_writeGate"]:writeGate()};}
-function txWriteGate(){return{appVersion:APP_VERSION,versionNum:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:Date.now()};}
 function showFirebaseLock(msg){
   window._firebaseLockMessage=msg||"Firebase接続が正しく確認できないため、会計データ保護のため保存系操作を停止しています。";
   sbs(false,"操作停止");
@@ -880,7 +876,16 @@ function canonicalJsonValue(v){
   return v;
 }
 function stableJson(v){try{return JSON.stringify(canonicalJsonValue(v===undefined?null:v));}catch(e){return "";}}
-function shouldGuardWholeValue(path){return["bizDays"].includes(String(path||"").split("/")[0]);}
+function firebaseComparableValue(value){
+  if(value==null||typeof value!=="object")return value??null;
+  const result={};
+  Object.keys(value).sort().forEach(key=>{
+    const child=firebaseComparableValue(value[key]);
+    if(child!==null)result[key]=child;
+  });
+  return Object.keys(result).length?result:null;
+}
+function sameFirebaseValue(a,b){return stableJson(firebaseComparableValue(a))===stableJson(firebaseComparableValue(b));}
 function updateRemoteHash(path,val){
   if(!window._remoteValueHashes)window._remoteValueHashes={};
   window._remoteValueHashes[path]=stableJson(val);
@@ -902,7 +907,6 @@ function acceptRemoteSettingValue(path,value,apply){
 function cloneData(v){return v==null?null:JSON.parse(JSON.stringify(v));}
 function stripRootPath(path){path=String(path||"");return path.indexOf(FB_ROOT+"/")===0?path.slice(FB_ROOT.length+1):path;}
 const VERSIONED_RECORD_COLLECTIONS=new Set(["shifts","assignments"]);
-const recordNodeTransactionsSupported={shifts:null,assignments:null};
 const dataOperationLocks=new Set();
 function versionedRecordPathInfo(path){
   const relative=stripRootPath(path);
@@ -955,61 +959,12 @@ function prepareVersionedRecordUpdates(root,updates,options={}){
   }
   return prepared;
 }
-function syncVersionedRecordsFromRoot(root,updates){
-  Object.keys(updates||{}).forEach(path=>{
-    const info=versionedRecordPathInfo(path);
-    if(!info)return;
-    const saved=getPathValue(root,info.relative);
-    if(saved)S[info.collection][info.id]=saved;
-    else delete S[info.collection][info.id];
-  });
-}
-async function guardedRecordNodeTransaction(collection,id,expected,desired,options={}){
-  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for record write");
-  if(!desired)throw new Error("record deletion requires root transaction");
-  let conflict=false;
-  let conflictRemote=null;
-  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
-  const ref=window._db.ref(FB_ROOT+"/"+collection+"/"+id);
-  const result=await ref.transaction(remote=>{
-    conflict=false;
-    conflictRemote=null;
-    if(remote){
-      if(!POS_SYNC.sameRecord(remote,expected)){conflict=true;conflictRemote=remote;return;}
-    }else if(!options.expectCreate){
-      conflict=true;return;
-    }else if(!POS_SYNC.canCreate(remote,desired)){
-      conflict=true;return;
-    }
-    return POS_SYNC.nextRecord(remote,cloneData(desired),_verNum(APP_VERSION),nonce);
-  },null,false);
-  if(!result.committed){
-    if(conflict){
-      if(conflictRemote)S[collection][id]=conflictRemote;else delete S[collection][id];
-    }
-    const err=new Error("record conflict");
-    err.userMessage=recordConflictMessage(collection);
-    throw err;
-  }
-  const saved=result.snapshot.val();
-  if(saved)S[collection][id]=saved;
-  return saved;
-}
 async function guardedRecordSet(collection,id,expected,desired,options={}){
-  const path=FB_ROOT+"/"+collection+"/"+id;
-  if(desired&&recordNodeTransactionsSupported[collection]!==false){
-    try{
-      const saved=await guardedRecordNodeTransaction(collection,id,expected,desired,options);
-      recordNodeTransactionsSupported[collection]=true;
-      return saved;
-    }catch(e){
-      if(!isFirebasePermissionDenied(e))throw e;
-      recordNodeTransactionsSupported[collection]=false;
-    }
-  }
-  const updateOptions={...options,expectedRecords:{...(options.expectedRecords||{}),[collection+"/"+id]:expected}};
-  const result=await guardedCheckedUpdate({[path]:desired},options.checker,updateOptions);
-  return getPathValue(result,collection+"/"+id)||null;
+  const relative=collection+"/"+id;
+  const result=await guardedCheckedNodeUpdate({[FB_ROOT+"/"+relative]:desired},options.checker,{
+    ...options,expectedRecords:{...(options.expectedRecords||{}),[relative]:expected}
+  });
+  return getPathValue(result,relative)||null;
 }
 async function withDataOperation(key,operation){
   if(dataOperationLocks.has(key)){
@@ -1157,63 +1112,30 @@ function castIdQueryValues(castId){
 }
 async function readRemoteActiveAssignmentsForCast(castId){
   const found={};
-  for(const value of castIdQueryValues(castId)){
-    const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("castId").equalTo(value).once("value");
+  await Promise.all(castIdQueryValues(castId).map(async value=>{
+    const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("castId").equalTo(value).get();
     Object.entries(snap.val()||{}).forEach(([id,a])=>{
       if(a&&String(a.castId)===String(castId)&&!a.endTime)found[id]=a;
     });
-  }
+  }));
   return found;
 }
 async function readRemoteActiveShiftsForCast(castId){
   const found={};
-  for(const value of castIdQueryValues(castId)){
-    const snap=await window._db.ref(FB_ROOT+"/shifts").orderByChild("castId").equalTo(value).once("value");
+  await Promise.all(castIdQueryValues(castId).map(async value=>{
+    const snap=await window._db.ref(FB_ROOT+"/shifts").orderByChild("castId").equalTo(value).get();
     Object.entries(snap.val()||{}).forEach(([id,sh])=>{
       if(sh&&String(sh.castId)===String(castId)&&!sh.clockOut)found[id]=sh;
     });
-  }
+  }));
   return found;
 }
 async function guardedShiftDelete(shiftId,expected){
-  if(!requireFirebaseReady())throw new Error("Firebase is not ready for shift deletion");
   const relative="shifts/"+shiftId;
-  const remote=await readRemoteRelative(relative);
-  if(!remote||!POS_SYNC.sameRecord(remote,expected)){
-    if(remote)S.shifts[shiftId]=remote;else delete S.shifts[shiftId];
-    throw Object.assign(new Error("record changed"),{userMessage:remote
-      ?"出退勤情報が他端末で更新されています。最新状態を確認してください。"
-      :"この出退勤記録は他端末で削除されています。最新状態を確認してください。"});
-  }
-  if(!remote.clockOut&&Object.keys(await readRemoteActiveAssignmentsForCast(remote.castId)).length){
-    throw Object.assign(new Error("active assignment"),{userMessage:"付け回し中の出退勤記録は削除できません。先に付け回しを終了してください。"});
-  }
-  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
-  const operation={
-    version:_verNum(APP_VERSION),
-    nonce,
-    expectedRev:POS_SYNC.revision(remote),
-    castId:remote.castId,
-    updatedAt:Date.now()
-  };
-  try{
-    await window._db.ref("/").update({
-      [FB_ROOT+"/shifts/"+shiftId]:null,
-      [FB_ROOT+"/_shiftDeleteOperations/"+shiftId]:operation
-    });
-  }catch(e){
-    if(!isFirebasePermissionDenied(e))throw e;
-    let latest;
-    try{latest=await readRemoteRelative(relative);}catch(readError){latest=undefined;}
-    if(latest)S.shifts[shiftId]=latest;else if(latest===null)delete S.shifts[shiftId];
-    const changed=latest&&(!POS_SYNC.sameRecord(latest,remote));
-    throw Object.assign(new Error("shift delete rejected"),{userMessage:latest===null
-      ?"この出退勤記録は他端末で削除されています。最新状態を確認してください。"
-      :changed
-        ?"出退勤情報が他端末で更新されています。最新状態を確認してください。"
-        :"出勤記録の削除が許可されませんでした。画面を再読み込みしてから再実行してください。"});
-  }
-  delete S.shifts[shiftId];
+  await guardedCheckedNodeUpdate({[FB_ROOT+"/"+relative]:null},root=>{
+    if(!expected.clockOut&&remoteActiveAssign(root,expected.castId))return{ok:false,message:"付け回し中の出退勤記録は削除できません。先に付け回しを終了してください。"};
+    return{ok:true};
+  },{expectedRecords:{[relative]:expected},readActiveAssignCasts:expected.clockOut?[]:[expected.castId]});
   return true;
 }
 function syncVersionedRecordsFromPrepared(prepared){
@@ -1224,46 +1146,128 @@ function syncVersionedRecordsFromPrepared(prepared){
     else delete S[info.collection][info.id];
   });
 }
-async function guardedCheckedNodeUpdate(updates,checker,options={}){
-  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
-  const root={};
-  const readPaths=new Set([...(options.readPaths||[])]);
-  Object.keys(updates||{}).forEach(path=>{
-    const info=versionedRecordPathInfo(path);
-    if(info)readPaths.add(info.relative);
-    if(info?.collection==="assignments"&&updates[path]&&((options.createRecords||[]).includes(info.relative)||(options.expectedRecords?.[info.relative]?.endTime&&!updates[path].endTime))&&tableChangeAtomicValidationVersion>=TABLE_CHANGE_ATOMIC_VALIDATION_VERSION){
-      readPaths.add("_tableAssignmentRevisions/"+updates[path].tableId);
+function requireScopedAtomic(){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for write");
+  if(scopedAtomicValidationVersion<SCOPED_ATOMIC_VALIDATION_VERSION)throw Object.assign(new Error("scoped rules unavailable"),{userMessage:"保存ルールの更新を確認できません。画面を再読み込みしてください。"});
+}
+function scopedRecordInfo(path){
+  const relative=stripRootPath(path),parts=relative.split("/");
+  return parts.length===2&&["sessions","shifts","assignments","history","bizDays"].includes(parts[0])
+    ?{collection:parts[0],id:parts[1],relative}:null;
+}
+function scopedChangedCounters(updates,expectedRecords={}){
+  const paths=new Set();
+  const add=(collection,id)=>{if(id!=null)paths.add(collection+"/"+String(id));};
+  Object.entries(updates).forEach(([path,next])=>{
+    const info=scopedRecordInfo(path);if(!info)return;
+    const prev=expectedRecords[info.relative]||null;
+    if(info.collection==="bizDays"){add("_bizDayRevisions",info.id);return;}
+    if(info.collection==="assignments"){
+      const was=!!prev&&!prev.endTime,active=!!next&&!next.endTime;
+      if(was!==active||String(prev?.castId)!==String(next?.castId)){
+        if(was)add("_castAssignmentRevisions",prev.castId);
+        if(active)add("_castAssignmentRevisions",next.castId);
+      }
+      if(!prev||!next||was!==active||prev.tableId!==next.tableId){
+        if(prev)add("_tableAssignmentRevisions",prev.tableId);
+        if(next)add("_tableAssignmentRevisions",next.tableId);
+      }
+    }
+    if(info.collection==="shifts"){
+      const was=!!prev&&!prev.clockOut,active=!!next&&!next.clockOut;
+      if(was!==active||String(prev?.castId)!==String(next?.castId)){
+        if(was)add("_castShiftRevisions",prev.castId);
+        if(active)add("_castShiftRevisions",next.castId);
+      }
     }
   });
-  const paths=[...readPaths];
-  const values=await Promise.all(paths.map(path=>readRemoteRelative(path)));
-  paths.forEach((path,i)=>setPathValue(root,path,values[i]));
-  for(const collection of (options.readCollections||[])){
-    root[collection]=await readRemoteRelative(collection)||{};
-  }
-  for(const castId of (options.readActiveAssignCasts||[])){
-    root.assignments={...(root.assignments||{}),...(await readRemoteActiveAssignmentsForCast(castId))};
-  }
-  for(const castId of (options.readActiveShiftCasts||[])){
-    root.shifts={...(root.shifts||{}),...(await readRemoteActiveShiftsForCast(castId))};
-  }
-  const ok=checker?checker(root):{ok:true};
-  if(ok===false||ok?.ok===false){
-    throw Object.assign(new Error(ok?.message||"conflict"),{userMessage:ok?.message});
-  }
-  const prepared=prepareVersionedRecordUpdates(root,updates,options);
-  try{
-    await window._db.ref("/").update(withWriteGate(prepared));
-  }catch(e){
-    if(isFirebasePermissionDenied(e)){
-      const err=new Error("record conflict");
-      err.userMessage="付け回し情報が他端末で更新されています。最新状態を確認してください。";
-      throw err;
+  return paths;
+}
+async function readScopedPaths(paths,root={}){
+  const keys=[...new Set(paths)];
+  if(keys.some(path=>!String(path)||!String(path).includes("/")&&path!=="activeBizDay"))throw new Error("Whole collection read is not allowed");
+  const snapshots=await Promise.all(keys.map(path=>window._db.ref(FB_ROOT+"/"+path).get()));
+  keys.forEach((path,i)=>setPathValue(root,path,snapshots[i].val()));
+  return root;
+}
+async function guardedScopedCommit(root,updates,options={}){
+  requireScopedAtomic();
+  const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const expectedActive=options.expectedActiveBizDay===undefined?S.activeBizDay||null:options.expectedActiveBizDay;
+  if((root.activeBizDay||null)!==expectedActive)throw Object.assign(new Error("business day changed"),{userMessage:"営業状態が他端末で変更されています。最新状態を確認してください。"});
+  const operation={version:SCOPED_ATOMIC_VALIDATION_VERSION,nonce,expectedActiveBizDay:expectedActive,records:{},counters:{}};
+  // Deletions also carry a surviving revision proof, checked atomically by the rules.
+  const expectedRecords=options.expectedRecords||{};
+  const prepared=prepareVersionedRecordUpdates(root,updates,{...options,expectedRecords});
+  const recordPaths=new Set([...(options.recordPaths||[]),...Object.keys(updates).map(stripRootPath)]);
+  recordPaths.forEach(path=>{
+    const info=scopedRecordInfo(path);if(!info)return;
+    const remote=getPathValue(root,path)||null;
+    const write=Object.prototype.hasOwnProperty.call(updates,FB_ROOT+"/"+path);
+    const desired=updates[FB_ROOT+"/"+path];
+    if(write){
+      const hasExpected=Object.prototype.hasOwnProperty.call(expectedRecords,path);
+      const expected=hasExpected?expectedRecords[path]:desired;
+      const matches=expected==null?!remote:info.collection==="sessions"?sameSession(remote,expected):info.collection==="bizDays"?sameFirebaseValue(remote,expected):POS_SYNC.sameRecord(remote,expected);
+      if(!matches)throw Object.assign(new Error("record changed"),{userMessage:"対象データが他端末で変更されています。最新状態を確認してください。"});
+      if(desired){
+        const revision=info.collection==="bizDays"?(Number(getPathValue(root,"_bizDayRevisions/"+info.id))||0)+1:(Number(remote?._rev)||0)+1;
+        prepared[FB_ROOT+"/"+path]={...cloneData(desired),_rev:revision,_nodeWriteVersion:_verNum(APP_VERSION),_nodeWriteNonce:nonce};
+        if(info.collection==="bizDays"&&prepared[FB_ROOT+"/bizDaySummaries/"+info.id])prepared[FB_ROOT+"/bizDaySummaries/"+info.id]={...prepared[FB_ROOT+"/bizDaySummaries/"+info.id],_dayRev:revision};
+      }
     }
-    throw e;
+    const next=write?prepared[FB_ROOT+"/"+path]:remote;
+    if(!operation.records[info.collection])operation.records[info.collection]={};
+    operation.records[info.collection][info.id]={
+      exists:!!remote,rev:Number(remote?._rev)||0,startTime:remote?.startTime??null,sessionId:remote?.sessionId??null,
+      write,deleted:!next,nextRev:Number(next?._rev)||0
+    };
+  });
+  const changed=scopedChangedCounters(updates,expectedRecords);
+  (options.counterWrites||[]).forEach(path=>changed.add(path));
+  const counters=new Set([...(options.counterPaths||[]),...changed]);
+  counters.forEach(path=>{
+    const [collection,id]=path.split("/");
+    const rev=Number(getPathValue(root,path))||0;
+    if(changed.has(path))prepared[FB_ROOT+"/"+path]=rev+1;
+    if(!operation.counters[collection])operation.counters[collection]={};
+    operation.counters[collection][id]={rev,nextRev:changed.has(path)?rev+1:rev};
+  });
+  prepared[FB_ROOT+"/_scopedOperation"]=operation;
+  try{await window._db.ref("/").update(withWriteGate(prepared));}
+  catch(error){
+    if(isFirebasePermissionDenied(error))throw Object.assign(new Error("scoped conflict"),{userMessage:"対象データが他端末で変更されたか、保存ルールが更新されています。最新状態を確認してから再実行してください。"});
+    throw error;
   }
+  Object.keys(updates).forEach(path=>{
+    const info=scopedRecordInfo(path);
+    if(info?.collection==="sessions")syncRemoteSession(info.id,prepared[path]||null);
+  });
   syncVersionedRecordsFromPrepared(prepared);
   return applyRootUpdates(root,prepared);
+}
+async function guardedCheckedNodeUpdate(updates,checker,options={}){
+  requireScopedAtomic();
+  const expectedActiveBizDay=options.expectedActiveBizDay===undefined?S.activeBizDay||null:options.expectedActiveBizDay;
+  const expectedRecords={...(options.expectedRecords||{})};
+  const readPaths=new Set(["activeBizDay",...(options.readPaths||[])]);
+  Object.entries(updates).forEach(([path,value])=>{
+    const info=scopedRecordInfo(path);if(!info)return;
+    readPaths.add(info.relative);
+    if(!Object.prototype.hasOwnProperty.call(expectedRecords,info.relative))expectedRecords[info.relative]=(options.createRecords||[]).includes(info.relative)?null:cloneData(value);
+  });
+  const counterPaths=scopedChangedCounters(updates,expectedRecords);
+  (options.readActiveAssignCasts||[]).forEach(id=>counterPaths.add("_castAssignmentRevisions/"+String(id)));
+  (options.readActiveShiftCasts||[]).forEach(id=>counterPaths.add("_castShiftRevisions/"+String(id)));
+  const root=await readScopedPaths([...readPaths,...counterPaths]);
+  // Capture membership revisions before querying so an intervening insert cannot be missed.
+  await Promise.all([
+    ...(options.readActiveAssignCasts||[]).map(async id=>{Object.assign(root.assignments||(root.assignments={}),await readRemoteActiveAssignmentsForCast(id));}),
+    ...(options.readActiveShiftCasts||[]).map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteActiveShiftsForCast(id));})
+  ]);
+  const ok=checker?checker(root):{ok:true};
+  if(ok===false||ok?.ok===false)throw Object.assign(new Error(ok?.message||"conflict"),{userMessage:ok?.message});
+  return guardedScopedCommit(root,updates,{...options,expectedRecords,expectedActiveBizDay,counterPaths:[...counterPaths],recordPaths:[...readPaths]});
 }
 const optimisticRootPaths=new Set();
 function optimisticRelativePaths(updates){
@@ -1300,13 +1304,6 @@ function mergeRemoteSessionCollection(remote){
   });
   return merged;
 }
-function shouldFallbackNodeUpdate(error){
-  const message=String(error?.message||"");
-  return isFirebasePermissionDenied(error)
-    ||message==="record conflict"
-    ||message==="record changed"
-    ||message==="record create conflict";
-}
 function isPendingAssignment(aid){
   return !!aid&&isOptimisticPath("assignments/"+aid);
 }
@@ -1340,17 +1337,7 @@ async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
   applyLocalRootUpdates(updates);
   refreshAfterOptimisticUpdate();
   try{
-    let result;
-    if(options.nodeUpdate){
-      try{
-        result=await guardedCheckedNodeUpdate(updates,checker,options.nodeUpdate);
-      }catch(e){
-        if(!shouldFallbackNodeUpdate(e))throw e;
-        result=await guardedCheckedUpdate(updates,checker,options);
-      }
-    }else{
-      result=await guardedCheckedUpdate(updates,checker,options);
-    }
+    const result=await guardedCheckedNodeUpdate(updates,checker,{...options,...options.nodeUpdate});
     unmarkOptimisticPaths(updates);
     return result;
   }catch(e){
@@ -1359,76 +1346,6 @@ async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
     refreshAfterOptimisticUpdate();
     throw e;
   }
-}
-async function guardedRootTransaction(mutator,options={}){
-  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for write");
-  let blocked=null;
-  const ref=window._db.ref(FB_ROOT);
-  // 子ノード単位の購読では親refのローカルキャッシュが未完成なことがある。
-  // 未完成のままtransactionを開始するとcurrent=nullで即時abortするため、
-  // サーバーの最新ルートを一度取得してから競合検出を開始する。
-  const primedSnapshot=await ref.once("value");
-  const primedRoot=primedSnapshot.val();
-  let transactionAttempt=0;
-  const res=await ref.transaction(current=>{
-    // 初回だけは直前にサーバーから取得した完全な値を使う。
-    // サーバー側で競合が検出されて再実行された場合は、Firebaseが渡す最新値を使う。
-    const source=transactionAttempt++===0?primedRoot:current;
-    const root=(source&&typeof source==="object")?cloneData(source):{};
-    blocked=null;
-    let next;
-    try{next=mutator(root);}
-    catch(e){blocked={message:e.userMessage||e.message||"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
-    if(!next){blocked=blocked||{message:"他端末で更新されています。最新データに更新してから再実行してください。"};return;}
-    next._writeGate=txWriteGate();
-    return next;
-  },null,false);
-  if(!res.committed){
-    const err=new Error((blocked&&blocked.message)||"transaction aborted");
-    err.userMessage=(blocked&&blocked.message)||"他端末で更新されています。最新データに更新してから再実行してください。";
-    throw err;
-  }
-  return res.snapshot.val();
-}
-async function guardedCheckedUpdate(updates,checker,options={}){
-  const result=await guardedRootTransaction(root=>{
-    const ok=checker?checker(root):{ok:true};
-    if(ok===false||ok?.ok===false){throw Object.assign(new Error(ok?.message||"conflict"),{_txConflict:true,userMessage:ok?.message});}
-    return applyRootUpdates(root,prepareVersionedRecordUpdates(root,updates,options));
-  },options);
-  syncVersionedRecordsFromRoot(result,updates);
-  return result;
-}
-async function guardedSetIfUnchanged(path,val,options={}){
-  const base=window._remoteValueHashes?.[path];
-  return guardedRootTransaction(root=>{
-    const current=getPathValue(root,path);
-    if(base!==undefined&&stableJson(current)!==base){
-      throw Object.assign(new Error("remote changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。最新データに更新してから再実行してください。"});
-    }
-    setPathValue(root,path,val);
-    return root;
-  },options).then(res=>{updateRemoteHash(path,val);return res;});
-}
-async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
-  const expected=expectedActiveBizDay||null;
-  return guardedRootTransaction(root=>{
-    const current=root.activeBizDay||null;
-    if(current!==expected){
-      console.warn("Business day guard mismatch",{expected,current});
-      throw Object.assign(new Error("business day changed"),{userMessage:message||"営業状態が他端末で変更されています。最新データに更新してから再実行してください。"});
-    }
-    Object.entries(values||{}).forEach(([k,v])=>setPathValue(root,k,v));
-    const settingKeys=["menus","tables","config"].filter(key=>Object.prototype.hasOwnProperty.call(values||{},key));
-    if(Object.prototype.hasOwnProperty.call(values||{},"casts"))settingKeys.push(Object.prototype.hasOwnProperty.call(values||{},"castLifecycleLogs")?"castRoster":"casts");
-    settingKeys.forEach(key=>{
-      const revision=Math.max(0,Number(getPathValue(root,"_settingsRevisions/"+key))||0)+1;
-      const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
-      setPathValue(root,"_settingsRevisions/"+key,revision);
-      setPathValue(root,"_settingsWriteMeta/"+key,{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()});
-    });
-    return root;
-  });
 }
 function bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,extra={}){
   return{
@@ -1441,11 +1358,30 @@ function bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,extra=
   };
 }
 async function guardedAtomicBizDayUpdate(type,dayId,expectedActiveBizDay,nextActiveBizDay,values,extraUpdates={},operationExtra={}){
-  if(bizDayAtomicValidationVersion<BIZ_DAY_ATOMIC_VALIDATION_VERSION)return false;
-  if(!requireFirebaseReady())throw new Error("Firebase is not ready for write");
-  const operation=bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,operationExtra);
+  requireScopedAtomic();
+  if(bizDayAtomicValidationVersion<BIZ_DAY_ATOMIC_VALIDATION_VERSION)throw new Error("Business day rules are unavailable");
+  const expectedDay=cloneData(Object.prototype.hasOwnProperty.call(operationExtra,"expectedDay")?operationExtra.expectedDay:S.bizDays[dayId]||null);
+  const expectedCasts=Object.prototype.hasOwnProperty.call(values,"casts")?cloneData(S.casts):null;
+  const expectedLifecycle=expectedCasts?cloneData(S.castLifecycleLogs):null;
+  const path="bizDays/"+dayId,counterPath="_bizDayRevisions/"+dayId;
+  const root=await readScopedPaths(["activeBizDay",path,counterPath]);
+  if((root.activeBizDay||null)!==(expectedActiveBizDay||null)||!sameFirebaseValue(getPathValue(root,path),expectedDay))throw Object.assign(new Error("business day changed"),{userMessage:"営業日が他端末で変更されています。最新状態を確認してください。"});
+  const extra={...operationExtra};delete extra.expectedDay;
+  const revision=(Number(getPathValue(root,counterPath))||0)+1;
+  const operation=bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,{...extra,version:SCOPED_ATOMIC_VALIDATION_VERSION,expectedDayRev:Number(getPathValue(root,path)?._rev)||0,expectedDayExists:!!getPathValue(root,path),expectedDayCounter:revision-1});
+  values[path]={...values[path],_rev:revision};
+  if(values["bizDaySummaries/"+dayId])values["bizDaySummaries/"+dayId]._dayRev=revision;
+  if(Object.prototype.hasOwnProperty.call(values,"casts")){
+    const revisionSnap=await window._db.ref(FB_ROOT+"/_settingsRevisions/castRoster").get();
+    const [castsSnap,logsSnap]=await Promise.all([window._db.ref(FB_ROOT+"/casts").get(),window._db.ref(FB_ROOT+"/castLifecycleLogs").get()]);
+    if(!sameFirebaseValue(castsSnap.val(),expectedCasts)||!sameFirebaseValue(logsSnap.val(),expectedLifecycle))throw settingConflictError();
+    const rosterRevision=(Number(revisionSnap.val())||0)+1;
+    values["_settingsRevisions/castRoster"]=rosterRevision;
+    values["_settingsWriteMeta/castRoster"]={revision:rosterRevision,version:_verNum(APP_VERSION),nonce:operation.nonce,updatedAt:Date.now()};
+  }
   const updates={...extraUpdates,[FB_ROOT+"/_bizDayOperation"]:operation};
   Object.entries(values||{}).forEach(([path,value])=>{updates[FB_ROOT+"/"+path]=value;});
+  updates[FB_ROOT+"/"+counterPath]=revision;
   await guardedUpdate(updates);
   return true;
 }
@@ -1492,43 +1428,6 @@ async function readRemoteSession(tableId){
   const snap=await window._db.ref(FB_ROOT+"/sessions/"+tableId).once("value");
   return snap.val();
 }
-async function ensureSessionCurrent(tableId,expected,options={}){
-  if(!requireFirebaseReady())throw new Error("Firebase is not ready for session write");
-  const remote=await readRemoteSession(tableId);
-  if(options.expectEmpty){
-    if(remote){
-      syncRemoteSession(tableId,remote);
-      showSessionConflict("移動先テーブルは他端末で使用中になりました。最新状態を確認してください。");
-      throw new Error("session target occupied");
-    }
-    return true;
-  }
-  if(options.expectCreate){
-    if(remote){
-      syncRemoteSession(tableId,remote);
-      showSessionConflict("このテーブルは他端末で先に入店済みです。最新状態を確認してください。");
-      throw new Error("session already exists");
-    }
-    return true;
-  }
-  if(!remote){
-    syncRemoteSession(tableId,null);
-    showSessionConflict("このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。");
-    throw new Error("session no longer exists");
-  }
-  if(!sameSession(remote,expected)){
-    syncRemoteSession(tableId,remote);
-    showSessionConflict("このテーブルは他端末で別の営業データに更新されています。保存せず最新状態へ戻します。");
-    throw new Error("session changed");
-  }
-  return true;
-}
-async function guardedSessionSet(tableId,session,options={}){
-  ensureSessionId(session);
-  const res=await guardedSessionUpdate(tableId,session,{[FB_ROOT+"/sessions/"+tableId]:session},options);
-  markSessionGuard(session);
-  return res;
-}
 async function guardedSessionNodeTransaction(tableId,session,options={}){
   if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for session write");
   ensureSessionId(session);
@@ -1568,130 +1467,13 @@ async function guardedSessionNodeTransaction(tableId,session,options={}){
   return{sessions:{[tableId]:saved}};
 }
 async function guardedQueuedSessionSave(tableId,session,options={}){
-  const updates={[FB_ROOT+"/sessions/"+tableId]:session};
-  if(sessionNodeTransactionsSupported===false)return guardedSessionUpdate(tableId,session,updates,options);
-  try{
-    const res=await guardedSessionNodeTransaction(tableId,session,options);
-    sessionNodeTransactionsSupported=true;
-    return res;
-  }catch(e){
-    if(!isFirebasePermissionDenied(e))throw e;
-    sessionNodeTransactionsSupported=false;
-    return guardedSessionUpdate(tableId,session,updates,options);
-  }
+  return guardedSessionNodeTransaction(tableId,session,options);
 }
 async function guardedSessionNodeUpdate(tableId,session,updates,options={}){
-  if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for session write");
   ensureSessionId(session);
-  const sessionRelative="sessions/"+tableId;
-  const sessionPath=FB_ROOT+"/"+sessionRelative;
-  const operationRelative="_banaiOperations/"+tableId;
-  const operationPath=FB_ROOT+"/"+operationRelative;
-  const readPaths=new Set([sessionRelative,operationRelative]);
-  let assignmentInfo=null;
-  Object.keys(updates||{}).forEach(path=>{
-    const info=versionedRecordPathInfo(path);
-    if(info){readPaths.add(info.relative);if(info.collection==="assignments")assignmentInfo=info;}
+  return guardedCheckedNodeUpdate(updates,options.checker,{
+    ...options,expectedRecords:{...(options.expectedRecords||{}),["sessions/"+tableId]:session}
   });
-  if(!assignmentInfo)throw new Error("assignment is missing for atomic session update");
-  const root={};
-  const paths=[...readPaths];
-  const values=await Promise.all(paths.map(path=>readRemoteRelative(path)));
-  paths.forEach((path,index)=>setPathValue(root,path,values[index]));
-  const remote=getPathValue(root,sessionRelative)||null;
-  if(!remote||!sameSession(remote,session)){
-    syncRemoteSession(tableId,remote);
-    const message=remote
-      ?"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"
-      :"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。";
-    throw Object.assign(new Error("session conflict"),{userMessage:message});
-  }
-  const checked=options.checker?options.checker(root):{ok:true};
-  if(checked===false||checked?.ok===false){
-    throw Object.assign(new Error(checked?.message||"session update conflict"),{userMessage:checked?.message});
-  }
-  let prepared={...updates};
-  const desired=prepared[sessionPath]||session;
-  prepared[sessionPath]=ensureSessionId({
-    ...cloneData(desired),
-    _rev:Number(remote._rev||0)+1,
-    _nodeWriteVersion:_verNum(APP_VERSION),
-    _nodeWriteNonce:Date.now()+"_"+Math.random().toString(36).slice(2)
-  });
-  prepared=prepareVersionedRecordUpdates(root,prepared,options);
-  const preparedAssignment=prepared[FB_ROOT+"/"+assignmentInfo.relative];
-  const operationNonce=Date.now()+"_"+Math.random().toString(36).slice(2);
-  prepared[operationPath]={
-    nonce:operationNonce,
-    version:BANAI_ATOMIC_VALIDATION_VERSION,
-    sessionRev:Number(prepared[sessionPath]._rev)||0,
-    assignmentId:assignmentInfo.id,
-    assignmentRev:Number(preparedAssignment?._rev)||0,
-    updatedAt:Date.now()
-  };
-  try{
-    await window._db.ref("/").update(withWriteGate(prepared));
-  }catch(e){
-    if(isFirebasePermissionDenied(e)){
-      const err=new Error("session or assignment conflict");
-      err.userMessage="注文または付け回し情報が他端末で更新されています。最新状態へ戻してから再実行してください。";
-      throw err;
-    }
-    throw e;
-  }
-  const saved=getPathValue(applyRootUpdates(root,prepared),sessionRelative);
-  syncRemoteSession(tableId,saved);
-  syncVersionedRecordsFromPrepared(prepared);
-  markSessionGuard(session);
-  return root;
-}
-async function guardedSessionUpdate(tableId,session,updates,options={}){
-  ensureSessionId(session);
-  let conflict=null;
-  const res=await guardedRootTransaction(root=>{
-    const remote=getPathValue(root,"sessions/"+tableId)||null;
-    if(options.expectEmpty){
-      if(remote){conflict={remote,message:"移動先テーブルは他端末で使用中になりました。最新状態を確認してください。"};return null;}
-    }else if(options.expectCreate){
-      if(remote){conflict={remote,message:"このテーブルは他端末で先に入店済みです。最新状態を確認してください。"};return null;}
-    }else{
-      if(!remote){conflict={remote:null,message:"このテーブルは他端末で会計済み、または削除済みです。保存せず最新状態へ戻します。"};return null;}
-      if(!sameSession(remote,session)){conflict={remote,message:"このテーブルは他端末で更新されています。保存せず最新状態へ戻します。"};return null;}
-    }
-    const checked=options.checker?options.checker(root):{ok:true};
-    if(checked===false||checked?.ok===false){
-      throw Object.assign(new Error(checked?.message||"session update conflict"),{userMessage:checked?.message});
-    }
-    let nextUpdates={...updates};
-    const sessionPath=FB_ROOT+"/sessions/"+tableId;
-    if(nextUpdates[sessionPath]){
-      nextUpdates[sessionPath]=ensureSessionId({...nextUpdates[sessionPath],_rev:remote?Number(remote._rev||0)+1:1});
-    }
-    Object.keys(nextUpdates).forEach(path=>{
-      const relative=stripRootPath(path);
-      if(!relative.startsWith("sessions/")||path===sessionPath||!nextUpdates[path])return;
-      const targetRemote=getPathValue(root,relative)||null;
-      nextUpdates[path]=ensureSessionId({...nextUpdates[path],_rev:targetRemote?Number(targetRemote._rev||0)+1:1});
-    });
-    nextUpdates=prepareVersionedRecordUpdates(root,nextUpdates,options);
-    return applyRootUpdates(root,nextUpdates);
-  });
-  if(conflict){
-    syncRemoteSession(tableId,conflict.remote);
-    showSessionConflict(conflict.message);
-    throw new Error("session conflict");
-  }
-  const saved=getPathValue(res,"sessions/"+tableId);
-  if(saved&&session&&typeof session==="object")session._rev=saved._rev;
-  Object.keys(updates||{}).forEach(path=>{
-    const relative=stripRootPath(path);
-    if(!relative.startsWith("sessions/"))return;
-    const targetId=relative.split("/")[1];
-    syncRemoteSession(targetId,getPathValue(res,relative)||null);
-  });
-  markSessionGuard(session);
-  syncVersionedRecordsFromRoot(res,updates);
-  return res;
 }
 
 // ===== SESSIONS =====
@@ -1818,7 +1600,6 @@ async function addBanai(cid){
     if(desiredAssignment){
       await queueSessionUpdate(tableId,session=>({...updates,[FB_ROOT+"/sessions/"+tableId]:session}),{
         session:desiredSession,
-        fastNodeUpdate:banaiAtomicValidationVersion>=BANAI_ATOMIC_VALIDATION_VERSION,
         expectedRecords:{["assignments/"+freeA.id]:cloneData(freeA)}
       });
     }else{
@@ -2099,9 +1880,44 @@ function addHonShimeiToSession(cid){
   s.honShimeis=[...(s.honShimeis||[]),cid];
   save("sessions/"+at,S.sessions[at]);renderOrderPartial();
 }
+async function guardedCloseSession(tableId,expected,historyRecord=null){
+  requireScopedAtomic();
+  const expectedActiveBizDay=S.activeBizDay||null;
+  const tableCounter="_tableAssignmentRevisions/"+tableId;
+  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,tableCounter]);
+  const session=root.sessions?.[tableId];
+  if(!session||!sameSession(session,expected))throw Object.assign(new Error("session changed"),{userMessage:"対象テーブルの注文が変更されています。最新状態を確認してから再実行してください。"});
+  const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(tableId).get();
+  root.assignments=snap.val()||{};
+  const active=Object.entries(root.assignments).filter(([,a])=>!a.endTime);
+  const casts=[...new Set(active.map(([,a])=>String(a.castId)))];
+  const counterPaths=[tableCounter,...casts.flatMap(id=>["_castAssignmentRevisions/"+id,"_castShiftRevisions/"+id])];
+  await readScopedPaths(counterPaths.filter(path=>path!==tableCounter),root);
+  await Promise.all(casts.map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteActiveShiftsForCast(id));}));
+  const updates={[FB_ROOT+"/sessions/"+tableId]:null};
+  const expectedRecords={["sessions/"+tableId]:session};
+  const now=historyRecord?.endTime||Date.now();
+  active.forEach(([id,a])=>{
+    updates[FB_ROOT+"/assignments/"+id]=historyRecord?{...cloneData(a),endTime:now}:null;
+    expectedRecords["assignments/"+id]=a;
+  });
+  Object.entries(root.shifts||{}).forEach(([id,shift])=>{
+    updates[FB_ROOT+"/shifts/"+id]=shiftWithStatus(shift,"waiting",now);
+    expectedRecords["shifts/"+id]=shift;
+  });
+  if(historyRecord){
+    const path="history/"+historyRecord.id;
+    await readScopedPaths([path],root);
+    updates[FB_ROOT+"/"+path]=historyRecord;
+    expectedRecords[path]=null;
+  }
+  return guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths});
+}
 async function checkout(){
   if(!at||!S.sessions[at])return;
   if(checkoutBusy)return;
+  const checkoutTableId=at;
+  const identity=cloneData(S.sessions[checkoutTableId]);
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
   if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
   });
@@ -2111,11 +1927,13 @@ async function checkout(){
   setCheckoutProgress("未保存のオーダーを保存中",20);
   startCheckoutSlowNotice();
   await waitForCheckoutPaint();
-  const s=S.sessions[at];
+  let s;
   try{
-    await waitForSessionSaveQueue(at);
+    await waitForSessionSaveQueue(checkoutTableId);
+    if(sessionSaveStates[checkoutTableId]?.status==="error")throw Object.assign(new Error("unsaved orders"),{userMessage:"未保存のオーダーがあります。保存エラーを解消してから会計してください。"});
+    s=cloneData(S.sessions[checkoutTableId]);
+    if(!sameSessionIdOnly(s,identity))throw new Error("session changed");
     setCheckoutProgress("会計データを確認中",45);
-    await ensureSessionCurrent(at,s);
   }catch(e){
     failCheckout(e,"会計データを確認できませんでした。入力内容を保持したまま再試行できます。");
     return;
@@ -2123,10 +1941,10 @@ async function checkout(){
   const totals=ct(s);
   const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
   const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
-  const checkoutTableId=at; // atリセット前に保存
   const now_co=Date.now();
   const rec={
-id:now_co,
+id:now_co*1000+Math.floor(Math.random()*1000),
+sessionId:s.sessionId||null,
 tableId:checkoutTableId,
 tableLabel:S.tables.find(t=>t.id===checkoutTableId)?.label,
 startTime:s.startTime,
@@ -2138,31 +1956,13 @@ payMethod,
 splits:splits||null,
 ...totals
   };
-  // 全データをアトミックに保存（history/assignment/shiftはレコード単位書き込みで同時会計の上書き競合を防ぐ）
-  if(window._db){
-const _cu={};
-const expectedRecords={};
-_cu[FB_ROOT+"/history/"+rec.id]=rec;
-_cu[FB_ROOT+"/sessions/"+checkoutTableId]=null;
-const _chkShiftIds=new Set();
-Object.values(S.assignments||{}).forEach(a=>{
-  if(a.tableId===checkoutTableId&&!a.endTime){
-    _cu[FB_ROOT+"/assignments/"+a.id]={...cloneData(a),endTime:now_co};
-    expectedRecords["assignments/"+a.id]=cloneData(a);
-    const shift=getShiftByCastId(a.castId);
-    if(shift&&!_chkShiftIds.has(shift.id)){
-      _chkShiftIds.add(shift.id);
-      _cu[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"waiting",now_co);
-      expectedRecords["shifts/"+shift.id]=cloneData(shift);
-    }
-  }
-});
-setCheckoutProgress("会計を確定・同期中",75);
-try{await queueSessionUpdate(checkoutTableId,()=>_cu,{session:s,expectedRecords});}
-catch(e){
-  failCheckout(e,"会計保存に失敗しました。テーブルは閉じていません。入力内容を保持したまま再試行できます。");
-  return;
-}
+  setCheckoutProgress("会計を確定・同期中",75);
+  try{
+    const saved=await guardedCloseSession(checkoutTableId,s,rec);
+    Object.assign(rec,saved.history[String(rec.id)]);
+  }catch(e){
+    failCheckout(e,"会計保存に失敗しました。テーブルは閉じていません。入力内容を保持したまま再試行できます。");
+    return;
   }
   clearCheckoutSlowNotice();
   try{
@@ -2186,6 +1986,7 @@ function setCheckoutProgress(message,percent){
     percent:Math.max(0,Math.min(100,Math.round(Number(percent)||0))),
     slow:!!checkoutProgress?.slow
   };
+  sbs(checkoutProgress.percent===100,checkoutProgress.percent===100?"同期済み ✓":"保存中...");
   if(md==="co2")rModal();
 }
 function startCheckoutSlowNotice(){
@@ -2290,13 +2091,8 @@ async function tableChange(newId){
       if(!sameSessionIdOnly(session,identity))throw Object.assign(new Error("session changed"),{userMessage:"移動元テーブルが変更されています。最新状態を確認してください。"});
       if(tableChangeAssignments(S.assignments,oldId,session).some(([id])=>isPendingAssignment(id)))throw Object.assign(new Error("pending assignment"),{userMessage:"付け回しの保存中です。保存完了後に移動してください。"});
       trace("queueWaitDone");
-      if(tableChangeAtomicValidationVersion>=TABLE_CHANGE_ATOMIC_VALIDATION_VERSION){
-        await guardedAtomicTableChange(oldId,newId,session,trace);
-      }else{
-        trace("legacyRootTransaction");
-        const {updates,expectedRecords}=tableChangeUpdates(oldId,newId,session,S.assignments);
-        await guardedSessionUpdate(oldId,session,updates,{expectedRecords,checker:root=>root.sessions?.[newId]?{ok:false,message:"移動先テーブルは他端末で使用中になりました。"}:{ok:true}});
-      }
+      requireScopedAtomic();
+      await guardedAtomicTableChange(oldId,newId,session,trace);
       at=newId;
       tableChangeBusy=false;
       sbs(true,"同期済み ✓");
@@ -2405,7 +2201,7 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
-  if(tableChangeBusy)return;
+  if(checkoutBusy||tableChangeBusy)return;
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
@@ -2419,6 +2215,7 @@ function sv(v,extra){
 }
 function tc2(id){if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
+  if(checkoutBusy||tableChangeBusy)return;
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
   const fom=document.getElementById("floor-order-modal");if(!fom)return;
   fom.style.display="flex";
@@ -2431,7 +2228,7 @@ inner.innerHTML=buildFloorOrderContent();
   }
 }
 function closeFloorDetail(){
-  if(tableChangeBusy)return;
+  if(checkoutBusy||tableChangeBusy)return;
   const fom=document.getElementById("floor-order-modal");if(fom)fom.style.display="none";
   at=null;render();
 }
@@ -2759,28 +2556,28 @@ function closedBizDaySaveErrorMessage(error){
   if(isFirebasePermissionDenied(error))return "Firebaseの書込権限を確認できませんでした。ログイン状態とこの端末の利用権限を確認してください。";
   return "Firebaseへ保存できませんでした。接続状態を確認し、履歴画面を読み込み直してから再実行してください。";
 }
-function syncBizDaysFromTransactionRoot(root){
-  const days=cloneData(root?.bizDays||{});
-  S.bizDays=days;
-  updateBizDayRemoteHashes(days);
-  lazyDataState.bizDays.status="loaded";
-  lazyDataState.bizDays.loadedAt=Date.now();
-  return days;
+function syncScopedBizDays(root,ids){
+  ids.forEach(id=>{
+    const day=cloneData(root?.bizDays?.[id]||null);
+    if(day)S.bizDays={...(S.bizDays||{}),[id]:day};else delete S.bizDays[id];
+    updateRemoteHash("bizDays/"+id,day);
+  });
+  return S.bizDays;
 }
 async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
   const id=String(dayId||"");
   if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
-  const result=await guardedCheckedUpdate(
+  const result=await guardedCheckedNodeUpdate(
     {[FB_ROOT+"/bizDays/"+id]:cloneData(nextDay),[FB_ROOT+"/bizDaySummaries/"+id]:nextDay?bizDaySummary(nextDay,id):null},
     root=>{
       if(String(root.activeBizDay||"")===id)return{ok:false,message:"営業中の日は変更できません。営業終了後に再実行してください。"};
       const remote=getPathValue(root,"bizDays/"+id);
-      if(stableJson(remote)!==stableJson(expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
+      if(!sameFirebaseValue(remote,expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
       return{ok:true};
-    }
+    },{expectedRecords:{["bizDays/"+id]:expectedDay}}
   );
-  const days=syncBizDaysFromTransactionRoot(result);
-  if(nextDay)S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:bizDaySummary(nextDay,id)};
+  const days=syncScopedBizDays(result,[id]);
+  if(nextDay)S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:bizDaySummary(days[id],id)};
   else{
     if(S.bizDaySummaries)delete S.bizDaySummaries[id];
     lazyDataState.bizDayList.ids=lazyDataState.bizDayList.ids.filter(value=>value!==id);
@@ -2792,7 +2589,7 @@ async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
   const oldId=String(dayId||""),newId=String(newDayId||"");
   if(!oldId||!newId)throw Object.assign(new Error("business day is required"),{userMessage:"変更前後の営業日を確認できません。"});
   if(oldId===newId)return guardedReplaceClosedBizDay(oldId,expectedDay,nextDay);
-  const result=await guardedCheckedUpdate(
+  const result=await guardedCheckedNodeUpdate(
     {
       [FB_ROOT+"/bizDays/"+oldId]:null,[FB_ROOT+"/bizDays/"+newId]:cloneData(nextDay),
       [FB_ROOT+"/bizDaySummaries/"+oldId]:null,[FB_ROOT+"/bizDaySummaries/"+newId]:bizDaySummary(nextDay,newId)
@@ -2800,14 +2597,14 @@ async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
     root=>{
       const active=String(root.activeBizDay||"");
       if(active===oldId||active===newId)return{ok:false,message:"営業中の日付へは変更できません。営業終了後に再実行してください。"};
-      if(stableJson(getPathValue(root,"bizDays/"+oldId))!==stableJson(expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
+      if(!sameFirebaseValue(getPathValue(root,"bizDays/"+oldId),expectedDay))return{ok:false,message:closedBizDayConflictMessage()};
       if(getPathValue(root,"bizDays/"+newId)!=null)return{ok:false,message:"変更先の日付には既に営業履歴があります。別の日付を指定してください。"};
       return{ok:true};
-    }
+    },{expectedRecords:{["bizDays/"+oldId]:expectedDay,["bizDays/"+newId]:null}}
   );
-  const days=syncBizDaysFromTransactionRoot(result);
+  const days=syncScopedBizDays(result,[oldId,newId]);
   if(S.bizDaySummaries)delete S.bizDaySummaries[oldId];
-  S.bizDaySummaries={...(S.bizDaySummaries||{}),[newId]:bizDaySummary(nextDay,newId)};
+  S.bizDaySummaries={...(S.bizDaySummaries||{}),[newId]:bizDaySummary(days[newId],newId)};
   lazyDataState.bizDayList.ids=lazyDataState.bizDayList.ids.map(value=>value===oldId?newId:value).sort((a,b)=>String(b).localeCompare(String(a)));
   sbs(true,"同期済み ✓");
   return days[newId]||null;
@@ -3568,8 +3365,8 @@ return;
   shifts,assignments,
   sessions:null
       };
-      const atomic=await guardedAtomicBizDayUpdate("reopen",dayId,null,dayId,values);
-      if(!atomic)await guardedRootUpdateIfActive(null,values,"他端末で営業状態が変更されています。最新データに更新してから再実行してください。");
+      await guardedAtomicBizDayUpdate("reopen",dayId,null,dayId,values,{}, {expectedDay:current});
+      day._rev=values["bizDays/"+dayId]._rev;
       S.bizDays={...(S.bizDays||{}),[dayId]:day};
       S.bizDaySummaries={...(S.bizDaySummaries||{}),[dayId]:summary};
       S.activeBizDay=dayId;S.history=history;S.shifts=shifts;S.assignments=assignments;S.sessions={};
@@ -3606,8 +3403,8 @@ closeM();vw="floor";render();return;
   activeBizDay:id,
   history:[],shifts:null,assignments:null,sessions:null
       };
-      const atomic=await guardedAtomicBizDayUpdate("start",id,null,id,values);
-      if(!atomic)await guardedRootUpdateIfActive(null,values,"他端末で営業が開始されています。最新状態を確認してください。");
+      await guardedAtomicBizDayUpdate("start",id,null,id,values,{}, {expectedDay:existingDay});
+      day._rev=values["bizDays/"+id]._rev;
       S.bizDays={...(S.bizDays||{}),[id]:day};
       S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:summary};
       S.activeBizDay=id;S.history=[];S.shifts={};S.assignments={};S.sessions={};
@@ -3677,12 +3474,9 @@ try{
   ...(castsChanged?{castLifecycleLogs:nextLifecycle}:{}),
   history:null,shifts:null,assignments:null,sessions:null
   };
-  const atomic=await guardedAtomicBizDayUpdate("end",id,id,null,values,
-    {[BACKUP_ROOT+"/bizDays/"+backupKey]:daySnap},{backupKey});
-  if(!atomic){
-    await window._db.ref(BACKUP_ROOT+"/bizDays/"+backupKey).set(daySnap);
-    await guardedRootUpdateIfActive(id,values,"他端末で営業状態が変更されています。最新データに更新してから営業終了してください。");
-  }
+  await guardedAtomicBizDayUpdate("end",id,id,null,values,
+    {[BACKUP_ROOT+"/bizDays/"+backupKey]:daySnap},{backupKey,expectedDay:currentDay});
+  day._rev=values["bizDays/"+id]._rev;
   S.bizDays={...(S.bizDays||{}),[id]:day};
   S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:summary};
   S.activeBizDay=null;
@@ -4354,15 +4148,26 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
   if(eEl&&eEl.value){desired.endTime=hhmm2ts(eEl.value);if(desired.startTime&&desired.endTime<=desired.startTime)desired.endTime+=86400000;}
   else if(eEl&&eEl.value==="")desired.endTime=null;
   if(desired.endTime&&desired.endTime-desired.startTime>86400000){alert("付け回し時間は24時間以内にしてください。");return;}
+  const updates={[FB_ROOT+"/assignments/"+aid]:desired};
+  const expectedRecords={["assignments/"+aid]:expected};
+  if(!!current.endTime!==!!desired.endTime){
+    const shift=getShiftByCastId(current.castId);
+    if(!desired.endTime&&!shift){alert("終了を取り消すにはキャストの出勤が必要です。");return;}
+    if(shift){updates[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,desired.endTime?"waiting":"active",Date.now());expectedRecords["shifts/"+shift.id]=cloneData(shift);}
+  }
   await withDataOperation("assignment:"+aid,async()=>{
     try{
-      await guardedCheckedUpdate(
-        {[FB_ROOT+"/assignments/"+aid]:desired},
+      await guardedCheckedNodeUpdate(
+        updates,
         root=>{
           if(!desired.endTime&&remoteActiveAssign(root,desired.castId,[aid]))return{ok:false,message:"このキャストは他端末ですでに別のテーブルへ付け回されています。"};
+          if(current.endTime&&!desired.endTime){
+            const session=root.sessions?.[current.tableId];
+            if(!session||session.startTime!==current.sessionId)return{ok:false,message:"元のテーブルは会計または変更済みです。終了は取り消せません。"};
+          }
           return{ok:true};
         },
-        {expectedRecords:{["assignments/"+aid]:expected}}
+        {expectedRecords,readActiveAssignCasts:[current.castId],readPaths:current.endTime&&!desired.endTime?["sessions/"+current.tableId]:[]}
       );
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
@@ -4422,37 +4227,22 @@ function isBanaiExtensionBackItem(i){
 async function execDelItem(){const id=window._delItemId;const prev=window._delPrevMd;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(!id)return;const saved=await remItem(id);if(!saved)return;if(prev){md=prev;rModal();}else closeM();}
 async function execDeleteSession(){
   if(!at||!S.sessions[at])return;
-  const deletedTableId=at;
-  return withDataOperation("table:"+deletedTableId,async()=>{
-  const deletedSession=cloneData(S.sessions[deletedTableId]);
-  try{await waitForSessionSaveQueue(deletedTableId);await ensureSessionCurrent(deletedTableId,deletedSession);}
-  catch(e){return;}
-  const _cu={};
-  _cu[FB_ROOT+"/sessions/"+deletedTableId]=null;
-  const _delShiftIds=new Set();
-  const expectedRecords={};
-  // アクティブなアサインを削除し、変更したシフトだけを同じトランザクションで待機へ戻す
-  Object.values(S.assignments||{}).forEach(a=>{
-    if(a.tableId!==deletedTableId||a.endTime)return;
-    _cu[FB_ROOT+"/assignments/"+a.id]=null;
-    expectedRecords["assignments/"+a.id]=cloneData(a);
-    const shift=getShiftByCastId(a.castId);
-    if(shift&&!_delShiftIds.has(shift.id)){
-      _delShiftIds.add(shift.id);
-      _cu[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"waiting",Date.now());
-      expectedRecords["shifts/"+shift.id]=cloneData(shift);
+  const tableId=at,identity=cloneData(S.sessions[tableId]);
+  return withDataOperation("table:"+tableId,async()=>{
+    try{
+      await waitForSessionSaveQueue(tableId);
+      if(sessionSaveStates[tableId]?.status==="error")throw Object.assign(new Error("unsaved orders"),{userMessage:"未保存のオーダーがあります。保存エラーを解消してから削除してください。"});
+      const session=cloneData(S.sessions[tableId]);
+      if(!sameSessionIdOnly(session,identity))throw new Error("session changed");
+      await guardedCloseSession(tableId,session);
+      sbs(true,"同期済み ✓");
+    }catch(e){
+      sbs(false,"保存エラー");
+      alert(e.userMessage||"テーブル削除に失敗しました。最新状態を確認してください。");
+      return;
     }
-  });
-  try{
-    await queueSessionUpdate(deletedTableId,()=>_cu,{session:deletedSession,expectedRecords});
-    sbs(true,"同期済み ✓");
-  }catch(e){
-    sbs(false,"保存エラー");
-    alert(e.userMessage||"テーブル削除に失敗しました。最新状態を確認してください。");
-    return;
-  }
-  const fomEl=document.getElementById("floor-order-modal");if(fomEl)fomEl.style.display="none";
-  at=null;md=null;vw="floor";render();
+    const fom=document.getElementById("floor-order-modal");if(fom)fom.style.display="none";
+    at=null;md=null;vw="floor";render();
   });
 }
 
@@ -4776,7 +4566,23 @@ function epAddRow(){
 +'<button class="btn" onclick="this.closest(\'.editpay-row\').remove()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
   rows.appendChild(div);
 }
-function saveHistPay(){
+async function guardedHistoryRecordUpdate(expected,desired){
+  requireScopedAtomic();
+  const matches={};
+  await Promise.all(castIdQueryValues(expected.id).map(async value=>{
+    const snap=await window._db.ref(FB_ROOT+"/history").orderByChild("id").equalTo(value).get();
+    Object.assign(matches,snap.val()||{});
+  }));
+  const entries=Object.entries(matches);
+  if(entries.length!==1)throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が変更されています。最新状態を読み込み直してください。"});
+  const [key]=entries[0],path="history/"+key;
+  const result=await guardedCheckedNodeUpdate({[FB_ROOT+"/"+path]:desired},null,{expectedRecords:{[path]:expected}});
+  const saved=result.history?.[key];
+  S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
+  if(saved)S.history=[saved,...S.history].sort((a,b)=>b.startTime-a.startTime);
+  return saved;
+}
+async function saveHistPay(){
   const h=S.history.find(x=>x.id===editPayHid);if(!h)return;
   const splits=[];
   document.querySelectorAll(".editpay-row").forEach(row=>{
@@ -4785,8 +4591,11 @@ const amount=parseInt(row.querySelector(".editpay-amt")?.value||"0")||0;
 if(amount>0)splits.push({method,amount});
   });
   if(splits.length===0)return;
-  h.splits=splits;h.payMethod=splits[0].method;delete h.receiptIssued;
-  save("history/"+h.id,h);editPayHid=null;closeM();render();
+  const desired={...cloneData(h),splits,payMethod:splits[0].method};delete desired.receiptIssued;
+  return withDataOperation("history:"+h.id,async()=>{
+    try{await guardedHistoryRecordUpdate(cloneData(h),desired);sbs(true,"同期済み ✓");editPayHid=null;closeM();render();}
+    catch(error){sbs(false,"保存エラー");alert(error.userMessage||"支払方法を保存できませんでした。入力内容を確認して再実行してください。");}
+  });
 }
 
 // ===== 営業日（19:00〜翌18:59）=====
@@ -5155,26 +4964,46 @@ async function restoreAllBackup(){
 }
 
 // バックアップの特定営業日データをPOSに復旧（bizDaysにマージ）
-function restoreFromBackupDay(bkKey){
-  const bk=(S.backups?.bizDays||{})[bkKey];if(!bk)return;
-  const date=bk.date;
-  const label=bk.edited?(date+" (編集済データ)"):date;
-  if(!confirm("「"+label+"」のバックアップデータをPOS（bizDays）に復旧します。\n会計: "+(bk.history||[]).length+"件\n\n既存の「"+date+"」データに上書きされます。よろしいですか？"))return;
-  if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
-  S.bizDays[date].history=bk.history||[];
-  S.bizDays[date].shifts=bk.shifts||{};
-  S.bizDays[date].assignments=bk.assignments||{};
-  if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
-  if(bk.castLifecycleLogs)S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};
-  if(window._db){
-const summary=bizDaySummary(S.bizDays[date],date);
-S.bizDaySummaries={...(S.bizDaySummaries||{}),[date]:summary};
-const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date],[FB_ROOT+"/bizDaySummaries/"+date]:summary};
-if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;
-guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。")
-  .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
-  .catch(()=>sbs(false,"復旧エラー"));
+async function guardedRestoreBackupDays(backups){
+  requireScopedAtomic();
+  const ids=Object.keys(backups);
+  const counters=ids.map(id=>"_bizDayRevisions/"+id);
+  const hasLifecycle=ids.some(id=>backups[id].castLifecycleLogs);
+  const rosterCounter="_settingsRevisions/castRoster";
+  if(hasLifecycle)counters.push(rosterCounter);
+  const root=await readScopedPaths(["activeBizDay",...ids.map(id=>"bizDays/"+id),...counters]);
+  if(root.activeBizDay)throw Object.assign(new Error("business day active"),{userMessage:"営業中はバックアップを復旧できません。"});
+  const updates={},expectedRecords={};
+  ids.forEach(id=>{
+    const bk=backups[id],remote=root.bizDays?.[id]||null;
+    const next={...(remote||{id,date:id,startedAt:bk.startedAt,endedAt:bk.endedAt}),history:cloneData(bk.history||[]),shifts:cloneData(bk.shifts||{}),assignments:cloneData(bk.assignments||{})};
+    if(bk.rosterSnapshot)next.rosterSnapshot=cloneData(bk.rosterSnapshot);
+    updates[FB_ROOT+"/bizDays/"+id]=next;
+    updates[FB_ROOT+"/bizDaySummaries/"+id]=bizDaySummary(next,id);
+    expectedRecords["bizDays/"+id]=remote;
+    if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+id]=cloneData(bk.castLifecycleLogs);
+  });
+  if(hasLifecycle){
+    const revision=(Number(getPathValue(root,rosterCounter))||0)+1;
+    updates[FB_ROOT+"/_settingsWriteMeta/castRoster"]={revision,version:_verNum(APP_VERSION),nonce:Date.now()+"_"+Math.random().toString(36).slice(2),updatedAt:Date.now()};
   }
+  const result=await guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay:null,counterPaths:counters,counterWrites:hasLifecycle?[rosterCounter]:[]});
+  syncScopedBizDays(result,ids);
+  ids.forEach(id=>{
+    S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:result.bizDaySummaries[id]};
+    if(backups[id].castLifecycleLogs)S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[id]:cloneData(backups[id].castLifecycleLogs)};
+  });
+}
+async function restoreFromBackupDay(bkKey){
+  const bk=S.backups?.bizDays?.[bkKey];if(!bk)return;
+  const date=bk.date,label=bk.edited?date+" (編集済データ)":date;
+  if(!confirm("「"+label+"」のバックアップを復旧します。既存の同日データは上書きされます。よろしいですか？"))return;
+  return withDataOperation("restore",async()=>{
+    try{
+      await guardedRestoreBackupDays({[date]:cloneData(bk)});
+      sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();
+    }catch(error){sbs(false,"復旧エラー");alert(error.userMessage||"復旧に失敗しました。入力内容と最新状態を確認してください。");}
+  });
 }
 
 // バックアップ全件をまとめてPOSに復旧（コンフリクト検出付き）
@@ -5214,37 +5043,18 @@ async function execRestoreAllWithChoices(){
 
 // 全件復旧共通処理
 async function _execRestoreAll(byDate,choices){
-  const updates={};
-  const dates=Object.keys(byDate);
-  for(const date of dates){
-const entries=byDate[date];
-let bk;
-if(entries.length===1){
-  bk=entries[0][1];
-}else{
-  const chosenKey=choices[date];
-  const found=chosenKey?entries.find(([k])=>k===chosenKey):null;
-  bk=found?found[1]:entries[0][1];
-}
-if(!S.bizDays[date])S.bizDays[date]={id:date,date,startedAt:bk.startedAt,endedAt:bk.endedAt,history:[],shifts:{},assignments:{}};
-S.bizDays[date].history=bk.history||[];
-S.bizDays[date].shifts=bk.shifts||{};
-S.bizDays[date].assignments=bk.assignments||{};
-if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
-if(bk.castLifecycleLogs){S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;}
-updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
-const summary=bizDaySummary(S.bizDays[date],date);
-S.bizDaySummaries={...(S.bizDaySummaries||{}),[date]:summary};
-updates[FB_ROOT+"/bizDaySummaries/"+date]=summary;
-  }
-  if(window._db){
-try{
-  await guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。");
-  sbs(true,"全件復旧完了 ✓");
-  alert("全"+dates.length+"営業日の復旧が完了しました。");
-  closeM();render();
-}catch(e){sbs(false,"復旧エラー");alert("復旧に失敗しました："+e.message);}
-  }
+  const backups={};
+  Object.entries(byDate).forEach(([date,entries])=>{
+    const selected=entries.find(([key])=>key===choices[date])||entries[0];
+    backups[date]=cloneData(selected[1]);
+  });
+  return withDataOperation("restore",async()=>{
+    try{
+      await guardedRestoreBackupDays(backups);
+      sbs(true,"全件復旧完了 ✓");alert("全"+Object.keys(backups).length+"営業日の復旧が完了しました。");
+      closeM();render();
+    }catch(error){sbs(false,"復旧エラー");alert(error.userMessage||"復旧に失敗しました。最新状態を確認してください。");}
+  });
 }
 
 // 手動バックアップ（現在の営業日データを即時保存）
@@ -5274,39 +5084,33 @@ sbs(false,"保存エラー");
 alert("保存に失敗："+e.message);
   }
 }
-function clearAllSessions(){
+async function clearAllSessions(){
   if(!confirm("進行中のセッションを全て削除します。よろしいですか？"))return;
-  S.sessions={};
-  if(window._db){
-guardedSet("sessions",null)
-  .then(()=>sbs(true,"セッションクリア済み ✓"))
-  .catch(()=>sbs(false,"クリアエラー"));
-  }
-  at=null;vw="floor";render();
-}
-function clearAllAssignments(){
-  if(!confirm("全ての付け回しデータをクリアし、全キャストを待機状態に戻します。\n出勤データは変更されません。\n\nよろしいですか？"))return;
-  // assignments全クリア
-  S.assignments={};
-  // 全キャストのstatusをwaitingに戻す（shiftsは保持・statusLogは保持）
-  const now_r=Date.now();
-  Object.values(S.shifts||{}).forEach(sh=>{
-if(!sh.clockOut){ // 出勤中のみ
-  sh.status="waiting";
-  // 現在進行中のstatusLogエントリを閉じて新しいwaitingを追加
-  if(!sh.statusLog)sh.statusLog=[];
-  const last=sh.statusLog[sh.statusLog.length-1];
-  if(last&&!last.endTime)last.endTime=now_r;
-  sh.statusLog.push({status:"waiting",startTime:now_r,endTime:null});
-}
+  return withDataOperation("reset:sessions",async()=>{
+    const updates={},expectedRecords={};
+    Object.entries(S.sessions||{}).forEach(([id,session])=>{updates[FB_ROOT+"/sessions/"+id]=null;expectedRecords["sessions/"+id]=cloneData(session);});
+    try{
+      if(Object.keys(updates).length)await guardedCheckedNodeUpdate(updates,null,{expectedRecords});
+      sbs(true,"セッションクリア済み ✓");at=null;vw="floor";render();
+    }catch(error){sbs(false,"クリアエラー");alert(error.userMessage||"セッションを削除できませんでした。");}
   });
-  if(window._db){
-guardedRootUpdate({
-  assignments:null,
-  shifts:Object.keys(S.shifts||{}).length>0?S.shifts:null
-}).then(()=>sbs(true,"リセット済み ✓")).catch(()=>sbs(false,"リセットエラー"));
-  }
-  vw="list";render();
+}
+async function clearAllAssignments(){
+  if(!confirm("全ての付け回しデータをクリアし、全キャストを待機状態に戻します。\n出勤データは変更されません。\n\nよろしいですか？"))return;
+  return withDataOperation("reset:assignments",async()=>{
+    const updates={},expectedRecords={},casts=new Set(),now=Date.now();
+    Object.entries(S.assignments||{}).forEach(([id,a])=>{updates[FB_ROOT+"/assignments/"+id]=null;expectedRecords["assignments/"+id]=cloneData(a);casts.add(String(a.castId));});
+    Object.entries(S.shifts||{}).filter(([,sh])=>!sh.clockOut).forEach(([id,sh])=>{
+      updates[FB_ROOT+"/shifts/"+id]=shiftWithStatus(sh,"waiting",now);expectedRecords["shifts/"+id]=cloneData(sh);casts.add(String(sh.castId));
+    });
+    try{
+      if(Object.keys(updates).length)await guardedCheckedNodeUpdate(updates,root=>{
+        if(Object.keys(root.assignments||{}).some(id=>!("assignments/"+id in expectedRecords)))return{ok:false,message:"付け回しが追加されています。最新状態を確認してから再実行してください。"};
+        return{ok:true};
+      },{expectedRecords,readActiveAssignCasts:[...casts]});
+      sbs(true,"リセット済み ✓");vw="list";render();
+    }catch(error){sbs(false,"リセットエラー");alert(error.userMessage||"付け回しをリセットできませんでした。");}
+  });
 }
 function sst(t){stab=t;render();}
 function ucn(id,name){
@@ -8173,7 +7977,13 @@ function addSCToSession(){
   s.items=[...s.items,{id:"sc_add_"+Date.now(),label:"シングルチャージ",price:scPrice,qty:1}];
   save("sessions/"+at,S.sessions[at]);closeM();renderOrderPartial();
 }
-function doh(){S.history=S.history.filter(h=>h.id!==dhi);save("history/"+dhi,null);dhi=null;closeM();render();}
+async function doh(){
+  const record=S.history.find(h=>String(h.id)===String(dhi));if(!record)return;
+  return withDataOperation("history:"+record.id,async()=>{
+    try{await guardedHistoryRecordUpdate(cloneData(record),null);sbs(true,"同期済み ✓");dhi=null;closeM();render();}
+    catch(error){sbs(false,"保存エラー");alert(error.userMessage||"会計履歴を削除できませんでした。最新状態を確認してください。");}
+  });
+}
 
 // ===== 出勤・退勤 =====
 const ASSIGN_TYPES={hon:{label:"本指名",col:"#ff4444"},free:{label:"フリー",col:"#38bdf8"},help:{label:"ヘルプ",col:"#e8dcc8"},banai:{label:"場内指名",col:"#4ade80"}};

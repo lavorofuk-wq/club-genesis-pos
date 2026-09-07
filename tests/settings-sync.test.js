@@ -7,7 +7,7 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const rulesDoc=fs.readFileSync(path.join(__dirname,"..","POS_RTDATABASE_WRITE_GATE_RULES.md"),"utf8");
 const versionSource=app.slice(app.indexOf("function _verNum"),app.indexOf("function applyFixedShimeiPrices"));
 const stateSource=app.slice(app.indexOf("const LIGHTWEIGHT_SETTING_PATHS"),app.indexOf("const sessionSaveQueues"));
-const stableSource=app.slice(app.indexOf("function canonicalJsonValue"),app.indexOf("function shouldGuardWholeValue"));
+const stableSource=app.slice(app.indexOf("function canonicalJsonValue"),app.indexOf("function updateRemoteHash"));
 const queueSource=app.slice(app.indexOf("function settingConflictError"),app.indexOf("function castIdQueryValues"));
 
 const remote={
@@ -116,7 +116,7 @@ assert.strictEqual(
   assert.match(app,/if\(vw==="settings"\)[\s\S]*if\(!settingsChanged\)return/);
   assert.match(app,/queueSettingSave\(path,val\)/);
   assert.match(queueSource,/async function waitForSettingSaveQueue\(path\)[\s\S]*while\(state&&\(state\.running\|\|state\.requestedVersion>state\.savedVersion\)\)/);
-  assert.match(app,/guardedRootUpdateIfActive[\s\S]*_settingsRevisions\/"\+key/);
+  assert.match(app,/async function guardedAtomicBizDayUpdate[\s\S]*_settingsRevisions\/castRoster/);
   assert.doesNotMatch(queueSource,/guardedRootTransaction/);
   console.log("settings sync guards passed");
 })().catch(error=>{console.error(error);process.exit(1);});
