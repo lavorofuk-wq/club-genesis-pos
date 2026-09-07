@@ -19,6 +19,13 @@ const casts=normalizeContext.allCasts();
 assert.strictEqual(casts[0].id,"current","cast order must use sortIndex instead of the legacy number");
 assert.strictEqual(casts[1].internalNo,103,"existing internal numbers must remain untouched for export compatibility");
 assert.ok(!Object.prototype.hasOwnProperty.call(casts[0],"internalNo"),"normalization must not assign a new internal number");
+assert.strictEqual(normalizeContext.nextCastSortIndex(),2,"new cast order must use the largest sort index plus one");
+
+normalizeContext.S.casts=[
+  {id:"first",name:"First",sortIndex:0},
+  {id:"last",name:"Last",sortIndex:20}
+];
+assert.strictEqual(normalizeContext.nextCastSortIndex(),21,"removed roster rows must not cause a new cast to reuse an earlier position");
 
 const lifecycleCalls=[];
 const departureContext={
@@ -47,6 +54,8 @@ assert.doesNotMatch(app,/function next(?:Trial)?CastInternalNo\(/);
 assert.doesNotMatch(app,/REGULAR_CAST_MAX_NO|TRIAL_CAST_START_NO/);
 assert.doesNotMatch(addRegularSource,/internalNo|No\.99/);
 assert.doesNotMatch(addTrialSource,/internalNo/);
+assert.match(addRegularSource,/sortIndex:nextCastSortIndex\(\)/);
+assert.match(addTrialSource,/sortIndex:nextCastSortIndex\(\)/);
 assert.doesNotMatch(app,/No\.'\+castNo|function castNo\(/);
 assert.match(app,/recordCastDeparture\(cast,ts,biz\)/);
 

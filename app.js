@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.141";
+const APP_VERSION="6.142";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -33,6 +33,12 @@ function normalizeCasts(list){
   });
 }
 function allCasts(){return normalizeCasts(S.casts||[]).sort((a,b)=>(Number(a.sortIndex)||0)-(Number(b.sortIndex)||0)||(Number(a.registeredAt)||0)-(Number(b.registeredAt)||0)||String(a.name||"").localeCompare(String(b.name||""),"ja"));}
+function nextCastSortIndex(){
+  return normalizeCasts(S.casts||[]).reduce((max,cast)=>{
+    const index=Number(cast.sortIndex);
+    return Number.isFinite(index)?Math.max(max,index):max;
+  },-1)+1;
+}
 function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||getBizDate();}
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
 function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
@@ -5247,7 +5253,7 @@ function ac2(){
   const name=String(ncn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"regular",active:true,registeredAt:ts,enteredAt:ts,enteredBizDay:biz};
+  const cast={id:ts,name,castType:"regular",active:true,registeredAt:ts,sortIndex:nextCastSortIndex(),enteredAt:ts,enteredBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"enteredCasts",castSnapshot(cast,{enteredAt:ts}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
@@ -5257,7 +5263,7 @@ function actrial(){
   const name=String(ntn||"").trim();if(!name)return;
   if(hasVisibleCastName(name)){alert("在籍中または当日体入に同じ名前のキャストがいます。");return;}
   const ts=Date.now(),biz=S.activeBizDay||getBizDate();
-  const cast={id:ts,name,castType:"trial",active:true,registeredAt:ts,trialRegisteredAt:ts,trialBizDay:biz};
+  const cast={id:ts,name,castType:"trial",active:true,registeredAt:ts,sortIndex:nextCastSortIndex(),trialRegisteredAt:ts,trialBizDay:biz};
   S.casts=[...normalizeCasts(S.casts),cast];
   upsertLifecycle(biz,"trialCasts",castSnapshot(cast,{trialBizDay:biz,trialRegisteredAt:ts,trialEndedAt:null}),"castId");
   saveCastsAndLifecycle().then(()=>sbs(true,"同期済み ✓")).catch(()=>sbs(false,"保存エラー"));
