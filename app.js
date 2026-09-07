@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.140.6";
+const APP_VERSION="6.141";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -13,6 +13,7 @@ const TOTAL_ROUND_UNIT=100;
 const HON_SHIMEI_PRICE=2000;
 const BANAI_SHIMEI_PRICE=2000;
 const BANAI_ATOMIC_VALIDATION_VERSION=613600;
+const BIZ_DAY_ATOMIC_VALIDATION_VERSION=614100;
 const FREE_DRINK_OPTIONS=[{id:"fd60",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af60\u5206",price:2000,minutes:60},{id:"fd30",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af30\u5206",price:1000,minutes:30},{id:"fd0",label:"\u30d5\u30ea\u30fc\u30c9\u30ea\u30f3\u30af0\u5186",price:0,minutes:60}];
 function _verNum(v){const p=(v||"0").split(".");return parseInt((p[0]||"0").padStart(2,"0")+(p[1]||"0").padStart(2,"0")+(p[2]||"0").padStart(2,"0"),10);}
 function applyFixedShimeiPrices(menus){
@@ -36,17 +37,12 @@ function currentCastBizDate(){return (typeof S!=="undefined"&&S.activeBizDay)||g
 function isVisibleCast(c){return c&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===currentCastBizDate());}
 function activeRegularCasts(){return allCasts().filter(c=>c&&c.active!==false&&c.castType!=="trial");}
 function emptyLifecycle(){return{enteredCasts:[],exitedCasts:[],trialCasts:[]};}
-function lifecycleFor(date){
-  if(!S.castLifecycleLogs)S.castLifecycleLogs={};
-  if(!S.castLifecycleLogs[date])S.castLifecycleLogs[date]=emptyLifecycle();
-  const l=S.castLifecycleLogs[date];
+function upsertLifecycleIn(logs,date,key,row,idField){
+  if(!logs[date])logs[date]=emptyLifecycle();
+  const l=logs[date];
   l.enteredCasts=l.enteredCasts||[];
   l.exitedCasts=l.exitedCasts||[];
   l.trialCasts=l.trialCasts||[];
-  return l;
-}
-function upsertLifecycle(date,key,row,idField){
-  const l=lifecycleFor(date);
   const eventType=key==="enteredCasts"?"entered":key==="exitedCasts"?"departed":key==="trialCasts"?"trial":"";
   const timeField=eventType==="entered"?"enteredAt":eventType==="departed"?"exitedAt":"trialRegisteredAt";
   const eventAt=eventType?gmsIso(row.eventAt||row[timeField]||row.registeredAt||date+"T00:00:00+09:00",date+"T00:00:00+09:00"):"";
@@ -57,6 +53,15 @@ function upsertLifecycle(date,key,row,idField){
   const idx=l[key].findIndex(x=>String(x[idField||"castId"]||"")===id);
   if(idx>=0)l[key][idx]={...l[key][idx],...enriched};
   else l[key].push(enriched);
+}
+function upsertLifecycle(date,key,row,idField){
+  if(!S.castLifecycleLogs)S.castLifecycleLogs={};
+  upsertLifecycleIn(S.castLifecycleLogs,date,key,row,idField);
+}
+function upsertLifecycleValue(source,date,key,row,idField){
+  const logs=source||{};
+  upsertLifecycleIn(logs,date,key,row,idField);
+  return logs;
 }
 function castSnapshot(c,extra={}){
   const castType=normalizeCastType(c.castType,c.isTrial,c.status);
@@ -120,7 +125,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},bizDaySummaries:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -136,6 +141,7 @@ let checkoutProgress=null;
 let checkoutError="";
 let checkoutSlowTimer=null;
 let checkinBusy=false;
+let bizDayBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
 let estIncludeRoom=false; // 概算に現在の室料を含めるか
@@ -336,6 +342,7 @@ const sessionSaveStates={};
 const sessionSaveLastOwn={};
 let sessionNodeTransactionsSupported=null;
 let banaiAtomicValidationVersion=0;
+let bizDayAtomicValidationVersion=0;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
   if(!tableId)return;
@@ -414,10 +421,12 @@ function togglePriceHide(){
 
 // ===== FIREBASE =====
 const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
-const BIZ_DAYS_VIEWS=new Set(["history","analysis","histlog","shifts","backupDetail"]);
+const BIZ_DAYS_VIEWS=new Set(["analysis","shifts","backupDetail"]);
+const HISTORY_PAGE_SIZE=24;
 const BACKUP_VIEWS=new Set(["admin","backupDetail"]);
 const lazyDataState={
   bizDays:{status:"idle",loadedAt:0,promise:null},
+  bizDayList:{status:"idle",loadedAt:0,promise:null,ids:[],oldestKey:null,hasMore:true},
   backups:{status:"idle",loadedAt:0,promise:null}
 };
 let initialPosSyncPending=null;
@@ -498,7 +507,12 @@ function applyPosCoreValue(db,path,value){
   }else if(path==="assignments"){
     S.assignments=mergeRemoteVersionedCollection("assignments",value);
   }else if(path==="activeBizDay"){
+    const previous=S.activeBizDay;
     S.activeBizDay=value||null;
+    if(previous!==S.activeBizDay){
+      const listState=lazyDataState.bizDayList;
+      listState.status="idle";listState.ids=[];listState.oldestKey=null;listState.hasMore=true;
+    }
     subscribeActiveBizDayRecord(db,S.activeBizDay);
   }else if(path==="loMode"){
     S.loMode=!!value;
@@ -506,6 +520,7 @@ function applyPosCoreValue(db,path,value){
     S.loStatus=value||{};
   }else if(path==="_capabilities"){
     banaiAtomicValidationVersion=Number(value?.banaiAtomicValidationVersion)||0;
+    bizDayAtomicValidationVersion=Number(value?.bizDayAtomicValidationVersion)||0;
   }else if(path==="config"&&value){
     settingsChanged=acceptRemoteSettingValue("config",value,next=>{
       S.config={printerIP:next.printerIP||"192.168.150.76",printerPort:next.printerPort||8008};
@@ -534,15 +549,9 @@ async function ensureBizDaysLoaded(force=false){
   if(!force&&state.status==="loaded")return true;
   if(!window._db)return false;
   state.status="loading";
-  state.promise=Promise.all([
-    window._db.ref(FB_ROOT+"/bizDays").once("value"),
-    window._db.ref(FB_ROOT+"/gmsExportMeta").once("value"),
-    window._db.ref(FB_ROOT+"/gmsTargetCorrections").once("value")
-  ]).then(([daysSnap,gmsSnap,targetSnap])=>{
+  state.promise=window._db.ref(FB_ROOT+"/bizDays").once("value").then(daysSnap=>{
     const days=daysSnap.val()||{};
     S.bizDays=days;
-    S.gmsExportMeta=gmsSnap.val()||{};
-    S.gmsTargetCorrections=targetSnap.val()||{};
     updateBizDayRemoteHashes(days);
     state.status="loaded";state.loadedAt=Date.now();
     return true;
@@ -552,6 +561,120 @@ async function ensureBizDaysLoaded(force=false){
     return false;
   }).finally(()=>{state.promise=null;if(BIZ_DAYS_VIEWS.has(vw))render();});
   return state.promise;
+}
+function bizDaySummary(day,id){
+  const value=day||{};
+  return{
+    id:String(value.id||id||""),date:String(value.date||id||""),
+    startedAt:Number(value.startedAt)||0,endedAt:Number(value.endedAt)||null,
+    sales:(value.history||[]).reduce((sum,row)=>sum+(Number(row?.total)||0),0),
+    updatedAt:Date.now()
+  };
+}
+function historyPageEntries(snapshot){
+  return Object.entries(snapshot?.val?.()||{}).sort(([a],[b])=>String(b).localeCompare(String(a)));
+}
+async function readHistoryPage(path,beforeKey){
+  let query=window._db.ref(FB_ROOT+"/"+path).orderByKey();
+  if(beforeKey)query=query.endAt(beforeKey);
+  return historyPageEntries(await query.limitToLast(HISTORY_PAGE_SIZE+1).once("value"));
+}
+function persistBizDaySummaries(rows){
+  if(!rows.length||!window._db)return;
+  const updates={};
+  rows.forEach(([id,summary])=>{updates[FB_ROOT+"/bizDaySummaries/"+id]=summary;});
+  guardedUpdate(updates,{silent:true}).catch(error=>console.warn("business day summary save failed",error));
+}
+async function ensureBizDayListLoaded(reset=false){
+  const state=lazyDataState.bizDayList;
+  if(state.promise)return state.promise;
+  if(!reset&&state.status==="loaded")return true;
+  if(!window._db)return false;
+  if(reset){state.ids=[];state.oldestKey=null;state.hasMore=true;}
+  state.status="loading";
+  state.promise=(async()=>{
+    const seen=new Set(state.ids);
+    const before=state.oldestKey;
+    let rows=(await readHistoryPage("bizDaySummaries",before))
+      .filter(([id])=>id!==before&&!seen.has(id));
+    const generated=[];
+    if(rows.length<HISTORY_PAGE_SIZE){
+      const fallbackBefore=rows.length?rows[rows.length-1][0]:before;
+      const fullRows=await readHistoryPage("bizDays",fallbackBefore);
+      fullRows.forEach(([id,day])=>{
+        if(id===fallbackBefore||id===before||seen.has(id)||rows.some(([rowId])=>rowId===id))return;
+        const summary=bizDaySummary(day,id);
+        rows.push([id,summary]);generated.push([id,summary]);
+        S.bizDays={...(S.bizDays||{}),[id]:day};
+        updateRemoteHash("bizDays/"+id,day);
+      });
+    }
+    rows.sort(([a],[b])=>String(b).localeCompare(String(a)));
+    const page=rows.slice(0,HISTORY_PAGE_SIZE);
+    page.forEach(([id,summary])=>{S.bizDaySummaries[id]=summary;});
+    state.ids=[...state.ids,...page.map(([id])=>id)];
+    state.oldestKey=state.ids[state.ids.length-1]||null;
+    state.hasMore=page.length===HISTORY_PAGE_SIZE;
+    state.status="loaded";state.loadedAt=Date.now();
+    persistBizDaySummaries(generated);
+    return true;
+  })().catch(error=>{
+    console.warn("business day list load failed",error);
+    state.status="error";sbs(false,"データ取得エラー");return false;
+  }).finally(()=>{state.promise=null;if(vw==="histlog")render();});
+  return state.promise;
+}
+async function loadMoreBizDayHistory(){
+  const state=lazyDataState.bizDayList;
+  if(state.promise||!state.hasMore)return;
+  state.status="idle";
+  await ensureBizDayListLoaded(false);
+}
+async function ensureBizDayDetail(dayId,force=false){
+  const id=String(dayId||"");
+  if(!id||!window._db)return null;
+  if(!force&&S.bizDays?.[id])return S.bizDays[id];
+  const snap=await window._db.ref(FB_ROOT+"/bizDays/"+id).once("value");
+  const day=snap.val()||null;
+  if(day){
+    S.bizDays={...(S.bizDays||{}),[id]:day};
+    S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:bizDaySummary(day,id)};
+    updateRemoteHash("bizDays/"+id,day);
+  }
+  return day;
+}
+async function togglePastBizDay(dayId){
+  const key="day_"+dayId;
+  if(expandedHist[key]){expandedHist[key]=false;render();return;}
+  try{
+    const day=await ensureBizDayDetail(dayId);
+    if(!day)throw new Error("business day not found");
+    expandedHist[key]=true;render();
+    ensureGmsDayLoaded(day.date||dayId).then(()=>{if(expandedHist[key]&&vw==="histlog")render();}).catch(error=>console.warn("GMS day data load failed",error));
+  }catch(error){console.warn("business day detail load failed",error);alert("営業日の詳細を取得できませんでした。接続状態を確認してください。");}
+}
+async function openPastBizDayModal(kind,dayId){
+  try{
+    const day=await ensureBizDayDetail(dayId);
+    if(!day)throw new Error("business day not found");
+    md=kind+"_"+dayId;rModal();
+  }catch(error){console.warn("business day modal load failed",error);alert("営業日のデータを取得できませんでした。接続状態を確認してください。");}
+}
+const gmsDayLoadPromises={};
+async function ensureGmsDayLoaded(dayId,force=false){
+  const id=String(dayId||"");
+  if(!id||!window._db)return false;
+  if(!force&&Object.prototype.hasOwnProperty.call(S.gmsExportMeta||{},id)&&Object.prototype.hasOwnProperty.call(S.gmsTargetCorrections||{},id))return true;
+  if(gmsDayLoadPromises[id])return gmsDayLoadPromises[id];
+  gmsDayLoadPromises[id]=Promise.all([
+    window._db.ref(FB_ROOT+"/gmsExportMeta/"+id).once("value"),
+    window._db.ref(FB_ROOT+"/gmsTargetCorrections/"+id).once("value")
+  ]).then(([metaSnap,targetSnap])=>{
+    S.gmsExportMeta={...(S.gmsExportMeta||{}),[id]:metaSnap.val()||null};
+    S.gmsTargetCorrections={...(S.gmsTargetCorrections||{}),[id]:targetSnap.val()||{}};
+    return true;
+  }).finally(()=>{delete gmsDayLoadPromises[id];});
+  return gmsDayLoadPromises[id];
 }
 async function ensureBackupsLoaded(force=false){
   const state=lazyDataState.backups;
@@ -581,10 +704,13 @@ function removeCachedBackupDay(key){
 function startLazyViewDataLoad(view,refresh=false){
   const tasks=[];
   const bizState=lazyDataState.bizDays;
+  const listState=lazyDataState.bizDayList;
   const backupState=lazyDataState.backups;
   const refreshBiz=refresh&&bizState.status==="loaded"&&Date.now()-bizState.loadedAt>60000;
+  const refreshList=refresh&&listState.status==="loaded"&&Date.now()-listState.loadedAt>60000;
   const refreshBackups=refresh&&backupState.status==="loaded"&&Date.now()-backupState.loadedAt>60000;
   if(BIZ_DAYS_VIEWS.has(view)&&(bizState.status==="idle"||bizState.status==="loading"||refreshBiz))tasks.push(ensureBizDaysLoaded(refreshBiz));
+  if(view==="histlog"&&(listState.status==="idle"||listState.status==="loading"||refreshList))tasks.push(ensureBizDayListLoaded(refreshList));
   if(BACKUP_VIEWS.has(view)&&(backupState.status==="idle"||backupState.status==="loading"||refreshBackups))tasks.push(ensureBackupsLoaded(refreshBackups));
   return tasks.length?Promise.all(tasks):null;
 }
@@ -592,6 +718,7 @@ function lazyViewDataState(view){
   if(view==="admin")return null;
   const states=[];
   if(BIZ_DAYS_VIEWS.has(view))states.push(lazyDataState.bizDays);
+  if(view==="histlog")states.push(lazyDataState.bizDayList);
   if(BACKUP_VIEWS.has(view))states.push(lazyDataState.backups);
   if(states.some(state=>state.status==="loading"||state.status==="idle"))return{status:"loading",message:"データを読み込み中..."};
   const error=states.find(state=>state.status==="error");
@@ -599,6 +726,7 @@ function lazyViewDataState(view){
 }
 function retryLazyViewData(view){
   if(BIZ_DAYS_VIEWS.has(view))lazyDataState.bizDays.status="idle";
+  if(view==="histlog"){lazyDataState.bizDayList.status="idle";lazyDataState.bizDayList.ids=[];lazyDataState.bizDayList.oldestKey=null;lazyDataState.bizDayList.hasMore=true;}
   if(BACKUP_VIEWS.has(view))lazyDataState.backups.status="idle";
   startLazyViewDataLoad(view,true);render();
 }
@@ -1280,6 +1408,25 @@ async function guardedRootUpdateIfActive(expectedActiveBizDay,values,message){
     });
     return root;
   });
+}
+function bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,extra={}){
+  return{
+    version:BIZ_DAY_ATOMIC_VALIDATION_VERSION,
+    nonce:Date.now()+"_"+Math.random().toString(36).slice(2),
+    type,dayId:String(dayId||""),
+    expectedActiveBizDay:expectedActiveBizDay||null,
+    nextActiveBizDay:nextActiveBizDay||null,
+    updatedAt:Date.now(),...extra
+  };
+}
+async function guardedAtomicBizDayUpdate(type,dayId,expectedActiveBizDay,nextActiveBizDay,values,extraUpdates={},operationExtra={}){
+  if(bizDayAtomicValidationVersion<BIZ_DAY_ATOMIC_VALIDATION_VERSION)return false;
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for write");
+  const operation=bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,operationExtra);
+  const updates={...extraUpdates,[FB_ROOT+"/_bizDayOperation"]:operation};
+  Object.entries(values||{}).forEach(([path,value])=>{updates[FB_ROOT+"/"+path]=value;});
+  await guardedUpdate(updates);
+  return true;
 }
 function sessionGuardStart(s){return Number(s?._sessionGuardStartTime||s?.startTime||0);}
 function sessionGuardRev(s){return Number(s?._sessionGuardRev??s?._rev??0)||0;}
@@ -2374,8 +2521,8 @@ html+='<button class="btn" onclick="sv(\'histlog\')" style="width:100%;padding:1
 }
 
 function rHistLog(){
-  // 過去の営業日一覧
-  const days=Object.values(S.bizDays||{}).sort((a,b)=>b.date.localeCompare(a.date));
+  const listState=lazyDataState.bizDayList;
+  const days=(listState.ids||[]).map(id=>S.bizDaySummaries?.[id]).filter(Boolean);
   let html='<div style="max-width:720px;margin:0 auto;">';
   html+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">';
   html+='<button class="btn" onclick="sv(\'home\')" style="font-size:12px;color:#888;padding:4px 0;background:none;">← ホーム</button>';
@@ -2383,25 +2530,25 @@ function rHistLog(){
   html+='</div>';
   if(!days.length){html+='<div style="color:#555;font-size:14px;">履歴がありません</div></div>';return html;}
   days.forEach(day=>{
-const sales=(day.history||[]).reduce((a,h)=>a+h.total,0);
-const shiftCount=Object.values(day.shifts||{}).length;
+const sales=Number(day.sales)||0;
 const exp=expandedHist["day_"+day.id];
 html+='<div class="glass" style="border-radius:8px;margin-bottom:10px;overflow:hidden;">';
 // ヘッダー行
 html+='<div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">';
-html+='<div onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="flex:1;cursor:pointer;">';
+html+='<div data-dayid="'+day.id+'" onclick="togglePastBizDay(this.dataset.dayid)" style="flex:1;cursor:pointer;">';
 html+='<div style="font-size:16px;font-weight:700;color:#e8dcc8;">'+day.date+'</div>';
 html+='<div style="font-size:11px;color:#666;margin-top:2px;">'+new Date(day.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+(day.endedAt?' 〜 '+new Date(day.endedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):' 〜 営業中')+'</div>';
 html+='</div>';
 html+='<div style="display:flex;align-items:center;gap:8px;">';
 html+='<span style="font-size:15px;font-weight:700;color:#d4a017;">'+pAmt(sales)+'</span>';
-html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();om(\'loadBizDayConfirm_\'+this.dataset.dayid)" style="padding:4px 10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:11px;touch-action:manipulation;">読み込み</button>';
-html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();deleteBizDay(this.dataset.dayid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
-html+='<span onclick="expandedHist[\'day_\'+\''+day.id+'\']='+(exp?"false":"true")+';render()" style="color:#555;font-size:16px;cursor:pointer;padding:4px;">'+(exp?"▲":"▼")+'</span>';
+html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();openPastBizDayModal(\'loadBizDayConfirm\',this.dataset.dayid)" style="padding:4px 10px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:11px;touch-action:manipulation;">読み込み</button>';
+html+='<button class="btn" data-dayid="'+day.id+'" onclick="event.stopPropagation();openPastBizDayModal(\'deleteBizDay\',this.dataset.dayid)" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;touch-action:manipulation;">削除</button>';
+html+='<span data-dayid="'+day.id+'" onclick="event.stopPropagation();togglePastBizDay(this.dataset.dayid)" style="color:#555;font-size:16px;cursor:pointer;padding:4px;">'+(exp?"▲":"▼")+'</span>';
 html+='</div></div>';
-if(exp){html+=rDayDetail(day);}
+if(exp&&S.bizDays?.[day.id]){html+=rDayDetail(S.bizDays[day.id]);}
 html+='</div>';
   });
+  if(listState.hasMore)html+='<button class="btn" onclick="loadMoreBizDayHistory()" style="width:100%;padding:12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#aaa;border-radius:6px;font-size:13px;">さらに読み込む</button>';
   html+='</div>';
   return html;
 }
@@ -2528,10 +2675,6 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   return html;
 }
 
-function deleteBizDay(dayId){
-  if(dayId===S.activeBizDay){alert("現在営業中の日は削除できません");return;}
-  md="deleteBizDay_"+dayId;rModal();
-}
 function closedBizDayConflictMessage(){
   return "対象の営業履歴が他端末で更新されています。履歴画面を閉じて最新データを読み込み直してから再実行してください。";
 }
@@ -2552,7 +2695,7 @@ async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
   const id=String(dayId||"");
   if(!id)throw Object.assign(new Error("business day is required"),{userMessage:"対象の営業日を確認できません。"});
   const result=await guardedCheckedUpdate(
-    {[FB_ROOT+"/bizDays/"+id]:cloneData(nextDay)},
+    {[FB_ROOT+"/bizDays/"+id]:cloneData(nextDay),[FB_ROOT+"/bizDaySummaries/"+id]:nextDay?bizDaySummary(nextDay,id):null},
     root=>{
       if(String(root.activeBizDay||"")===id)return{ok:false,message:"営業中の日は変更できません。営業終了後に再実行してください。"};
       const remote=getPathValue(root,"bizDays/"+id);
@@ -2561,6 +2704,11 @@ async function guardedReplaceClosedBizDay(dayId,expectedDay,nextDay){
     }
   );
   const days=syncBizDaysFromTransactionRoot(result);
+  if(nextDay)S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:bizDaySummary(nextDay,id)};
+  else{
+    if(S.bizDaySummaries)delete S.bizDaySummaries[id];
+    lazyDataState.bizDayList.ids=lazyDataState.bizDayList.ids.filter(value=>value!==id);
+  }
   sbs(true,"同期済み ✓");
   return days[id]||null;
 }
@@ -2569,7 +2717,10 @@ async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
   if(!oldId||!newId)throw Object.assign(new Error("business day is required"),{userMessage:"変更前後の営業日を確認できません。"});
   if(oldId===newId)return guardedReplaceClosedBizDay(oldId,expectedDay,nextDay);
   const result=await guardedCheckedUpdate(
-    {[FB_ROOT+"/bizDays/"+oldId]:null,[FB_ROOT+"/bizDays/"+newId]:cloneData(nextDay)},
+    {
+      [FB_ROOT+"/bizDays/"+oldId]:null,[FB_ROOT+"/bizDays/"+newId]:cloneData(nextDay),
+      [FB_ROOT+"/bizDaySummaries/"+oldId]:null,[FB_ROOT+"/bizDaySummaries/"+newId]:bizDaySummary(nextDay,newId)
+    },
     root=>{
       const active=String(root.activeBizDay||"");
       if(active===oldId||active===newId)return{ok:false,message:"営業中の日付へは変更できません。営業終了後に再実行してください。"};
@@ -2579,6 +2730,9 @@ async function guardedMoveClosedBizDay(dayId,expectedDay,newDayId,nextDay){
     }
   );
   const days=syncBizDaysFromTransactionRoot(result);
+  if(S.bizDaySummaries)delete S.bizDaySummaries[oldId];
+  S.bizDaySummaries={...(S.bizDaySummaries||{}),[newId]:bizDaySummary(nextDay,newId)};
+  lazyDataState.bizDayList.ids=lazyDataState.bizDayList.ids.map(value=>value===oldId?newId:value).sort((a,b)=>String(b).localeCompare(String(a)));
   sbs(true,"同期済み ✓");
   return days[newId]||null;
 }
@@ -2849,9 +3003,13 @@ function gmsTargetCorrectionSaveErrorMessage(error){
   if(isFirebasePermissionDenied(error))return"対象指定の保存権限を確認できませんでした。POSが最新版であること、ログイン状態、営業終了済みであることを確認してください。";
   return"対象指定をFirebaseへ保存できませんでした。接続状態を確認して、もう一度実行してください。";
 }
-function openGmsTargetDayEdit(dayId){
-  const day=S.bizDays[dayId];if(!day||dayId===S.activeBizDay)return;
-  md="editBizDay_"+dayId;rModal();
+async function openGmsTargetDayEdit(dayId){
+  try{
+    const day=await ensureBizDayDetail(dayId);
+    if(!day||dayId===S.activeBizDay)return;
+    await ensureGmsDayLoaded(day.date||dayId);
+    md="editBizDay_"+dayId;rModal();
+  }catch(error){console.warn("GMS target data load failed",error);alert("対象データを取得できませんでした。接続状態を確認してください。");}
 }
 function openGmsTargetEdit(dayId,historyIndex){
   const day=S.bizDays[dayId],index=parseInt(historyIndex,10),record=day?.history?.[index];
@@ -3243,6 +3401,7 @@ function gmsDownloadPayload(payload){
 }
 async function redownloadGmsClosingJSON(dayId){
   const day=S.bizDays[dayId];if(!day){alert("出力対象の営業日が見つかりません");return;}
+  try{await ensureGmsDayLoaded(day.date||dayId);}catch(error){alert("GMS提出履歴を取得できませんでした。接続状態を確認してください。");return;}
   const prev=gmsGetExportMeta(day.date||dayId)||{};
   if(prev.schemaVersion!==3||!prev.payload||!prev.submissionId){return exportGmsClosingJSON(dayId,false);}
   const payload=JSON.parse(JSON.stringify(prev.payload));
@@ -3259,6 +3418,9 @@ async function redownloadGmsClosingJSON(dayId){
   gmsDownloadPayload(payload);
 }
 async function exportGmsClosingJSON(dayId,correction){
+  const day=S.bizDays[dayId];
+  if(!day){alert("出力対象の営業日が見つかりません");return;}
+  try{await ensureGmsDayLoaded(day.date||dayId);}catch(error){alert("GMS提出履歴を取得できませんでした。接続状態を確認してください。");return;}
   const payload=gmsClosingPayload(dayId,{correction});
   if(!payload){alert("\u51fa\u529b\u5bfe\u8c61\u306e\u55b6\u696d\u65e5\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093");return;}
   if(payload._gmsError){alert(payload._gmsError);return;}
@@ -3307,31 +3469,37 @@ async function exportGmsClosingJSON(dayId,correction){
 }
 
 async function loadBizDayForReEdit(dayId){
+  if(!requireFirebaseReady())return;
   if(S.activeBizDay){
 alert("現在「"+S.activeBizDay+"」の営業が進行中です。\n営業終了後に読み込みできます。");
 return;
   }
-  const day=S.bizDays[dayId];if(!day)return;
-  day.isReEdit=true;
-  day.endedAt=null;
-  S.bizDays[dayId]=day;
-  S.activeBizDay=dayId;
-  S.history=JSON.parse(JSON.stringify(day.history||[]));
-  S.shifts=JSON.parse(JSON.stringify(day.shifts||{}));
-  S.assignments=JSON.parse(JSON.stringify(day.assignments||{}));
-  S.sessions={};
+  const current=S.bizDays[dayId];if(!current)return;
+  const day={...cloneData(current),isReEdit:true,endedAt:null};
+  const history=cloneData(day.history||[]),shifts=cloneData(day.shifts||{}),assignments=cloneData(day.assignments||{});
+  const historyObject={};history.forEach(row=>{historyObject[row.id]=row;});
+  const summary=bizDaySummary(day,dayId);
+  if(bizDayBusy)return;
+  bizDayBusy=true;
   if(window._db){
-const _lhObj={};(S.history||[]).forEach(h=>{_lhObj[h.id]=h;});
-	try{await guardedRootUpdateIfActive(null,{
+    sbs(false,"保存中...");
+    try{
+      const values={
   ["bizDays/"+dayId]:day,
-  activeBizDay:S.activeBizDay,
-  history:Object.keys(_lhObj).length>0?_lhObj:null,
-  shifts:S.shifts,
-  assignments:S.assignments,
+  ["bizDaySummaries/"+dayId]:summary,
+  activeBizDay:dayId,
+  history:Object.keys(historyObject).length?historyObject:null,
+  shifts,assignments,
   sessions:null
-},"他端末で営業状態が変更されています。最新データに更新してから再実行してください。");
-sbs(true,"同期済み ✓");
-}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業状態の保存に失敗しました。最新状態を確認してください。");location.reload();return;}
+      };
+      const atomic=await guardedAtomicBizDayUpdate("reopen",dayId,null,dayId,values);
+      if(!atomic)await guardedRootUpdateIfActive(null,values,"他端末で営業状態が変更されています。最新データに更新してから再実行してください。");
+      S.bizDays={...(S.bizDays||{}),[dayId]:day};
+      S.bizDaySummaries={...(S.bizDaySummaries||{}),[dayId]:summary};
+      S.activeBizDay=dayId;S.history=history;S.shifts=shifts;S.assignments=assignments;S.sessions={};
+      sbs(true,"同期済み ✓");
+    }catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業状態の保存に失敗しました。他端末で変更された可能性があります。最新状態を確認してください。");location.reload();return;}
+    finally{bizDayBusy=false;}
   }
   closeM();vw="floor";render();
 }
@@ -3350,18 +3518,26 @@ closeM();vw="floor";render();return;
   }
   if(existingDay&&!confirm("「"+id+"」は記録済みです。既存の営業日データを上書きして開始しますか？"))return;
   const day={id,date:dateStr,startedAt:Date.now(),endedAt:null,history:[],shifts:{},assignments:{}};
-  S.bizDays[id]=day;
-  S.activeBizDay=id;
-  // history/shifts/assignmentsをクリア（新営業日）
-  S.history=[];S.shifts={};S.assignments={};S.sessions={};
+  const summary=bizDaySummary(day,id);
+  if(bizDayBusy)return;
+  bizDayBusy=true;
   if(window._db){
-try{await guardedRootUpdateIfActive(null,{
+    sbs(false,"保存中...");
+    try{
+      const values={
   ["bizDays/"+id]:day,
-  activeBizDay:S.activeBizDay,
+  ["bizDaySummaries/"+id]:summary,
+  activeBizDay:id,
   history:[],shifts:null,assignments:null,sessions:null
-},"他端末で営業が開始されています。最新状態を確認してください。");
-sbs(true,"同期済み ✓");
-}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業開始に失敗しました。最新状態を確認してください。");location.reload();return;}
+      };
+      const atomic=await guardedAtomicBizDayUpdate("start",id,null,id,values);
+      if(!atomic)await guardedRootUpdateIfActive(null,values,"他端末で営業が開始されています。最新状態を確認してください。");
+      S.bizDays={...(S.bizDays||{}),[id]:day};
+      S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:summary};
+      S.activeBizDay=id;S.history=[];S.shifts={};S.assignments={};S.sessions={};
+      sbs(true,"同期済み ✓");
+    }catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業開始に失敗しました。他端末で開始された可能性があります。最新状態を確認してください。");location.reload();return;}
+    finally{bizDayBusy=false;}
   }
   closeM();vw="floor";render();
 }
@@ -3369,7 +3545,7 @@ sbs(true,"同期済み ✓");
 async function endBizDay(){
   const id=S.activeBizDay;if(!id)return;
   if(!requireFirebaseReady())return;
-  const day=S.bizDays[id];if(!day)return;
+  const currentDay=S.bizDays[id];if(!currentDay)return;
   const onduty=getOnduty();
   if(onduty.length){
     md="endBizDay";
@@ -3377,27 +3553,25 @@ async function endBizDay(){
     rModal();
     return;
   }
-  const wasReEdit=!!day.isReEdit;
-  day.endedAt=Date.now();
-  day.history=[...S.history];
-  day.shifts={...S.shifts};
-  day.assignments={...S.assignments};
+  const wasReEdit=!!currentDay.isReEdit;
+  const day={...cloneData(currentDay),endedAt:Date.now(),history:cloneData(S.history||[]),shifts:cloneData(S.shifts||{}),assignments:cloneData(S.assignments||{})};
   if(!day.rosterSnapshot||!Array.isArray(day.rosterSnapshot.casts)){
     // 新規営業日は営業終了時点の完全名簿を固定する。旧営業日の再編集では完全性を推測しない。
     day.rosterSnapshot=GMS_JSON.createRosterSnapshot(allCasts(),gmsIso(day.endedAt),!wasReEdit);
   }
   delete day.isReEdit;
   let castsChanged=false;
-  S.casts=normalizeCasts(S.casts).filter(c=>{
+  let nextLifecycle=cloneData(S.castLifecycleLogs||{});
+  const nextCasts=normalizeCasts(S.casts).filter(c=>{
     if(c.castType==="trial"&&c.trialBizDay===id&&c.active!==false){
       castsChanged=true;
-      upsertLifecycle(id,"trialCasts",{...castSnapshot(c,{trialBizDay:id,trialRegisteredAt:c.trialRegisteredAt||c.registeredAt||null,trialEndedAt:day.endedAt})},"castId");
+      nextLifecycle=upsertLifecycleValue(nextLifecycle,id,"trialCasts",{...castSnapshot(c,{trialBizDay:id,trialRegisteredAt:c.trialRegisteredAt||c.registeredAt||null,trialEndedAt:day.endedAt})},"castId");
       return false;
     }
     return true;
   });
-  S.bizDays[id]=day;
-  S.activeBizDay=null;
+  if(bizDayBusy)return;
+  bizDayBusy=true;
   if(window._db){
 const daySnap={
   ts:Date.now(),
@@ -3405,7 +3579,7 @@ const daySnap={
   history:JSON.parse(JSON.stringify(S.history||[])),
   shifts:JSON.parse(JSON.stringify(S.shifts||{})),
   assignments:JSON.parse(JSON.stringify(S.assignments||{})),
-  castLifecycleLogs:JSON.parse(JSON.stringify((S.castLifecycleLogs||{})[day.date]||emptyLifecycle())),
+  castLifecycleLogs:cloneData((nextLifecycle||{})[day.date]||emptyLifecycle()),
   rosterSnapshot:JSON.parse(JSON.stringify(day.rosterSnapshot||null)),
   startedAt:day.startedAt||Date.now(),
   endedAt:day.endedAt
@@ -3417,18 +3591,30 @@ if(wasReEdit){
   daySnap.editedAt=day.endedAt;
 }
 try{
-  await window._db.ref(BACKUP_ROOT+"/bizDays/"+backupKey).set(daySnap);
-  cacheBackupDay(backupKey,daySnap);
-}catch(e){console.warn("backup error",e);}
-try{await guardedRootUpdateIfActive(id,{
+  sbs(false,"保存中...");
+  const summary=bizDaySummary(day,id);
+  const values={
   ["bizDays/"+id]:day,
+  ["bizDaySummaries/"+id]:summary,
   activeBizDay:null,
-  ...(castsChanged?{casts:S.casts}:{}),
-  ...(castsChanged?{castLifecycleLogs:S.castLifecycleLogs}:{}),
+  ...(castsChanged?{casts:nextCasts}:{}),
+  ...(castsChanged?{castLifecycleLogs:nextLifecycle}:{}),
   history:null,shifts:null,assignments:null,sessions:null
-},"他端末で営業状態が変更されています。最新データに更新してから営業終了してください。");
-sbs(true,"同期済み ✓");
+  };
+  const atomic=await guardedAtomicBizDayUpdate("end",id,id,null,values,
+    {[BACKUP_ROOT+"/bizDays/"+backupKey]:daySnap},{backupKey});
+  if(!atomic){
+    await window._db.ref(BACKUP_ROOT+"/bizDays/"+backupKey).set(daySnap);
+    await guardedRootUpdateIfActive(id,values,"他端末で営業状態が変更されています。最新データに更新してから営業終了してください。");
+  }
+  S.bizDays={...(S.bizDays||{}),[id]:day};
+  S.bizDaySummaries={...(S.bizDaySummaries||{}),[id]:summary};
+  S.activeBizDay=null;
+  if(castsChanged){S.casts=nextCasts;S.castLifecycleLogs=nextLifecycle;}
+  cacheBackupDay(backupKey,daySnap);
+  sbs(true,"同期済み ✓");
 }catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業終了に失敗しました。最新状態を確認してください。");location.reload();return;}
+finally{bizDayBusy=false;}
   }
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
   closeM();vw="home";render();
@@ -4905,7 +5091,9 @@ function restoreFromBackupDay(bkKey){
   if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
   if(bk.castLifecycleLogs)S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};
   if(window._db){
-const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date]};
+const summary=bizDaySummary(S.bizDays[date],date);
+S.bizDaySummaries={...(S.bizDaySummaries||{}),[date]:summary};
+const updates={[FB_ROOT+"/bizDays/"+date]:S.bizDays[date],[FB_ROOT+"/bizDaySummaries/"+date]:summary};
 if(bk.castLifecycleLogs)updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;
 guardedRootUpdateIfActive(null,Object.fromEntries(Object.entries(updates).map(([k,v])=>[stripRootPath(k),v])),"営業中または他端末で営業状態が変更されています。復旧前に最新状態を確認してください。")
   .then(()=>{sbs(true,"復旧完了 ✓");alert("「"+label+"」の復旧が完了しました。");render();})
@@ -4969,6 +5157,9 @@ S.bizDays[date].assignments=bk.assignments||{};
 if(bk.rosterSnapshot)S.bizDays[date].rosterSnapshot=bk.rosterSnapshot;
 if(bk.castLifecycleLogs){S.castLifecycleLogs={...(S.castLifecycleLogs||{}),[date]:bk.castLifecycleLogs};updates[FB_ROOT+"/castLifecycleLogs/"+date]=bk.castLifecycleLogs;}
 updates[FB_ROOT+"/bizDays/"+date]=S.bizDays[date];
+const summary=bizDaySummary(S.bizDays[date],date);
+S.bizDaySummaries={...(S.bizDaySummaries||{}),[date]:summary};
+updates[FB_ROOT+"/bizDaySummaries/"+date]=summary;
   }
   if(window._db){
 try{

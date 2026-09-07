@@ -31,8 +31,9 @@ const set=(root,fullPath,value)=>{
 };
 const context={
   FB_ROOT:"pos-dev",
-  S:{activeBizDay:null,bizDays:clone(remoteRoot.bizDays)},
-  lazyDataState:{bizDays:{status:"loaded",loadedAt:0}},
+  S:{activeBizDay:null,bizDays:clone(remoteRoot.bizDays),bizDaySummaries:{}},
+  lazyDataState:{bizDays:{status:"loaded",loadedAt:0},bizDayList:{ids:[]}},
+  bizDaySummary:(day,id)=>day?{id,date:day.date||id,sales:(day.history||[]).reduce((sum,row)=>sum+(row.total||0),0)}:null,
   cloneData:clone,
   stableJson:value=>JSON.stringify(canonical(value===undefined?null:value)),
   getPathValue:get,
@@ -73,7 +74,7 @@ vm.runInContext(app.slice(start,end),context);
   context.S.bizDays["2026-09-02"].history[0].total=99999;
   await vm.runInContext("guardedReplaceClosedBizDay",context)("2026-09-01",expected,next);
 
-  assert.deepStrictEqual(Object.keys(calls[0]),["pos-dev/bizDays/2026-09-01"],"only the selected business day may be written");
+  assert.deepStrictEqual(Object.keys(calls[0]).sort(),["pos-dev/bizDaySummaries/2026-09-01","pos-dev/bizDays/2026-09-01"],"only the selected business day and its summary may be written");
   assert.deepStrictEqual(remoteRoot.bizDays["2026-09-02"],{id:"2026-09-02",date:"2026-09-02",history:[{total:20000}]},"other business days must remain untouched");
   assert.strictEqual(context.S.bizDays["2026-09-02"].history[0].total,20000,"an unrelated stale local day must not block the save and must be refreshed");
   assert.strictEqual(context.S.bizDays["2026-09-01"].history[0].items[0].castId,"c1");

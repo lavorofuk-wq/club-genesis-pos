@@ -14,6 +14,10 @@ POS Ver6.140.5 以降は、履歴画面の表示順とFirebase上の配列番号
 
 POS Ver6.140.6 以降は、出勤削除でPOSルート全体のトランザクションを使用しません。対象の`shifts/{shiftId}`だけを読み、付け回し中でないことを確認した後、削除と`_shiftDeleteOperations/{shiftId}`を1回のマルチパス更新で確定します。削除証跡には読み取ったrevisionとキャストIDを含め、ルール側で現在の出勤記録と一致しなければ削除を拒否します。
 
+POS Ver6.141 以降は、営業開始・過去営業日の再読込・営業終了を `_bizDayOperation` 付きのatomic multipath updateへ分離します。営業終了時は`bizDays/{dayId}`、現在営業データの削除、`bizDaySummaries/{dayId}`、Firebaseバックアップを1回の更新で確定します。`_capabilities/bizDayAtomicValidationVersion=614100`が有効な場合、ルールは更新前後の`activeBizDay`、操作種別、対象営業日、終了バックアップを照合し、二端末の同時開始・同時終了を拒否します。ルール適用前は従来処理へフォールバックします。
+
+過去の営業履歴は`bizDaySummaries`を24件ずつ取得し、詳細を開いた営業日だけ`bizDays/{dayId}`を読み込みます。既存営業日にsummaryがない場合は、該当ページだけ旧データから生成してバックフィルします。GMS提出履歴と対象修正も対象日単位で読み込みます。
+
 重要: Ver6.133の確認中は、最初に `pos-dev` だけ最低バージョンを `_verNum("6.133")` の実値である `613300` へ更新してください。`pos` を `613300` へ上げるのは、Ver6.133をmainへ公開し、使用端末の更新を確認した後です。先に本番ルールを上げると旧バージョンからの保存が拒否されます。
 
 ## ルール例
@@ -92,10 +96,11 @@ POS Ver6.140.6 以降は、出勤削除でPOSルート全体のトランザク�
 
 ## 適用手順
 
-1. `pos-dev/_banaiOperations/$tableId`の検証ルールと`pos-dev/_capabilities/banaiAtomicValidationVersion=613600`は適用済みです。`pos`は変更しません。
-2. Ver6.137をdevへ公開します。
-3. devで場内指名追加、連続操作、二端末競合、保存失敗時のロールバックを確認します。
-4. Ver6.137をmainへ公開し、本番端末の更新を確認します。
-5. `pos/_banaiOperations/$tableId`へ同じ検証を追加して公開し、最後に`pos/_capabilities/banaiAtomicValidationVersion`を`613600`に設定します。
+1. `database.rules.json`を適用します。capabilityが未設定の間は旧営業処理も許可されます。
+2. Ver6.141をdevへ公開します。
+3. `pos-dev/_capabilities/bizDayAtomicValidationVersion`を`614100`に設定します。
+4. devで履歴の追加読込、二端末の同時開始、再編集、営業終了、終了バックアップを確認します。
+5. Ver6.141をmainへ公開し、本番端末の強制更新を確認します。
+6. 最後に`pos/_capabilities/bizDayAtomicValidationVersion`を`614100`に設定します。
 
 クライアント実装だけでも通常の競合確認は行いますが、読み取り直後に二端末が同時保存する競合を完全に拒否するには、このルールの適用が必要です。
