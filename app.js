@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.144";
+const APP_VERSION="6.145";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4405,6 +4405,9 @@ if(exp){
   html+='<button class="btn" data-phidg="'+h.id+'" onclick="printHistReceiptGuest(Number(this.dataset.phidg))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:600;">🖨 ゲスト</button>';
   html+='<button class="btn" data-phids="'+h.id+'" onclick="printHistReceipt(Number(this.dataset.phids))" style="padding:6px 12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">🖨 店舗</button>';
   html+='<button class="btn" data-ehid="'+h.id+'" onclick="editHistPay(parseInt(this.dataset.ehid))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:12px;">支払変更</button>';
+  if(S.activeBizDay&&(S.history||[]).some(sh=>String(sh.id)===String(h.id))){
+    html+='<button class="btn" data-rhid="'+h.id+'" onclick="restoreHistoryToFloor(this.dataset.rhid)" style="padding:6px 12px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:700;">フロア復活して再編集</button>';
+  }
   if((S.history||[]).some(sh=>sh.id===h.id)){
     html+='<button class="btn" data-dhid="'+h.id+'" onclick="cdh(parseInt(this.dataset.dhid))" style="padding:6px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button>';
   }
@@ -4581,6 +4584,111 @@ async function guardedHistoryRecordUpdate(expected,desired){
   S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
   if(saved)S.history=[saved,...S.history].sort((a,b)=>b.startTime-a.startTime);
   return saved;
+}
+function histRestoreSessionKey(h){
+  return String(h?.sessionId||h?.startTime||"");
+}
+function isCheckoutEndedAssignment(a,h){
+  if(!a||!h||String(a.tableId||"")!==String(h.tableId||""))return false;
+  const hKey=histRestoreSessionKey(h);
+  const aKey=String(a.sessionId||"");
+  const sessionMatched=(hKey&&aKey&&aKey===hKey)||(!aKey&&Number(a.startTime||0)>=Number(h.startTime||0)-60000&&Number(a.startTime||0)<=Number(h.endTime||0));
+  if(!sessionMatched||!a.endTime||!h.endTime)return false;
+  return Math.abs(Number(a.endTime)-Number(h.endTime))<=1000;
+}
+function buildRestoredSessionFromHistory(h){
+  const items=cloneData(h.items||[]);
+  const honShimeis=gmsUniqueStrings(items.filter(i=>i&&i.isHonShimei&&i.castId!=null).map(i=>i.castId));
+  const banaiShimeis=gmsUniqueStrings(items.filter(i=>i&&i.isBanaiShimei&&i.castId!=null).map(i=>i.castId));
+  return markSessionGuard({
+    sessionId:h.sessionId||"ses_"+String(h.startTime||Date.now())+"_restore",
+    tableId:h.tableId,
+    startTime:h.startTime,
+    guests:Math.max(1,Number(h.guests)||1),
+    items,
+    setEndTime:h.endTime||null,
+    honShimeis,
+    banaiShimeis,
+    note:h.note||""
+  });
+}
+async function guardedRestoreHistoryToFloor(expected){
+  requireScopedAtomic();
+  const tableId=String(expected?.tableId||"");
+  if(!tableId)throw Object.assign(new Error("missing table"),{userMessage:"復活するテーブルを確認できません。"});
+  if(!S.tables.some(t=>String(t.id)===tableId))throw Object.assign(new Error("missing table setting"),{userMessage:"この会計のテーブルが現在のテーブル設定に存在しないため、フロア復活できません。"});
+  const matches={};
+  await Promise.all(castIdQueryValues(expected.id).map(async value=>{
+    const snap=await window._db.ref(FB_ROOT+"/history").orderByChild("id").equalTo(value).get();
+    Object.assign(matches,snap.val()||{});
+  }));
+  const entries=Object.entries(matches);
+  if(entries.length!==1)throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が変更されています。最新状態を読み込み直してください。"});
+  const [historyKey,remoteHistory]=entries[0];
+  if(!sameFirebaseValue(remoteHistory,expected))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で変更されています。最新状態を確認してください。"});
+
+  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,"history/"+historyKey,"_tableAssignmentRevisions/"+tableId]);
+  const expectedActiveBizDay=S.activeBizDay||null;
+  if((root.activeBizDay||null)!==expectedActiveBizDay)throw Object.assign(new Error("business day changed"),{userMessage:"営業状態が他端末で変更されています。最新状態を確認してください。"});
+  if(getPathValue(root,"sessions/"+tableId))throw Object.assign(new Error("table occupied"),{userMessage:"復活先のテーブルは現在使用中です。空席にしてから再実行してください。"});
+  if(!sameFirebaseValue(getPathValue(root,"history/"+historyKey),expected))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で変更されています。最新状態を確認してください。"});
+
+  const assignSnap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(tableId).get();
+  root.assignments=assignSnap.val()||{};
+  if(Object.values(root.assignments).some(a=>a&&String(a.tableId||"")===tableId&&!a.endTime)){
+    throw Object.assign(new Error("active assignment exists"),{userMessage:"復活先テーブルに付け回し中のデータがあります。最新状態を確認してください。"});
+  }
+  const restoreAssignments=Object.entries(root.assignments).filter(([,a])=>isCheckoutEndedAssignment(a,expected));
+  const restoreCastIds=gmsUniqueStrings(restoreAssignments.map(([,a])=>a.castId));
+  const counterPaths=["_tableAssignmentRevisions/"+tableId,...restoreCastIds.flatMap(id=>["_castAssignmentRevisions/"+id,"_castShiftRevisions/"+id])];
+  await readScopedPaths(counterPaths.filter(path=>path!=="_tableAssignmentRevisions/"+tableId),root);
+  await Promise.all([
+    ...restoreCastIds.map(async id=>{Object.assign(root.assignments,await readRemoteActiveAssignmentsForCast(id));}),
+    ...restoreCastIds.map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteActiveShiftsForCast(id));})
+  ]);
+  const restoreIds=restoreAssignments.map(([id])=>id);
+  const eligibleAssignments=restoreAssignments.filter(([id,a])=>remoteActiveShift(root,a.castId)&&!remoteActiveAssign(root,a.castId,restoreIds));
+  const eligibleCastIds=gmsUniqueStrings(eligibleAssignments.map(([,a])=>a.castId));
+
+  const restoredSession=buildRestoredSessionFromHistory(expected);
+  const updates={
+    [FB_ROOT+"/sessions/"+tableId]:restoredSession,
+    [FB_ROOT+"/history/"+historyKey]:null
+  };
+  const expectedRecords={["sessions/"+tableId]:null,["history/"+historyKey]:expected};
+  eligibleAssignments.forEach(([id,a])=>{
+    updates[FB_ROOT+"/assignments/"+id]={...cloneData(a),endTime:null};
+    expectedRecords["assignments/"+id]=cloneData(a);
+  });
+  eligibleCastIds.forEach(castId=>{
+    const shift=remoteActiveShift(root,castId);
+    updates[FB_ROOT+"/shifts/"+shift.id]=shiftWithStatus(shift,"active",Date.now());
+    expectedRecords["shifts/"+shift.id]=cloneData(shift);
+  });
+  await guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths,recordPaths:["history/"+historyKey,"sessions/"+tableId,...eligibleAssignments.map(([id])=>"assignments/"+id),...eligibleCastIds.map(id=>"shifts/"+remoteActiveShift(root,id).id)]});
+  S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
+  return{session:restoredSession,restoredAssignments:eligibleAssignments.length,skippedAssignments:restoreAssignments.length-eligibleAssignments.length};
+}
+async function restoreHistoryToFloor(id){
+  if(!S.activeBizDay){alert("営業中のみフロア復活できます。過去営業日は営業日データを読み込んでから操作してください。");return;}
+  const record=(S.history||[]).find(h=>String(h.id)===String(id));
+  if(!record){alert("復活対象の会計履歴が現在の営業データにありません。最新状態を確認してください。");return;}
+  if(S.sessions&&S.sessions[record.tableId]){alert("復活先のテーブルは現在使用中です。空席にしてから再実行してください。");return;}
+  if(!confirm("この会計履歴を削除して、テーブル「"+(record.tableLabel||record.tableId)+"」をフロアへ復活します。\n復活後に内容を修正して、もう一度会計してください。"))return;
+  return withDataOperation("history:"+record.id,async()=>{
+    try{
+      const restored=await guardedRestoreHistoryToFloor(cloneData(record));
+      sbs(true,"同期済み ✓");
+      window._viewHistRec=null;window._histDetailBack=null;
+      at=restored.session.tableId;vw="floor";closeM();render();
+      if(restored.skippedAssignments>0)alert("会計をフロアへ復活しました。\n退勤済み、または別テーブル対応中の付け回しは復活せず、履歴のまま残しています。");
+      setTimeout(()=>openFloorDetail(restored.session.tableId),0);
+    }catch(error){
+      console.error("会計履歴のフロア復活に失敗しました",error);
+      sbs(false,"保存エラー");
+      alert(error.userMessage||"フロア復活に失敗しました。最新状態を確認してから再実行してください。");
+    }
+  });
 }
 async function saveHistPay(){
   const h=S.history.find(x=>x.id===editPayHid);if(!h)return;
@@ -7688,6 +7796,7 @@ else{
   const dur=Math.round((_hr.endTime-_hr.startTime)/60000);
   const inTime=new Date(_hr.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
   const outTime=new Date(_hr.endTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
+  const canRestoreHist=S.activeBizDay&&(S.history||[]).some(h=>String(h.id)===String(_hr.id));
   let itRows="";
   [...(_hr.items||[])].forEach(i=>{const isDisc=i.isDiscount;itRows+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
   h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:480px;">'
@@ -7708,6 +7817,7 @@ else{
     +'<div class="ir" style="font-size:12px;"><span style="color:#888;">tax+SC ('+Math.round((_hr.rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(_hr.tax)+'</span></div>'
     +'<div class="ir" style="font-size:15px;font-weight:700;"><span>合計</span><span style="color:#d4a017;">'+pAmt(_hr.total)+'</span></div>'
     +'</div>'
+    +(canRestoreHist?'<button class="btn" data-rhid="'+_hr.id+'" onclick="restoreHistoryToFloor(this.dataset.rhid)" style="width:100%;margin-top:16px;padding:10px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:6px;font-size:13px;font-weight:800;touch-action:manipulation;">フロア復活して再編集</button>':'')
     +(window._histDetailBack?'<button class="btn" onclick="md=\''+window._histDetailBack+'\';rModal()" style="width:100%;margin-top:16px;padding:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:12px;touch-action:manipulation;">← 売上情報に戻る</button>':'')
     +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:'+(window._histDetailBack?'6':'16')+'px;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;">閉じる</button>'
     +'</div></div>';

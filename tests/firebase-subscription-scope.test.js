@@ -7,10 +7,10 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.144"/);
-assert.match(index,/Ver6\.144/);
-assert.match(index,/app\.js\?v=6\.144/);
-assert.match(sw,/genesis-pos-v6\.144-auth/);
+assert.match(app,/const APP_VERSION="6\.145"/);
+assert.match(index,/Ver6\.145/);
+assert.match(index,/app\.js\?v=6\.145/);
+assert.match(sw,/genesis-pos-v6\.145-auth/);
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");
@@ -46,6 +46,9 @@ assert.match(app,/async function saveGmsTargetCorrection[\s\S]*\/bizDays\/"\+id\
 assert.doesNotMatch(app,/async function saveGmsTargetEdit[\s\S]*guardedRootTransaction/ ,"GMS target corrections must not run a POS-root transaction");
 assert.match(app,/async function saveGmsTargetEdit[\s\S]*saveGmsTargetCorrection\(dayId,cloneData\(record\),index/ ,"GMS target corrections must use the lightweight correction save");
 assert.match(app,/function closedBizDaySaveErrorMessage[\s\S]*Firebaseの書込権限[\s\S]*Firebaseへ保存できませんでした/,"historical edit errors must identify permission and connection failures");
+assert.match(app,/async function guardedRestoreHistoryToFloor[\s\S]*orderByChild\("id"\)\.equalTo\(value\)[\s\S]*orderByChild\("tableId"\)\.equalTo\(tableId\)[\s\S]*\[FB_ROOT\+"\/sessions\/"\+tableId\]:restoredSession[\s\S]*\[FB_ROOT\+"\/history\/"\+historyKey\]:null[\s\S]*guardedScopedCommit/,"history restore must target one history record, one table session, and related assignments only");
+assert.match(app,/function isCheckoutEndedAssignment[\s\S]*Math\.abs\(Number\(a\.endTime\)-Number\(h\.endTime\)\)<=1000/,"history restore must only reactivate assignments ended by that checkout");
+assert.match(app,/async function restoreHistoryToFloor[\s\S]*S\.activeBizDay[\s\S]*S\.sessions&&S\.sessions\[record\.tableId\][\s\S]*openFloorDetail\(restored\.session\.tableId\)/,"history restore must require an active business day, an empty table, and reopen the restored floor detail");
 
 const syncSource=app.slice(app.indexOf("const POS_CORE_SYNC_PATHS"),app.indexOf("// Firebase config"));
 const subscribed=[];
