@@ -7,10 +7,12 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.146"/);
-assert.match(index,/Ver6\.146/);
-assert.match(index,/app\.js\?v=6\.146/);
-assert.match(sw,/genesis-pos-v6\.146-auth/);
+assert.match(app,/const APP_VERSION="6\.147"/);
+assert.match(index,/Ver6\.147/);
+assert.match(index,/app\.js\?v=6\.147/);
+assert.match(sw,/genesis-pos-v6\.147-auth/);
+assert.match(app,/setEndTime:s\.setEndTime\|\|null/,"checkout history must retain the session set end time");
+assert.match(app,/function historyTimeLabel[\s\S]*セット終了[\s\S]*historyTimeLabel\(h,true\)[\s\S]*historyTimeLabel\(_hr,false\)/,"accounting history display must show the stored set end time");
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");

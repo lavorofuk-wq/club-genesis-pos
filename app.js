@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.146";
+const APP_VERSION="6.147";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1948,6 +1948,7 @@ sessionId:s.sessionId||null,
 tableId:checkoutTableId,
 tableLabel:S.tables.find(t=>t.id===checkoutTableId)?.label,
 startTime:s.startTime,
+setEndTime:s.setEndTime||null,
 endTime:now_co,
 guests:s.guests,
 items:s.items,
@@ -4302,6 +4303,15 @@ function oet(){
   etv=roundHHMM(5);
   om("et");
 }
+function historyTimeLabel(h,withDate=false){
+  const start=Number(h?.startTime)||0;
+  const setEnd=Number(h?.setEndTime)||0;
+  const startText=start
+    ?new Date(start).toLocaleString("ja-JP",withDate?{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}:{hour:"2-digit",minute:"2-digit"})
+    :"--:--";
+  const endText=setEnd?new Date(setEnd).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
+  return "入店 "+startText+(endText?" → セット終了 "+endText:"");
+}
 
 // ===== HISTORY / SETTINGS は省略なし =====
 function rHist(){
@@ -4378,7 +4388,7 @@ html+='<span style="font-size:12px;color:#888;">'+h.guests+'名</span>';
 if(hHon.length)html+='<span style="font-size:11px;color:#ff4444;">本:'+hHon.join("・")+'</span>';
 if(hBan.length)html+='<span style="font-size:11px;color:#4ade80;">場:'+hBan.join("・")+'</span>';
 html+='</div>';
-html+='<div style="font-size:11px;color:#666;">入店 '+new Date(h.startTime).toLocaleString("ja-JP",{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"})+'</div></div>';
+html+='<div style="font-size:11px;color:#666;">'+historyTimeLabel(h,true)+'</div></div>';
 html+='<div style="display:flex;align-items:center;gap:8px;"><span style="color:#d4a017;font-weight:700;font-size:16px;">'+pAmt(h.total)+'</span>'
   +(h.splits&&h.splits.length>0
     ?h.splits.map(sp=>'<span style="font-size:10px;padding:2px 5px;background:'+(sp.method==="card"?"rgba(56,189,248,.15)":"rgba(184,150,12,.12)")+';border:1px solid '+(sp.method==="card"?"rgba(56,189,248,.3)":"rgba(184,150,12,.3)")+';color:'+(sp.method==="card"?"#38bdf8":"#d4a017")+';border-radius:3px;font-weight:700;">'+(sp.method==="card"?"カード":"現金")+'¥'+fmt(sp.amount)+'</span>').join("")
@@ -4605,7 +4615,7 @@ function buildRestoredSessionFromHistory(h){
     startTime:h.startTime,
     guests:Math.max(1,Number(h.guests)||1),
     items,
-    setEndTime:h.endTime||null,
+    setEndTime:h.setEndTime||h.endTime||null,
     honShimeis,
     banaiShimeis,
     note:h.note||""
@@ -7792,7 +7802,6 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const _hr=window._viewHistRec;
 if(!_hr){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
 else{
-  const inTime=new Date(_hr.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
   const canRestoreHist=S.activeBizDay&&(S.history||[]).some(h=>String(h.id)===String(_hr.id));
   let itRows="";
   [...(_hr.items||[])].forEach(i=>{const isDisc=i.isDiscount;itRows+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
@@ -7801,7 +7810,7 @@ else{
     +'<div><span style="font-size:16px;font-weight:700;color:#d4a017;">'+_hr.tableLabel+'</span>'
     +(_hr.note?'<span style="font-size:12px;color:#ffa500;margin-left:8px;">'+_hr.note+'</span>':"")
     +'<span style="font-size:13px;color:#aaa;margin-left:8px;">'+_hr.guests+'名</span></div>'
-    +'<span style="font-size:12px;color:#888;">入店 '+inTime+'</span>'
+    +'<span style="font-size:12px;color:#888;">'+historyTimeLabel(_hr,false)+'</span>'
     +'</div>'
     +'<div style="margin-bottom:12px;">'+itRows+'</div>'
     +'<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:10px;">'
