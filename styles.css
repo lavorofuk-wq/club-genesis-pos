@@ -470,7 +470,6 @@ textarea.ip:focus{
   border:1px solid #bfdbfe!important;
   border-radius:6px!important;
   background:#dbeafe!important;
-  color:var(--gms-primary-dark)!important;
   font-size:clamp(12px,1.6vw,14px)!important;
   font-weight:900!important;
   letter-spacing:0!important;
@@ -730,13 +729,6 @@ textarea:focus-visible{
   background:#0f172a!important;
   border-color:#0f172a!important;
   color:#ffffff!important;
-  opacity:1!important;
-}
-
-#list-root .list-countdown{
-  background:#dbeafe!important;
-  border-color:#bfdbfe!important;
-  color:var(--gms-primary-dark)!important;
   opacity:1!important;
 }
 

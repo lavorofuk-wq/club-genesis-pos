@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.147";
+const APP_VERSION="6.149";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -1948,7 +1948,7 @@ sessionId:s.sessionId||null,
 tableId:checkoutTableId,
 tableLabel:S.tables.find(t=>t.id===checkoutTableId)?.label,
 startTime:s.startTime,
-setEndTime:s.setEndTime||null,
+setEndTime:historySetEndTime(s),
 endTime:now_co,
 guests:s.guests,
 items:s.items,
@@ -4303,9 +4303,21 @@ function oet(){
   etv=roundHHMM(5);
   om("et");
 }
+function historySetEndTime(h){
+  const start=Number(h?.startTime)||0;
+  const baseSet=(h?.items||[]).find(i=>i?.isSet&&!(Number(i.addedGuests)>0));
+  const minutes=Number(baseSet?.minutes)||0;
+  // Quantities and added-guest sets are charges, not additional elapsed time.
+  if(start>0&&minutes>0){
+    const end=start+(minutes+extensionMinutesTotal(h))*60000;
+    if(Number.isFinite(new Date(end).getTime()))return end;
+  }
+  const savedEnd=Number(h?.setEndTime)||0;
+  return savedEnd>start&&Number.isFinite(new Date(savedEnd).getTime())?savedEnd:null;
+}
 function historyTimeLabel(h,withDate=false){
   const start=Number(h?.startTime)||0;
-  const setEnd=Number(h?.setEndTime)||0;
+  const setEnd=historySetEndTime(h);
   const startText=start
     ?new Date(start).toLocaleString("ja-JP",withDate?{month:"numeric",day:"numeric",hour:"2-digit",minute:"2-digit"}:{hour:"2-digit",minute:"2-digit"})
     :"--:--";
@@ -4615,7 +4627,7 @@ function buildRestoredSessionFromHistory(h){
     startTime:h.startTime,
     guests:Math.max(1,Number(h.guests)||1),
     items,
-    setEndTime:h.setEndTime||h.endTime||null,
+    setEndTime:historySetEndTime(h),
     honShimeis,
     banaiShimeis,
     note:h.note||""
