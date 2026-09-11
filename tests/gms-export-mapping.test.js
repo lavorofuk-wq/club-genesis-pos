@@ -20,6 +20,8 @@ const context = {
   stableJson: value => GMS_JSON.canonicalJson(value === undefined ? null : value),
   normalizeCastType: GMS_JSON.normalizeCastType,
   roomTypeFromItem: () => "",
+  recordSalesSubtotal: record => Number(record.subtotal || record.total) || 0,
+  recordSalesScale: () => 1,
   Map,
   Set,
   Date,
@@ -33,6 +35,7 @@ const context = {
 vm.createContext(context);
 vm.runInContext(source, context);
 vm.runInContext(targetEditSource, context);
+const plainObject = value => JSON.parse(JSON.stringify(value));
 
 const newDohanItems = context.buildDohanChargeItems([casts[0], casts[1]], 3000, 12345);
 assert.strictEqual(newDohanItems.length, 2, "新規同伴2名に同伴料を2本作成");
@@ -240,6 +243,49 @@ mismatchedDay.shifts.t.isTrial = false;
 const errors = context.gmsCastTypeSourceErrors(mismatchedDay, "2026-09-02");
 assert(errors.some((error) => error.includes("体入 美咲") && error.includes("区分が不一致")), "元データ内の区分不一致も名前付きで検出");
 
+const lunaId = "1789127986881";
+const lunaDate = "2026-09-11";
+const lunaHistory = [{
+  id: "luna-sale", startTime: 1, endTime: 2, subtotal: 28142, total: 28142, payMethod: "cash", guests: 1,
+  items: [
+    { id: "bs-luna", label: "場内指名料 (ルナ)", price: 2000, qty: 1, castId: lunaId, castName: "ルナ", isBanaiShimei: true },
+    { id: "ext-luna", label: "延長60分", price: 26142, qty: 1, isExtension: true, isBanaiExtension: true, banaiExtCastIds: [lunaId] },
+    { id: "cd-luna", label: "キャストDrink (ルナ)", category: "castDrink", price: 10000, qty: 1, castId: lunaId, castName: "ルナ", backTargetCastIds: [lunaId], backTargetCastNames: ["ルナ"], backType: "castDrink", backAllocation: "orderedCast" }
+  ]
+}];
+context.S.castLifecycleLogs[lunaDate] = { enteredCasts: [], exitedCasts: [], trialCasts: [{ castId: lunaId, castName: "ルナ", castType: "trial", isTrial: true }] };
+const lunaDay = {
+  date: lunaDate, endedAt: 2, history: lunaHistory, assignments: {},
+  shifts: { luna: { castId: lunaId, castName: "ルナ", castType: "trial", isTrial: true, clockIn: 1, clockOut: 2 } },
+  rosterSnapshot: { complete: true, capturedAt: "2026-09-12T01:00:00.000Z", casts: [{ castId: lunaId, castName: "ルナ", castType: "trial", isTrial: true }] }
+};
+const lunaIdentity = context.gmsCastIdentityResult(lunaDay, lunaDate, lunaHistory);
+assert.deepStrictEqual(Array.from(lunaIdentity.errors), [], "9月11日のルナは同日記録からID・名前を一意に解決");
+const lunaSales = context.gmsCastSales(lunaHistory, lunaIdentity.names);
+assert.strictEqual(lunaSales.length, 1, "既存の売上行作成条件を維持");
+assert.deepStrictEqual(plainObject(lunaSales[0]), { castId: lunaId, castName: "ルナ", honShimeiSales: 0, jonaiExtensionSales: 36142, jonaiExtensionBackSales: 0, drinkSales: 10000, totalAttributedSales: 36142 }, "場内延長が先に売上行を作っても履歴名でルナを補完");
+const lunaTransactions = context.gmsTransactions(lunaHistory, lunaIdentity.names);
+assert(lunaTransactions[0].items.filter(item => item.castId === lunaId).every(item => item.castName === "ルナ"), "商品明細を同じIDの勤務名へ揃える");
+assert.strictEqual(context.gmsCastWork(lunaDay, lunaDate, lunaIdentity.names)[0].castName, "ルナ", "勤務名もルナを維持");
+
+const conflictDay = JSON.parse(JSON.stringify(lunaDay));
+conflictDay.shifts.luna.castName = "るな";
+const nameConflict = context.gmsCastIdentityResult(conflictDay, lunaDate, lunaHistory);
+assert(nameConflict.errors.some(error => error.includes(lunaDate) && error.includes(lunaId) && error.includes("ルナ") && error.includes("るな") && error.includes("shifts[luna]")), "記録間の名前不一致は対象日・ID・各名称・箇所を示して拒否");
+
+const sameNameDifferentIds = context.gmsCastIdentityResult({ rosterSnapshot: { casts: [{ castId: "same-1", castName: "あい" }, { castId: "same-2", castName: "あい" }] }, shifts: {}, assignments: {} }, "2026-09-10", []);
+assert.deepStrictEqual(Array.from(sameNameDifferentIds.errors), [], "同名の別IDを競合扱いしない");
+assert.deepStrictEqual(Array.from(sameNameDifferentIds.names.keys()), ["same-1", "same-2"], "同名の別人をIDごとに保持");
+
+const originalCurrentName = casts[0].name;
+casts[0].name = "現在の在籍名";
+context.S.castLifecycleLogs["2026-08-01"] = { enteredCasts: [{ castId: "regular-1", castName: "当時の在籍名", castType: "regular" }], exitedCasts: [], trialCasts: [] };
+const pastHistory = [{ subtotal: 10000, items: [{ id: "past-hs", castId: "regular-1", castName: "当時の在籍名", isHonShimei: true }] }];
+const pastDay = { date: "2026-08-01", rosterSnapshot: { complete: true, capturedAt: "2026-08-02T01:00:00.000Z", casts: [{ castId: "regular-1", castName: "当時の在籍名", castType: "regular" }] }, shifts: { r: { castId: "regular-1", castName: "当時の在籍名" } }, assignments: {} };
+const pastIdentity = context.gmsCastIdentityResult(pastDay, pastDay.date, pastHistory);
+assert.strictEqual(context.gmsCastSales(pastHistory, pastIdentity.names)[0].castName, "当時の在籍名", "退店・改名後の過去日再出力で現在マスタ名を上書きしない");
+casts[0].name = originalCurrentName;
+
 const closedRecord = {
   id: "closed-1", tableId: "t1", tableLabel: "テーブル 1", total: 39000, payMethod: "cash",
   items: [
@@ -299,5 +345,6 @@ assert.match(app, /items\.push\(\.\.\.buildDohanChargeItems\(douhanCasts/, "同�
 assert.match(app, /md==="gmsTargetEdit"/, "締め済み対象キャスト修正画面を持つ");
 assert.match(app, /function gmsBottleBackEligibleCastIds[\s\S]*honIds[\s\S]*isBanaiExtension/, "ボトル対象を本指名・場内延長の売上判定に限定する");
 assert.match(app, /function odq[\s\S]*eligibleIds\.length[\s\S]*liquor-target/, "売上対象キャストがいる場合だけボトル選択画面を開く");
+assert.match(app, /function gmsCastIdentityResult/, "同日記録をIDで照合する名前解決を持つ");
 
 console.log("gms export mapping tests passed");

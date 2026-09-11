@@ -7,10 +7,10 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.149"/);
-assert.match(index,/Ver6\.149/);
-assert.match(index,/app\.js\?v=6\.149/);
-assert.match(sw,/genesis-pos-v6\.149-auth/);
+assert.match(app,/const APP_VERSION="6\.149\.1"/);
+assert.match(index,/Ver6\.149\.1/);
+assert.match(index,/app\.js\?v=6\.149\.1/);
+assert.match(sw,/genesis-pos-v6\.149\.1-auth/);
 assert.match(app,/setEndTime:historySetEndTime\(s\)/,"checkout history must retain the calculated set end time");
 assert.match(app,/function historyTimeLabel[\s\S]*historySetEndTime\(h\)[\s\S]*セット終了[\s\S]*historyTimeLabel\(h,true\)[\s\S]*historyTimeLabel\(_hr,false\)/,"current and past history must show the calculated set end time");
 

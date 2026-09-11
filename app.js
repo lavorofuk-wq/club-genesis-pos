@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149";
+const APP_VERSION="6.149.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -3018,15 +3018,48 @@ function gmsBanaiExtensionSalesPhases(items){
   });
   return[...phases.values()].filter(p=>p.ids.length);
 }
-function gmsCastName(id,fallback){
+function gmsCastIdentityResult(day,businessDate,hist){
+  const claims=new Map();
+  const add=(idValue,nameValue,path)=>{
+    const id=String(idValue??"").trim(),name=String(nameValue??"").trim();
+    if(!id||!name)return;
+    if(!claims.has(id))claims.set(id,new Map());
+    const byName=claims.get(id);
+    if(!byName.has(name))byName.set(name,[]);
+    byName.get(name).push(path);
+  };
+  const addRow=(row,path)=>add(row?.castId??row?.id,row?.castName||row?.name,path);
+  (day?.rosterSnapshot?.casts||[]).forEach((row,index)=>addRow(row,"rosterSnapshot.casts["+index+"]"));
+  Object.entries(day?.shifts||{}).forEach(([key,row])=>addRow(row,"castWork元データ shifts["+key+"]"));
+  Object.entries(day?.assignments||{}).forEach(([key,row])=>addRow(row,"付け回し assignments["+key+"]"));
+  ["entered","exited","trial"].forEach(type=>gmsRawLifecycleRows(businessDate,type).forEach((row,index)=>addRow(row,type+"Casts["+index+"]")));
+  (hist||[]).forEach((record,transactionIndex)=>(record?.items||[]).forEach((item,itemIndex)=>{
+    const base="transactions["+transactionIndex+"].items["+itemIndex+"]";
+    add(item?.castId,item?.castName,base+".castName");
+    const ids=Array.isArray(item?.backTargetCastIds)?item.backTargetCastIds:[];
+    const names=Array.isArray(item?.backTargetCastNames)?item.backTargetCastNames:[];
+    ids.forEach((id,index)=>add(id,names[index],base+".backTargetCastNames["+index+"]"));
+  }));
+  const names=new Map(),errors=[];
+  claims.forEach((byName,id)=>{
+    if(byName.size===1){names.set(id,byName.keys().next().value);return;}
+    const details=[...byName.entries()].map(([name,paths])=>"「"+name+"」="+paths.join("、")).join(" / ");
+    errors.push("営業日 "+businessDate+": 対象ID「"+id+"」／対象者「"+[...byName.keys()].join(" / ")+"」／問題箇所 "+details+": 記録間でキャスト名が一致しません。正しい名前を確認してください");
+  });
+  return{names,errors};
+}
+function gmsCastName(id,fallback,nameMap){
+  const key=String(id??"");
+  if(nameMap instanceof Map)return nameMap.get(key)||String(fallback||"").trim();
   const c=allCasts().find(c=>String(c.id)===String(id));
   return c?.name||fallback||"";
 }
-function gmsCastSales(hist){
+function gmsCastSales(hist,nameMap){
   const map={};
   const ensure=(id,name)=>{
     const k=String(id||name||"unknown");
     if(!map[k])map[k]={castId:String(id||""),castName:name||"",honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,drinkSales:0,totalAttributedSales:0};
+    else if(!map[k].castName&&name)map[k].castName=name;
     return map[k];
   };
   (hist||[]).forEach(h=>{
@@ -3034,18 +3067,18 @@ function gmsCastSales(hist){
     const hon=[...new Map(items.filter(i=>i.isHonShimei&&i.castId!=null).map(i=>[String(i.castId),i])).values()];
     if(hon.length){
       const share=Math.floor(recordSalesSubtotal(h)/hon.length);
-      hon.forEach(i=>{ensure(i.castId,gmsCastName(i.castId,i.castName||itemCastName(i))).honShimeiSales+=share;});
+      hon.forEach(i=>{ensure(i.castId,gmsCastName(i.castId,i.castName||(nameMap instanceof Map?"":itemCastName(i)),nameMap)).honShimeiSales+=share;});
     }else{
       const salesScale=recordSalesScale(items,h.subtotal);
       gmsBanaiExtensionSalesPhases(items).forEach(phase=>{
         const share=Math.floor((phase.total||0)*salesScale/phase.ids.length);
         const backShare=Math.floor((phase.backTotal||0)*salesScale/phase.ids.length);
-        phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,""));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
+        phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,"",nameMap));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
       });
     }
     items.filter(i=>gmsItemCategory(i)==="castDrink").forEach(i=>{
       const ids=gmsUniqueStrings(i.backTargetCastIds?.length?i.backTargetCastIds:[i.castId]);
-      ids.forEach(id=>{ensure(id,gmsCastName(id,i.castName)).drinkSales+=gmsInt((i.price||0)*(i.qty||1));});
+      ids.forEach(id=>{ensure(id,gmsCastName(id,i.castName,nameMap)).drinkSales+=gmsInt((i.price||0)*(i.qty||1));});
     });
   });
   return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
@@ -3059,7 +3092,7 @@ function gmsCastSalesSummary(rows){
     totalAttributedSales:sum.totalAttributedSales+gmsInt(row.totalAttributedSales)
   }),{honShimeiSales:0,jonaiExtensionSales:0,jonaiExtensionBackSales:0,drinkSales:0,totalAttributedSales:0});
 }
-function gmsTransactionItems(items){
+function gmsTransactionItems(items,nameMap){
   const src=(items||[]).filter(Boolean);
   return src.map((item,itemIndex)=>{
     const category=gmsItemCategory(item);
@@ -3081,12 +3114,12 @@ function gmsTransactionItems(items){
       if(backTargetCastIds.length===1)backAllocation=backAllocation||"single";
       else if(backTargetCastIds.length>1)backAllocation=backAllocation||"equal";
     }
-    const backTargetCastNames=backTargetCastIds.map((id,index)=>storedTargetNames[index]||(String(item.castId||"")===id?String(item.castName||""):"")||gmsCastName(id,""));
+    const backTargetCastNames=backTargetCastIds.map((id,index)=>gmsCastName(id,storedTargetNames[index]||(String(item.castId||"")===id?String(item.castName||""):""),nameMap));
     const primaryTargetId=backTargetCastIds[0]||"";
     const targetCategory=category==="champagneWine"||category==="keepBottle"||category==="dohan";
     const suppressBottleTarget=isBottle&&!bottleBackEligible;
     const castId=suppressBottleTarget?"":targetCategory&&primaryTargetId?primaryTargetId:item.castId==null||item.castId===""?primaryTargetId:String(item.castId);
-    const castName=suppressBottleTarget?"":targetCategory&&primaryTargetId?(backTargetCastNames[0]||gmsCastName(primaryTargetId,"")):String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]||gmsCastName(primaryTargetId,""):"");
+    const castName=suppressBottleTarget?"":castId?gmsCastName(castId,targetCategory&&primaryTargetId?backTargetCastNames[0]:String(item.castName||"")||(primaryTargetId?backTargetCastNames[0]:""),nameMap):"";
     return{
       itemId:String(item.id||""),label:String(item.label||""),category,
       price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
@@ -3098,14 +3131,14 @@ function gmsTransactionItems(items){
     };
   });
 }
-function gmsTransactions(hist){
+function gmsTransactions(hist,nameMap){
   return(hist||[]).map(h=>({
     transactionId:String(h.id||""),tableId:String(h.tableId||""),tableLabel:String(h.tableLabel||""),
     startTime:Number(h.startTime)||0,endTime:Number(h.endTime)||0,guests:gmsInt(h.guests),note:String(h.note||""),
     payMethod:h.payMethod==="card"?"card":"cash",
     splits:(h.splits&&h.splits.length?h.splits:[{method:h.payMethod==="card"?"card":"cash",amount:h.total}]).map(sp=>({method:sp.method==="card"?"card":"cash",amount:gmsInt(sp.amount)})),
     subtotal:gmsInt(h.subtotal),discount:gmsInt(h.discount),tax:gmsInt(h.tax),total:gmsInt(h.total),
-    items:gmsTransactionItems(h.items||[])
+    items:gmsTransactionItems(h.items||[],nameMap)
   })).sort((a,b)=>a.startTime-b.startTime);
 }
 function gmsRawLifecycleRows(date,type){
@@ -3149,19 +3182,20 @@ function gmsCastTypeSourceErrors(day,businessDate){
   allCasts().filter(c=>relevantIds.has(String(c.id))).forEach((row,index)=>add(row,"casts["+index+"]"));
   return[...new Set(errors)];
 }
-function gmsCastWork(day,businessDate){
+function gmsCastWork(day,businessDate,nameMap){
   return Object.values(day.shifts||{}).sort((a,b)=>(a.clockIn||0)-(b.clockIn||0)).map(sh=>{
     const cast=allCasts().find(c=>String(c.id)===String(sh.castId));
     const startTime=gmsHHMM(sh.clockIn),endTime=gmsHHMM(sh.clockOut||day.endedAt);
     const castType=gmsCastTypeForDay(day,businessDate||day.date||day.id,sh.castId,sh);
-    const name=sh.castName||cast?.name||"";
+    const name=gmsCastName(sh.castId,sh.castName||(nameMap instanceof Map?"":cast?.name)||"",nameMap);
     return{castId:String(sh.castId||""),castName:name,name,castType,isTrial:castType==="trial",startTime,endTime,breakMinutes:0,hours:gmsHours(startTime,endTime,0)};
   });
 }
-function gmsLifecycleRows(date,type,day){
+function gmsLifecycleRows(date,type,day,nameMap){
   return gmsRawLifecycleRows(date,type).map(row=>{
     const castType=type==="trial"?"trial":gmsCastTypeForDay(day,date,row.castId,row);
-    return{...row,castType,isTrial:castType==="trial"};
+    const castName=gmsCastName(row.castId,row.castName||row.name||"",nameMap);
+    return{...row,castName,...(row.name!=null?{name:castName}:{}),castType,isTrial:castType==="trial"};
   });
 }
 function gmsIso(value,fallback){
@@ -3179,21 +3213,29 @@ function gmsStableHash(text,seed){
 function gmsStableId(prefix,parts){
   return GMS_JSON.stableId(prefix,parts);
 }
-function gmsRosterSnapshot(capturedAt,day){
+function gmsRosterSnapshot(capturedAt,day,businessDate,hist,nameMap){
   if(day?.rosterSnapshot&&Array.isArray(day.rosterSnapshot.casts)){
     return GMS_JSON.createRosterSnapshot(
-      day.rosterSnapshot.casts,
+      day.rosterSnapshot.casts.map(row=>{
+        const castName=gmsCastName(row.castId??row.id,row.castName||row.name||"",nameMap);
+        return{...row,name:castName,castName};
+      }),
       day.rosterSnapshot.capturedAt||capturedAt,
       day.rosterSnapshot.complete===true
     );
   }
-  // Ver6.102以前の営業日は当時の完全名簿を復元できないため、現在名簿を参考値として出力する。
-  return GMS_JSON.createRosterSnapshot(allCasts(),capturedAt,false);
+  // 保存済み名簿がない過去日は、現在のマスタ名で上書きせず同日の記録だけから不完全名簿を再構成する。
+  const rows=[];
+  if(nameMap instanceof Map)nameMap.forEach((name,id)=>{
+    const shift=Object.values(day?.shifts||{}).find(row=>String(row?.castId||"")===id);
+    rows.push({castId:id,name,castName:name,castType:gmsCastTypeForDay(day,businessDate,id,shift),isTrial:gmsCastTypeForDay(day,businessDate,id,shift)==="trial"});
+  });
+  return GMS_JSON.createRosterSnapshot(rows,capturedAt,false);
 }
-function gmsLifecycleEvents(businessDate,day){
-  const entered=gmsLifecycleRows(businessDate,"entered",day).map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
-  const departed=gmsLifecycleRows(businessDate,"exited",day).map(row=>({row,eventType:"departed",timeField:"exitedAt"}));
-  const trial=gmsLifecycleRows(businessDate,"trial",day).map(row=>({row,eventType:"trial",timeField:"trialRegisteredAt"}));
+function gmsLifecycleEvents(businessDate,day,nameMap){
+  const entered=gmsLifecycleRows(businessDate,"entered",day,nameMap).map(row=>({row,eventType:"entered",timeField:"enteredAt"}));
+  const departed=gmsLifecycleRows(businessDate,"exited",day,nameMap).map(row=>({row,eventType:"departed",timeField:"exitedAt"}));
+  const trial=gmsLifecycleRows(businessDate,"trial",day,nameMap).map(row=>({row,eventType:"trial",timeField:"trialRegisteredAt"}));
   return[...entered,...departed,...trial].map(({row,eventType,timeField})=>{
     const eventAt=gmsIsoForEvent(row,timeField,businessDate,day);
     const castId=String(row.castId||"");
@@ -3231,7 +3273,9 @@ function gmsClosingBasePayload(dayId){
   if(effective.errors.length)return{_gmsError:"保存済みの同伴・ボトルバック対象を確認してください。\n"+effective.errors.slice(0,12).join("\n"),_gmsMeta:{previous:{}}};
   const hist=effective.history,pay=gmsPaymentTotals(hist);
   const totalSales=hist.reduce((a,h)=>a+gmsInt(h.total),0),totalCustomers=hist.reduce((a,h)=>a+gmsInt(h.guests),0);
-  const businessDate=day.date||dayId,transactions=gmsTransactions(hist),castSales=gmsCastSales(hist);
+  const businessDate=day.date||dayId,identity=gmsCastIdentityResult(day,businessDate,hist);
+  if(identity.errors.length)return{_gmsError:"キャスト名の不一致を修正してから再度出力してください。\n"+identity.errors.slice(0,12).join("\n"),_gmsMeta:{previous:{}}};
+  const transactions=gmsTransactions(hist,identity.names),castSales=gmsCastSales(hist,identity.names);
   const capturedAt=gmsIso(day.endedAt||Date.now());
   return{
     schema:"club-genesis-pos-closing",schemaVersion:3,
@@ -3239,9 +3283,9 @@ function gmsClosingBasePayload(dayId){
     sales:{totalSales,cashSales:pay.cash,cardSales:pay.card,discountTotal:hist.reduce((a,h)=>a+gmsInt(h.discount),0),taxServiceTotal:hist.reduce((a,h)=>a+gmsInt(h.tax),0)},
     customers:{groupCount:hist.length,totalCustomers,customerUnitPrice:totalCustomers?Math.floor(totalSales/totalCustomers):0},
     nominations:{honShimeiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isHonShimei).length,0),jonaiCount:hist.reduce((a,h)=>a+(h.items||[]).filter(i=>i.isBanaiShimei).length,0)},
-    transactions,castSales,castWork:gmsCastWork(day,businessDate),
-    enteredCasts:gmsLifecycleRows(businessDate,"entered",day),exitedCasts:gmsLifecycleRows(businessDate,"exited",day),trialCasts:gmsLifecycleRows(businessDate,"trial",day),
-    rosterSnapshot:gmsRosterSnapshot(capturedAt,day),lifecycleEvents:gmsLifecycleEvents(businessDate,day),
+    transactions,castSales,castWork:gmsCastWork(day,businessDate,identity.names),
+    enteredCasts:gmsLifecycleRows(businessDate,"entered",day,identity.names),exitedCasts:gmsLifecycleRows(businessDate,"exited",day,identity.names),trialCasts:gmsLifecycleRows(businessDate,"trial",day,identity.names),
+    rosterSnapshot:gmsRosterSnapshot(capturedAt,day,businessDate,hist,identity.names),lifecycleEvents:gmsLifecycleEvents(businessDate,day,identity.names),
     source:{exportMethod:"file",exportedBy:"POS",businessStartedAt:day.startedAt||null,businessEndedAt:day.endedAt||null},
     checksumAlgorithm:"sha256",checksumCanonicalization:"recursive-key-sort-v1"
   };
@@ -5242,11 +5286,125 @@ async function clearAllAssignments(){
   });
 }
 function sst(t){stab=t;render();}
-function ucn(id,name){
+function castNameItemValue(item,castId,name){
+  const next=cloneData(item),id=String(castId),targetIds=Array.isArray(next?.backTargetCastIds)?next.backTargetCastIds.map(String):[];
+  let changed=false;
+  if(String(next?.castId??"")===id&&String(next.castName||"")!==name){next.castName=name;changed=true;}
+  if(targetIds.includes(id)){
+    const currentNames=Array.isArray(next.backTargetCastNames)?next.backTargetCastNames.map(value=>String(value||"")):[];
+    const names=targetIds.map((target,index)=>target===id?name:(currentNames[index]||""));
+    if(stableJson(names)!==stableJson(currentNames)){next.backTargetCastNames=names;changed=true;}
+  }
+  return{value:changed?next:item,changed};
+}
+function castNameRecordValue(record,castId,name){
+  let changed=false;
+  const items=(record?.items||[]).map(item=>{
+    const result=castNameItemValue(item,castId,name);changed=changed||result.changed;return result.value;
+  });
+  return{value:changed?{...cloneData(record),items}:record,changed};
+}
+function castNameRowValue(row,castId,name){
+  const matches=String(row?.castId??row?.id??"")===String(castId);
+  const alreadyNamed=String(row?.castName||"")===name&&(row?.name==null||String(row.name)===name);
+  if(!matches||alreadyNamed)return{value:row,changed:false};
+  return{value:{...cloneData(row),castName:name,...(row?.name!=null?{name}: {})},changed:true};
+}
+function castNameChangePlan(state,castId,name,businessDate){
+  const id=String(castId),casts=normalizeCasts(state.casts||[]).map(c=>String(c.id)===id?{...c,name}:c);
+  const lifecycle=cloneData(state.castLifecycleLogs||{});
+  if(businessDate&&lifecycle[businessDate]){
+    ["enteredCasts","exitedCasts","trialCasts"].forEach(key=>{
+      lifecycle[businessDate][key]=(lifecycle[businessDate][key]||[]).map(row=>castNameRowValue(row,id,name).value);
+    });
+  }
+  const plan={casts,lifecycle,sessions:{},shifts:{},assignments:{},history:[],changed:{sessions:[],shifts:[],assignments:[],history:[]}};
+  if(!businessDate)return plan;
+  Object.entries(state.sessions||{}).forEach(([key,record])=>{
+    const result=castNameRecordValue(record,id,name);plan.sessions[key]=result.value;if(result.changed)plan.changed.sessions.push(key);
+  });
+  Object.entries(state.shifts||{}).forEach(([key,row])=>{
+    const result=castNameRowValue(row,id,name);plan.shifts[key]=result.value;if(result.changed)plan.changed.shifts.push(key);
+  });
+  Object.entries(state.assignments||{}).forEach(([key,row])=>{
+    const result=castNameRowValue(row,id,name);plan.assignments[key]=result.value;if(result.changed)plan.changed.assignments.push(key);
+  });
+  (state.history||[]).forEach((record,index)=>{
+    const result=castNameRecordValue(record,id,name);plan.history.push(result.value);if(result.changed)plan.changed.history.push(index);
+  });
+  return plan;
+}
+async function remoteHistoryEntry(record){
+  const matches={};
+  await Promise.all(castIdQueryValues(record.id).map(async value=>{
+    const snap=await window._db.ref(FB_ROOT+"/history").orderByChild("id").equalTo(value).get();
+    Object.assign(matches,snap.val()||{});
+  }));
+  const entries=Object.entries(matches);
+  if(entries.length!==1)throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が変更されています。最新状態を読み込み直してください。"});
+  return{key:entries[0][0],record:entries[0][1]};
+}
+async function guardedCastNameChange(castId,name){
+  if(!requireFirebaseReady())throw new Error("Firebase is not ready for cast rename");
+  await waitForSettingSaveQueue("casts");
+  const id=String(castId),businessDate=S.activeBizDay?String(S.activeBizDay):"";
+  const expectedCasts=cloneData(S.casts),expectedLifecycle=cloneData(S.castLifecycleLogs||{});
+  const plan=castNameChangePlan(S,id,name,businessDate);
+  const state=settingSaveState("casts");
+  state.running=true;setSettingSaveStatus("casts","saving","");
+  try{
+    const recordChangeCount=Object.values(plan.changed).reduce((sum,keys)=>sum+keys.length,0);
+    if(!recordChangeCount){
+      await guardedLightweightCastRosterSet(plan.casts,plan.lifecycle,state.confirmedHash??window._remoteValueHashes?.casts,state.confirmedLifecycleHash??window._remoteValueHashes?.castLifecycleLogs);
+    }else{
+      const [castsSnap,lifecycleSnap,revisionSnap]=await Promise.all([
+        window._db.ref(FB_ROOT+"/casts").get(),window._db.ref(FB_ROOT+"/castLifecycleLogs").get(),window._db.ref(FB_ROOT+"/_settingsRevisions/castRoster").get()
+      ]);
+      if(!sameFirebaseValue(castsSnap.val(),expectedCasts)||!sameFirebaseValue(lifecycleSnap.val()||{},expectedLifecycle))throw settingConflictError();
+      const updates={},expectedRecords={};
+      plan.changed.sessions.forEach(key=>{const path="sessions/"+key;updates[FB_ROOT+"/"+path]=plan.sessions[key];expectedRecords[path]=cloneData(S.sessions[key]);});
+      plan.changed.shifts.forEach(key=>{const path="shifts/"+key;updates[FB_ROOT+"/"+path]=plan.shifts[key];expectedRecords[path]=cloneData(S.shifts[key]);});
+      plan.changed.assignments.forEach(key=>{const path="assignments/"+key;updates[FB_ROOT+"/"+path]=plan.assignments[key];expectedRecords[path]=cloneData(S.assignments[key]);});
+      const historyEntries=await Promise.all(plan.changed.history.map(async index=>{
+        const local=S.history[index],entry=await remoteHistoryEntry(local);
+        if(!sameFirebaseValue(entry.record,local))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で更新されています。最新状態を確認してください。"});
+        const desired=castNameRecordValue(entry.record,id,name).value,path="history/"+entry.key;
+        return{id:String(local.id),path,desired,expected:entry.record};
+      }));
+      historyEntries.forEach(entry=>{updates[FB_ROOT+"/"+entry.path]=entry.desired;expectedRecords[entry.path]=entry.expected;});
+      const revision=(Number(revisionSnap.val())||0)+1,nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+      updates[FB_ROOT+"/casts"]=plan.casts;
+      updates[FB_ROOT+"/castLifecycleLogs"]=plan.lifecycle;
+      updates[FB_ROOT+"/_settingsRevisions/castRoster"]=revision;
+      updates[FB_ROOT+"/_settingsWriteMeta/castRoster"]={revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()};
+      const result=await guardedCheckedNodeUpdate(updates,null,{expectedRecords,expectedActiveBizDay:businessDate});
+      ["sessions","shifts","assignments"].forEach(collection=>plan.changed[collection].forEach(key=>{
+        const saved=getPathValue(result,collection+"/"+key);
+        if(saved)plan[collection][key]=saved;
+      }));
+      historyEntries.forEach(entry=>{
+        const saved=getPathValue(result,entry.path);
+        if(saved)plan.history=plan.history.map(row=>String(row.id)===entry.id?saved:row);
+      });
+    }
+    S.casts=plan.casts;S.castLifecycleLogs=plan.lifecycle;
+    if(businessDate){S.sessions=plan.sessions;S.shifts=plan.shifts;S.assignments=plan.assignments;S.history=plan.history;markSessionGuards(S.sessions);}
+    state.confirmedHash=stableJson(plan.casts);state.confirmedLifecycleHash=stableJson(plan.lifecycle);state.running=false;
+    updateRemoteHash("casts",plan.casts);updateRemoteHash("castLifecycleLogs",plan.lifecycle);setSettingSaveStatus("casts","saved","");
+    return true;
+  }catch(error){
+    state.running=false;setSettingSaveStatus("casts","error",error.userMessage||"キャスト名を保存できませんでした。最新状態を確認してください。");throw error;
+  }
+}
+async function ucn(id,name){
   const n=String(name||"").trim();
   if(!n)return render();
-  S.casts=normalizeCasts(S.casts).map(c=>c.id===id?{...c,name:n}:c);
-  save("casts",S.casts);render();
+  const cast=S.casts.find(c=>String(c.id)===String(id));if(!cast)return render();
+  if(String(cast.name||"")===n)return render();
+  return withDataOperation("castName:"+String(id),async()=>{
+    try{await guardedCastNameChange(id,n);sbs(true,"同期済み ✓");render();}
+    catch(error){sbs(false,"保存エラー");render();alert(error.userMessage||"キャスト名を保存できませんでした。最新状態を確認してから再実行してください。");}
+  });
 }
 function hasVisibleCastName(name){
   const n=String(name||"").trim();

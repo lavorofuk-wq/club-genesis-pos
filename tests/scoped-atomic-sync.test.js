@@ -33,6 +33,38 @@ test('Firebase nulls, empty containers and array snapshots compare consistently'
   assert.equal(ctx.sameFirebaseValue({history:[{id:1,splits:null}]},{history:{0:{id:1}}}),true);
   assert.equal(ctx.sameFirebaseValue({history:[{id:1,total:100}]},{history:[{id:1,total:200}]}),false);
 });
+test('active-day cast rename saves roster, lifecycle, work and order references in one scoped write',async()=>{
+  const date='2026-09-11',id='1789127986881',state=fixture();
+  state.activeBizDay=date;
+  state.casts=[{id,name:'仮名',castType:'trial',trialBizDay:date}];
+  state.castLifecycleLogs={[date]:{enteredCasts:[],exitedCasts:[],trialCasts:[{castId:id,castName:'仮名',castType:'trial'}]}};
+  state.sessions.t1.items=[{id:'cd',castId:id,castName:'仮名',backTargetCastIds:[id],backTargetCastNames:['仮名']}];
+  state.shifts.s1={...state.shifts.s1,castId:id,castName:'仮名'};
+  state.assignments.a1={...state.assignments.a1,castId:id,castName:'仮名'};
+  state.history={h1:{id:'h1',_rev:1,items:[{id:'bs',castId:id,castName:'仮名',isBanaiShimei:true}]}};
+  state._settingsRevisions={castRoster:2};
+  const db=fakeDb(state),ctx=contextFor(db,state);
+  ctx.normalizeCasts=list=>(list||[]).map((cast,index)=>({...cast,active:cast.active!==false,registeredAt:cast.registeredAt||0,sortIndex:cast.sortIndex??index}));
+  ctx.settingSaveStates={};
+  ctx.settingSaveState=path=>ctx.settingSaveStates[path]||(ctx.settingSaveStates[path]={running:false,requestedVersion:0,savedVersion:0,waiters:[]});
+  ctx.waitForSettingSaveQueue=async()=>{};
+  ctx.setSettingSaveStatus=()=>{};
+  ctx.settingConflictError=()=>Object.assign(new Error('setting changed'),{userMessage:'設定競合'});
+  ctx.guardedLightweightCastRosterSet=async()=>{throw new Error('unexpected lightweight path');};
+  vm.runInContext(source('function castNameItemValue','function hasVisibleCastName'),ctx);
+
+  await ctx.guardedCastNameChange(id,'ルナ');
+
+  assert.equal(db.writes.length,1);
+  assert.equal(state.casts[0].id,id);assert.equal(state.casts[0].name,'ルナ');
+  assert.equal(state.castLifecycleLogs[date].trialCasts[0].castName,'ルナ');
+  assert.equal(state.sessions.t1.items[0].castName,'ルナ');
+  assert.deepEqual(state.sessions.t1.items[0].backTargetCastNames,['ルナ']);
+  assert.equal(state.shifts.s1.castName,'ルナ');assert.equal(state.assignments.a1.castName,'ルナ');
+  assert.equal(state.history.h1.items[0].castName,'ルナ');
+  assert.equal(state._settingsRevisions.castRoster,3);
+  assert.equal(ctx.S.sessions.t1._rev,5);assert.equal(ctx.S.shifts.s1._rev,3);assert.equal(ctx.S.assignments.a1._rev,8);assert.equal(ctx.S.history[0]._rev,2);
+});
 test('rules generation is idempotent and capability-gated',()=>{
   const rules=require('../database.rules.json'),{applyScopedRules}=require('../scripts/scoped-rules.cjs');
   assert.deepEqual(applyScopedRules(rules),rules);

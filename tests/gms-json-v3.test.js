@@ -281,6 +281,60 @@ badHours.castWork[0].hours = 4;
 recalculate(badHours);
 assert(GmsJson.validatePayload(badHours).some((error) => error.includes("在籍 花子") && error.includes("hours")), "勤務時刻とhoursの矛盾を拒否");
 
+const emptyWorkName = GmsJson.clone(initial.payload);
+emptyWorkName.castWork[1].castName = "";
+emptyWorkName.castWork[1].name = "";
+recalculate(emptyWorkName);
+assert(GmsJson.validatePayload(emptyWorkName).some((error) => error.includes("営業日 2026-09-02") && error.includes("trial-1") && error.includes("castWork[1].castName") && error.includes("勤務記録のキャスト名が空")), "勤務名の空欄を営業日・ID・箇所付きで拒否");
+
+const duplicateWork = GmsJson.clone(initial.payload);
+duplicateWork.castWork.push(GmsJson.clone(duplicateWork.castWork[0]));
+recalculate(duplicateWork);
+assert(GmsJson.validatePayload(duplicateWork).some((error) => error.includes("regular-1") && error.includes("勤務記録のキャストIDが重複")), "勤務ID重複を拒否");
+
+const duplicateSales = GmsJson.clone(initial.payload);
+duplicateSales.castSales.push(GmsJson.clone(duplicateSales.castSales[0]));
+recalculate(duplicateSales);
+assert(GmsJson.validatePayload(duplicateSales).some((error) => error.includes("regular-1") && error.includes("売上データのキャストIDが重複")), "売上ID重複を拒否");
+
+const missingWork = GmsJson.clone(initial.payload);
+missingWork.castWork = missingWork.castWork.filter(row => row.castId !== "trial-1");
+recalculate(missingWork);
+assert(GmsJson.validatePayload(missingWork).some((error) => error.includes("trial-1") && error.includes("売上データのキャストIDが勤務記録に存在しません")), "勤務記録のない売上IDを拒否");
+
+const salesNameMismatch = GmsJson.clone(initial.payload);
+salesNameMismatch.castSales[1].castName = "別の体入名";
+recalculate(salesNameMismatch);
+assert(GmsJson.validatePayload(salesNameMismatch).some((error) => error.includes("trial-1") && error.includes("別の体入名") && error.includes("体入 美咲") && error.includes("売上名")), "売上名と勤務名の完全不一致を拒否");
+
+const itemNameMismatch = GmsJson.clone(initial.payload);
+itemNameMismatch.transactions[0].items.find(item => item.category === "castDrink").castName = "別の在籍名";
+recalculate(itemNameMismatch);
+assert(GmsJson.validatePayload(itemNameMismatch).some((error) => error.includes("transactions[0].items") && error.includes("別の在籍名") && error.includes("在籍 花子") && error.includes("商品名義")), "商品明細のID・名前と勤務記録の不一致を拒否");
+
+const itemNameWithoutId = GmsJson.clone(initial.payload);
+const itemWithoutId = itemNameWithoutId.transactions[0].items.find(item => item.category === "set");
+itemWithoutId.castName = "在籍 花子";
+recalculate(itemNameWithoutId);
+assert(GmsJson.validatePayload(itemNameWithoutId).some((error) => error.includes("transactions[0].items") && error.includes("在籍 花子") && error.includes("キャストIDが空")), "商品明細に名前だけありIDがない不整合を拒否");
+
+const backNameMismatch = GmsJson.clone(initial.payload);
+backNameMismatch.transactions[0].items.find(item => item.category === "champagneWine").backTargetCastNames[0] = "別の対象名";
+recalculate(backNameMismatch);
+assert(GmsJson.validatePayload(backNameMismatch).some((error) => error.includes("backTargetCastNames[0]") && error.includes("別の対象名") && error.includes("在籍 花子")), "バック対象ID・名前と勤務記録の不一致を拒否");
+
+const sameNameDifferentIds = GmsJson.clone(initial.payload);
+sameNameDifferentIds.castWork.push(
+  { castId: "same-name-1", castName: "あい", name: "あい", castType: "regular", isTrial: false, startTime: "20:00", endTime: "21:00", breakMinutes: 0, hours: 1 },
+  { castId: "same-name-2", castName: "あい", name: "あい", castType: "regular", isTrial: false, startTime: "20:00", endTime: "21:00", breakMinutes: 0, hours: 1 }
+);
+sameNameDifferentIds.castSales.push(
+  { castId: "same-name-1", castName: "あい", honShimeiSales: 0, jonaiExtensionSales: 0, drinkSales: 0, totalAttributedSales: 0 },
+  { castId: "same-name-2", castName: "あい", honShimeiSales: 0, jonaiExtensionSales: 0, drinkSales: 0, totalAttributedSales: 0 }
+);
+recalculate(sameNameDifferentIds);
+assert.deepStrictEqual(GmsJson.validatePayload(sameNameDifferentIds), [], "同名でも別IDのキャストを統合せず受理");
+
 const unknownCast = GmsJson.clone(initial.payload);
 unknownCast.transactions[0].items[5].banaiExtCastIds = ["missing-cast"];
 recalculate(unknownCast);

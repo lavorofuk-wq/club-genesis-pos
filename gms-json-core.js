@@ -287,10 +287,27 @@
       errors.push(`売上合計 ${totalSales}円 と現金・カード合計 ${paymentSales}円が一致しません`);
     }
 
+    const businessDate = String(payload.businessDate || "不明");
+    const castIntegrityError = (id, name, path, message) => {
+      const castId = String(id || "").trim() || "空欄";
+      const castName = String(name || "").trim() || "不明";
+      return `営業日 ${businessDate}: 対象ID「${castId}」／対象者「${castName}」／問題箇所 ${path}: ${message}`;
+    };
+    const workById = new Map();
+    const workIds = new Set();
     const castClaims = new Map();
     (payload.castWork || []).forEach((row, index) => {
       const path = `castWork[${index}]`;
-      if (!row.castId) errors.push(`${path}.castId が空です`);
+      const id = String(row.castId || "").trim();
+      const name = String(row.castName || "");
+      if (!id) errors.push(castIntegrityError(id, name, `${path}.castId`, "勤務記録のキャストIDが空です"));
+      else if (workIds.has(id)) errors.push(castIntegrityError(id, name, `${path}.castId`, "勤務記録のキャストIDが重複しています"));
+      else {
+        workIds.add(id);
+        workById.set(id, row);
+      }
+      if (!name.trim()) errors.push(castIntegrityError(id, name, `${path}.castName`, "勤務記録のキャスト名が空です"));
+      if (row.name != null && String(row.name) !== name) errors.push(castIntegrityError(id, name || row.name, path, `castName「${name}」とname「${String(row.name)}」が一致しません`));
       registerCastType(castClaims, errors, row, path);
       const expectedHours = calculatedHours(row.startTime, row.endTime, row.breakMinutes);
       if (expectedHours == null) errors.push(`${path}「${castDisplayName(row, row.castId)}」の開始・終了時刻または休憩時間が不正です`);
@@ -306,8 +323,18 @@
       if (!row.castId) errors.push(`trialCasts[${index}].castId が空です`);
       registerCastType(castClaims, errors, row, `trialCasts[${index}]`, "trial");
     });
+    const salesIds = new Set();
     (payload.castSales || []).forEach((row, index) => {
-      if (!row.castId) errors.push(`castSales[${index}].castId が空です`);
+      const path = `castSales[${index}]`;
+      const id = String(row.castId || "").trim();
+      const name = String(row.castName || "");
+      if (!id) errors.push(castIntegrityError(id, name, `${path}.castId`, "売上データのキャストIDが空です"));
+      else if (salesIds.has(id)) errors.push(castIntegrityError(id, name, `${path}.castId`, "売上データのキャストIDが重複しています"));
+      else salesIds.add(id);
+      const work = workById.get(id);
+      if (!name.trim()) errors.push(castIntegrityError(id, work?.castName || name, `${path}.castName`, "売上データのキャスト名が空です"));
+      if (id && !work) errors.push(castIntegrityError(id, name, path, "売上データのキャストIDが勤務記録に存在しません"));
+      else if (work && name !== String(work.castName || "")) errors.push(castIntegrityError(id, name || work.castName, path, `売上名「${name}」と勤務名「${String(work.castName || "")}」が一致しません`));
       if (row.castType != null || row.isTrial != null) registerCastType(castClaims, errors, row, `castSales[${index}]`);
     });
 
@@ -358,12 +385,36 @@
       transaction.items.forEach((item, itemIndex) => {
         const path = `${transactionPath}.items[${itemIndex}]`;
         if ((item.isHonShimei || item.isBanaiShimei || item.category === "castDrink") && !item.castId) errors.push(`${path}.castId が空です`);
+        const itemCastId = String(item.castId || "").trim();
+        const itemCastName = String(item.castName || "");
+        if (!itemCastId && itemCastName.trim()) errors.push(castIntegrityError(itemCastId, itemCastName, `${path}.castId`, `商品「${item.label || item.itemId}」にキャスト名がありますがキャストIDが空です`));
+        if (itemCastId) {
+          const work = workById.get(itemCastId);
+          if (!itemCastName.trim()) errors.push(castIntegrityError(itemCastId, work?.castName || itemCastName, `${path}.castName`, `商品「${item.label || item.itemId}」のキャスト名が空です`));
+          if (!work) errors.push(castIntegrityError(itemCastId, itemCastName, `${path}.castId`, `商品「${item.label || item.itemId}」のキャストIDが勤務記録に存在しません`));
+          else if (itemCastName !== String(work.castName || "")) errors.push(castIntegrityError(itemCastId, itemCastName || work.castName, path, `商品名義「${itemCastName}」と勤務名「${String(work.castName || "")}」が一致しません`));
+        }
         const referencedIds = [item.castId, ...(item.banaiExtCastIds || []), ...(item.backTargetCastIds || [])].map(String).filter(Boolean);
         referencedIds.forEach((id) => {
           if (!knownCastIds.has(id)) errors.push(`${path}「${item.label || item.itemId}」の参照キャストID「${id}」を出力データ内で識別できません`);
         });
-        (item.banaiExtCastIds || []).forEach((id, index) => { if (!id) errors.push(`${path}.banaiExtCastIds[${index}] が空です`); });
-        (item.backTargetCastIds || []).forEach((id, index) => { if (!id) errors.push(`${path}.backTargetCastIds[${index}] が空です`); });
+        (item.banaiExtCastIds || []).forEach((id, index) => {
+          if (!id) errors.push(`${path}.banaiExtCastIds[${index}] が空です`);
+          else if (!workById.has(String(id))) errors.push(castIntegrityError(id, "", `${path}.banaiExtCastIds[${index}]`, `商品「${item.label || item.itemId}」の延長対象IDが勤務記録に存在しません`));
+        });
+        const backIds = Array.isArray(item.backTargetCastIds) ? item.backTargetCastIds.map(String) : [];
+        const backNames = Array.isArray(item.backTargetCastNames) ? item.backTargetCastNames.map(String) : [];
+        backIds.forEach((id, index) => {
+          const name = backNames[index] || "";
+          if (!id) errors.push(`${path}.backTargetCastIds[${index}] が空です`);
+          else {
+            const work = workById.get(id);
+            if (!name.trim()) errors.push(castIntegrityError(id, work?.castName || name, `${path}.backTargetCastNames[${index}]`, `商品「${item.label || item.itemId}」の対象キャスト名が空です`));
+            if (!work) errors.push(castIntegrityError(id, name, `${path}.backTargetCastIds[${index}]`, `商品「${item.label || item.itemId}」の対象キャストIDが勤務記録に存在しません`));
+            else if (name !== String(work.castName || "")) errors.push(castIntegrityError(id, name || work.castName, `${path}.backTargetCastNames[${index}]`, `商品「${item.label || item.itemId}」の対象名「${name}」と勤務名「${String(work.castName || "")}」が一致しません`));
+          }
+        });
+        if (backNames.length !== backIds.length) errors.push(`${path}「${item.label || item.itemId}」のbackTargetCastIdsとbackTargetCastNamesの件数が一致しません`);
         const amount = Number(item.price || 0) * Number(item.quantity || 0);
         if ((item.category === "champagneWine" || item.category === "keepBottle") && amount >= 1) {
           const eligibleCastIds = bottleBackEligibleCastIds(transaction.items, itemIndex);
