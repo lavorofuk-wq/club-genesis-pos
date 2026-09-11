@@ -156,8 +156,11 @@
     const base = clone(basePayload);
     const prev = previous || {};
     const opts = options || {};
+    const rebuildUnsubmitted = opts.rebuildUnsubmitted === true;
+    if (rebuildUnsubmitted && opts.correction === true) return { payload: null, error: "未送信JSONの作り直しと訂正版の作成は同時に行えません。" };
+    if (rebuildUnsubmitted && !prev.submissionId) return { payload: null, error: "以前の出力履歴がありません。通常のGMS取込JSONを出力してください。" };
     const hash = contentHash(base);
-    if (prev.contentHash === hash && prev.payload) {
+    if (!rebuildUnsubmitted && prev.contentHash === hash && prev.payload) {
       return {
         payload: clone(prev.payload),
         meta: { contentHash: hash, isCorrection: false, requestedCorrection: opts.correction === true, previous: prev, reused: true }
@@ -167,15 +170,18 @@
     const businessDate = String(base.businessDate || "");
     const submissionId = opts.correction === true
       ? stableId("pos", ["correction", businessDate, hash, prev.submissionId, opts.nonce])
-      : stableId("pos", [businessDate, hash]);
+      : rebuildUnsubmitted
+        ? stableId("pos", ["unsubmitted-rebuild", businessDate, hash, prev.submissionId, opts.nonce])
+        : stableId("pos", [businessDate, hash]);
     const payload = { ...base, submissionId, generatedAt: String(opts.generatedAt || "") };
     payload.source = { ...(payload.source || {}), submissionId };
     delete payload.source.posVersion;
+    if (rebuildUnsubmitted) delete payload.supersedesSubmissionId;
     if (opts.correction === true) payload.supersedesSubmissionId = String(prev.submissionId);
     payload.checksum = closingChecksum(payload);
     return {
       payload,
-      meta: { contentHash: hash, isCorrection: opts.correction === true, requestedCorrection: opts.correction === true, previous: prev, reused: false }
+      meta: { contentHash: hash, isCorrection: opts.correction === true, requestedCorrection: opts.correction === true, previous: prev, reused: false, ...(rebuildUnsubmitted ? { rebuiltUnsubmitted: true } : {}) }
     };
   }
 

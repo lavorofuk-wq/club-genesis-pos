@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.1";
+const APP_VERSION="6.149.2";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -2543,6 +2543,7 @@ shifts.sort((a,b)=>a.clockIn-b.clockIn).forEach(sh=>{
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportDayCSV(this.dataset.dayid)" style="padding:8px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:600;touch-action:manipulation;">CSV出力</button>';
   if(targetEditableCount&&day.id!==S.activeBizDay)html+='<button class="btn" data-dayid="'+day.id+'" onclick="openGmsTargetDayEdit(this.dataset.dayid)" style="padding:8px 16px;background:rgba(167,139,250,.1);border:1px solid rgba(167,139,250,.3);color:#a78bfa;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">同伴・ボトル対象修正</button>';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,false)" style="padding:8px 16px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">'+(hasGmsSubmission?'GMS取込JSON再確認':'GMS取込JSON')+'</button>';
+  if(hasGmsSubmission)html+='<button class="btn" data-dayid="'+day.id+'" onclick="rebuildUnsubmittedGmsClosingJSON(this.dataset.dayid)" style="padding:8px 16px;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.25);color:#0284c7;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;">未送信JSONの作り直し</button>';
   html+='<button class="btn" data-dayid="'+day.id+'" onclick="exportGmsClosingJSON(this.dataset.dayid,true)" '+(hasGmsSubmission?'':'disabled title="通常版の出力履歴がありません"')+' style="padding:8px 16px;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#d97706;border-radius:4px;font-size:12px;font-weight:700;touch-action:manipulation;'+(hasGmsSubmission?'':'opacity:.4;cursor:not-allowed;')+'">\u8a02\u6b63\u7248JSON</button>';
   html+='</div>';
   html+='</div>';
@@ -3299,6 +3300,7 @@ function gmsClosingPayload(dayId,opts={}){
   const prev=storedPrev.schemaVersion===3?storedPrev:{};
   const prepared=GMS_JSON.prepareSubmission(base,prev,{
     correction:!!opts.correction,
+    rebuildUnsubmitted:opts.rebuildUnsubmitted===true,
     generatedAt:gmsIso(base.source.businessEndedAt||Date.now()),
     nonce:Date.now()
   });
@@ -3335,11 +3337,15 @@ async function redownloadGmsClosingJSON(dayId){
   }
   gmsDownloadPayload(payload);
 }
-async function exportGmsClosingJSON(dayId,correction){
+function rebuildUnsubmittedGmsClosingJSON(dayId){
+  return exportGmsClosingJSON(dayId,false,{rebuildUnsubmitted:true});
+}
+async function exportGmsClosingJSON(dayId,correction,options={}){
   const day=S.bizDays[dayId];
   if(!day){alert("出力対象の営業日が見つかりません");return;}
   try{await ensureGmsDayLoaded(day.date||dayId);}catch(error){alert("GMS提出履歴を取得できませんでした。接続状態を確認してください。");return;}
-  const payload=gmsClosingPayload(dayId,{correction});
+  const rebuildUnsubmitted=options.rebuildUnsubmitted===true;
+  const payload=gmsClosingPayload(dayId,{correction,rebuildUnsubmitted});
   if(!payload){alert("\u51fa\u529b\u5bfe\u8c61\u306e\u55b6\u696d\u65e5\u304c\u898b\u3064\u304b\u308a\u307e\u305b\u3093");return;}
   if(payload._gmsError){alert(payload._gmsError);return;}
   if(!payload.transactions.length){alert("\u3053\u306e\u55b6\u696d\u65e5\u306e\u4f1a\u8a08\u30c7\u30fc\u30bf\u304c\u3042\u308a\u307e\u305b\u3093");return;}
@@ -3349,7 +3355,7 @@ async function exportGmsClosingJSON(dayId,correction){
     alert("訂正元の提出履歴がありません。\n先に通常版のGMS取込JSONを出力してください。");
     return;
   }
-  if(!correction&&prev.submissionId&&prev.contentHash&&prev.contentHash!==meta.contentHash){
+  if(!correction&&!rebuildUnsubmitted&&prev.submissionId&&prev.contentHash&&prev.contentHash!==meta.contentHash){
     const ok=confirm("\u524d\u56de\u51fa\u529b\u6642\u304b\u3089\u55b6\u696d\u7de0\u3081\u30c7\u30fc\u30bf\u304c\u5909\u66f4\u3055\u308c\u3066\u3044\u307e\u3059\u3002\n\u540c\u3058submissionId\u3067\u7570\u306a\u308b\u5185\u5bb9\u306f\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n\u8a02\u6b63\u7248\u3068\u3057\u3066\u65b0\u3057\u3044submissionId\u3092\u767a\u884c\u3057\u307e\u3059\u304b\uff1f");
     if(!ok)return;
     return exportGmsClosingJSON(dayId,true);
@@ -3368,6 +3374,10 @@ async function exportGmsClosingJSON(dayId,correction){
   }
   const errors=validateGmsClosingPayload(payload);
   if(errors.length){alert("GMS\u53d6\u8fbcJSON\u3092\u51fa\u529b\u3067\u304d\u307e\u305b\u3093\u3002\n\n"+errors.slice(0,12).join("\n"));return;}
+  if(rebuildUnsubmitted){
+    const ok=confirm("未送信JSONを作り直します。\n\n営業日: "+payload.businessDate+"\n新submissionId: "+payload.submissionId+"\n訂正元: なし\n\nGMSの「送信済みデータ」に、この営業日のデータがないことを確認してください。\n以前の出力履歴は残ります。作り直した後は新しいJSONを使用してください。\n\n作り直しますか？");
+    if(!ok)return;
+  }
   const history=Array.isArray(prev.history)?[...prev.history]:[];
   if(prev.submissionId&&!history.some(row=>row.submissionId===prev.submissionId)){
     history.push({submissionId:prev.submissionId,checksum:prev.checksum||"",generatedAt:prev.generatedAt||"",supersedesSubmissionId:prev.supersedesSubmissionId||null});
@@ -3375,7 +3385,7 @@ async function exportGmsClosingJSON(dayId,correction){
   if(!history.some(row=>row.submissionId===payload.submissionId)){
     history.push({submissionId:payload.submissionId,checksum:payload.checksum,generatedAt:payload.generatedAt,supersedesSubmissionId:payload.supersedesSubmissionId||null});
   }
-  const exportMeta={schemaVersion:3,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),history:history.slice(-20),updatedAt:gmsIso(Date.now())};
+  const exportMeta={schemaVersion:3,submissionId:payload.submissionId,generatedAt:payload.generatedAt,contentHash:meta.contentHash,checksum:payload.checksum,supersedesSubmissionId:payload.supersedesSubmissionId||null,payload:JSON.parse(JSON.stringify(payload)),history,updatedAt:gmsIso(Date.now())};
   try{
     await gmsSaveExportMeta(payload.businessDate,exportMeta);
   }catch(e){
