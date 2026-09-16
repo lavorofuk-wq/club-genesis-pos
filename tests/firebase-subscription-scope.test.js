@@ -7,14 +7,14 @@ const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const index=fs.readFileSync(path.join(__dirname,"..","index.html"),"utf8");
 const sw=fs.readFileSync(path.join(__dirname,"..","sw.js"),"utf8");
 
-assert.match(app,/const APP_VERSION="6\.149\.3"/);
-assert.match(index,/Ver6\.149\.3/);
-assert.match(index,/app\.js\?v=6\.149\.3/);
-assert.match(sw,/genesis-pos-v6\.149\.3-auth/);
+assert.match(app,/const APP_VERSION="6\.149\.4"/);
+assert.match(index,/Ver6\.149\.4/);
+assert.match(index,/app\.js\?v=6\.149\.4/);
+assert.match(sw,/genesis-pos-v6\.149\.4-auth/);
 assert.match(app,/setEndTime:historySetEndTime\(s\)/,"checkout history must retain the calculated set end time");
 assert.match(app,/function historyTimeLabel[\s\S]*historySetEndTime\(h\)[\s\S]*セット終了[\s\S]*historyTimeLabel\(h,true\)[\s\S]*historyTimeLabel\(_hr,false\)/,"current and past history must show the calculated set end time");
 assert.match(app,/function includedConsumptionTax\(total\)[\s\S]*Math\.floor\(Math\.max\(0,Number\(total\)\|\|0\)\/11\)/,"checkout confirmation must calculate included 10% consumption tax from the tax-included total");
-assert.match(app,/const includedTax=includedConsumptionTax\(total\)[\s\S]*消費税額　10%　¥'\+fmt\(includedTax\)/,"checkout confirmation must display the included consumption tax below the total");
+assert.match(app,/else if\(md==="co"&&s\)[\s\S]*const includedTax=includedConsumptionTax\(total\)[\s\S]*合計[\s\S]*消費税額　10%　¥'\+fmt\(includedTax\)[\s\S]*else if\(md==="co2"/,"checkout confirmation must display the included consumption tax on the first accounting screen");
 
 assert.doesNotMatch(app,/db\.ref\(BACKUP_ROOT\)\.on\(/,"backup data must not be subscribed at startup");
 assert.doesNotMatch(app,/db\.ref\(FB_ROOT\)\.on\(/,"the complete POS root must not be subscribed");

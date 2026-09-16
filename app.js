@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.3";
+const APP_VERSION="6.149.4";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -6964,6 +6964,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   else if(md==="co"&&s){
 // ステップ1：明細確認
 const{grossSubtotal,subtotal,discount,tax,total,rate,discountMode}=ct(s);const hv=(s?.items||[]).some(i=>i.isVipCharge);
+const includedTax=includedConsumptionTax(total);
 let rows="";
 [...s.items].filter(i=>i&&!i.isDiscount).forEach(i=>{rows+='<div class="ir"><span style="color:#bbb;">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:#d4a017;">'+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
@@ -6977,6 +6978,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
     :'<div class="ir"><span style="font-size:12px;color:#888;">小計</span><span>'+pAmt(subtotal)+'</span></div>')
   +'<div class="ir"><span style="font-size:12px;color:#888;">tax+SC ('+Math.round((rate||TAX_RATE)*100)+'%)</span><span>'+pAmt(tax)+'</span></div>'
   +'<div style="display:flex;justify-content:space-between;align-items:center;padding-top:10px;"><span style="font-size:14px;font-weight:700;">合計</span><span style="font-size:24px;font-weight:700;color:#d4a017;">'+pAmt(total)+'</span></div>'
+  +'<div style="display:flex;justify-content:flex-end;font-size:12px;color:#888;margin-top:4px;">消費税額　10%　¥'+fmt(includedTax)+'</div>'
   +'</div>'
   +'<div style="display:flex;gap:6px;margin-top:16px;">'
   +'<button class="btn" onclick="printCheckoutGuest()" style="flex:1;padding:11px 6px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;touch-action:manipulation;">🖨 ゲスト用</button>'
@@ -7008,7 +7010,6 @@ if(!coState.splits||coState.splits.length===0)
   coState.splits=[{method:"cash",amount:total}];
 const splits=coState.splits;
 const splitTotal=splits.reduce((a,sp)=>a+(sp.amount||0),0);
-const includedTax=includedConsumptionTax(total);
 // total=0のときは無条件でremaining=0扱い
 const remaining=total===0?0:total-splitTotal;
 let splitRows="";
@@ -7029,7 +7030,6 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<div style="text-align:center;padding:12px;margin-bottom:16px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
   +'<div style="font-size:11px;color:#888;margin-bottom:2px;">合計金額</div>'
   +'<div style="font-size:28px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
-  +'<div style="font-size:12px;color:#888;margin-top:4px;">消費税額　10%　¥'+fmt(includedTax)+'</div>'
   +'</div>'
   +'<div class="st" style="margin-bottom:8px;">支払い内訳 <span style="font-size:11px;color:#666;font-weight:400;">現=現金 カ=カード</span></div>'
   +'<div id="split-rows">'+splitRows+'</div>'
