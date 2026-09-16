@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.2";
+const APP_VERSION="6.149.3";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -4378,6 +4378,9 @@ function historyTimeLabel(h,withDate=false){
   const endText=setEnd?new Date(setEnd).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"";
   return "入店 "+startText+(endText?" → セット終了 "+endText:"");
 }
+function includedConsumptionTax(total){
+  return Math.floor(Math.max(0,Number(total)||0)/11);
+}
 
 // ===== HISTORY / SETTINGS は省略なし =====
 function rHist(){
@@ -7005,6 +7008,7 @@ if(!coState.splits||coState.splits.length===0)
   coState.splits=[{method:"cash",amount:total}];
 const splits=coState.splits;
 const splitTotal=splits.reduce((a,sp)=>a+(sp.amount||0),0);
+const includedTax=includedConsumptionTax(total);
 // total=0のときは無条件でremaining=0扱い
 const remaining=total===0?0:total-splitTotal;
 let splitRows="";
@@ -7025,6 +7029,7 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<div style="text-align:center;padding:12px;margin-bottom:16px;border:1px solid rgba(212,160,23,.2);border-radius:8px;background:rgba(212,160,23,.06);">'
   +'<div style="font-size:11px;color:#888;margin-bottom:2px;">合計金額</div>'
   +'<div style="font-size:28px;font-weight:700;color:#d4a017;font-family:monospace;">'+pAmt(total)+'</div>'
+  +'<div style="font-size:12px;color:#888;margin-top:4px;">消費税額　10%　¥'+fmt(includedTax)+'</div>'
   +'</div>'
   +'<div class="st" style="margin-bottom:8px;">支払い内訳 <span style="font-size:11px;color:#666;font-weight:400;">現=現金 カ=カード</span></div>'
   +'<div id="split-rows">'+splitRows+'</div>'
