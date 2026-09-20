@@ -49,6 +49,7 @@ function contextFor(db,state=fixture()){
     alert:message=>context.alerts.push(message),alerts:[]
   };
   vm.createContext(context);
+  vm.runInContext(app.slice(app.indexOf('function assignmentMatchesSession'),app.indexOf('async function guardedEntryTimeUpdate')),context);
   vm.runInContext(app.slice(app.indexOf('function prepareVersionedRecordUpdates'),app.indexOf('async function guardedRecordSet')),context);
   vm.runInContext(app.slice(app.indexOf('function tableChangeAssignments'),app.indexOf('// ===== RENDER ENGINE =====')),context);
   return context;

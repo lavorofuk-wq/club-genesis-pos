@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.4";
+const APP_VERSION="6.149.5";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const MAX_TABLE_COUNT=30;
@@ -351,6 +351,7 @@ let bizDayAtomicValidationVersion=0;
 let tableChangeAtomicValidationVersion=0;
 let scopedAtomicValidationVersion=0;
 let tableChangeBusy=false;
+let entryTimeBusy=false;
 function isSessionSaving(tableId){return sessionSaveStates[tableId]?.status==="saving";}
 function setSessionSaveState(tableId,status,message){
   if(!tableId)return;
@@ -1626,15 +1627,70 @@ async function addBanai(cid){
     alert(e.userMessage||"場内指名の保存に失敗しました。最新状態を確認してください。");
   }
 }
-function applyET(){
+function assignmentMatchesSession(a,session){
+  if(!a||!session)return false;
+  if(a.sessionId!=null){
+    const key=String(a.sessionId);
+    // Older entry-time edits left this link at the timestamp embedded in the stable ID.
+    const original=String(session.sessionId||"").match(/^ses_(\d+)_[a-z0-9]+$/i)?.[1];
+    return key===String(session.startTime)||key===String(session.sessionId)||(original!=null&&key===original);
+  }
+  return a.startTime>=session.startTime-60000&&(!session.endTime||a.startTime<=session.endTime);
+}
+function tableSessionAssignments(assignments,tableId,session){
+  if(!session)return[];
+  return Object.entries(assignments||{}).filter(([,a])=>a.tableId===tableId&&assignmentMatchesSession(a,session));
+}
+async function guardedEntryTimeUpdate(tableId,expected,newStart){
+  requireScopedAtomic();
+  if(!Number.isFinite(newStart)||newStart<=0)throw new Error("invalid entry time");
+  const expectedActiveBizDay=S.activeBizDay||null;
+  const tableCounter="_tableAssignmentRevisions/"+tableId;
+  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,tableCounter]);
+  const session=root.sessions?.[tableId];
+  if(!session||!sameSession(session,expected))throw Object.assign(new Error("session changed"),{userMessage:"対象テーブルの注文が変更されています。最新状態を確認してから再実行してください。"});
+  // Read membership first so a concurrent cast insert cannot escape the atomic check.
+  const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(tableId).get();
+  root.assignments=snap.val()||{};
+  const desired=cloneData(session),delta=newStart-Number(session.startTime);
+  desired.startTime=newStart;
+  if(desired.setEndTime)desired.setEndTime+=delta;
+  if(desired.vipEndTime)desired.vipEndTime+=delta;
+  const updates={[FB_ROOT+"/sessions/"+tableId]:desired};
+  const expectedRecords={["sessions/"+tableId]:session};
+  tableSessionAssignments(root.assignments,tableId,session).forEach(([id,a])=>{
+    // sessionId is the legacy entry-time link; cast working times must stay unchanged.
+    updates[FB_ROOT+"/assignments/"+id]={...cloneData(a),sessionId:newStart};
+    expectedRecords["assignments/"+id]=a;
+  });
+  return guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths:[tableCounter]});
+}
+async function applyET(){
+  if(entryTimeBusy||tableChangeBusy||!at||!S.sessions[at])return;
   const v=document.getElementById("eti")?.value||etv;
   if(!v){closeM();return;}
   const ns=hhmm2ts(v);
-  const s=S.sessions[at];const df=ns-s.startTime;
-  s.startTime=ns;if(s.setEndTime)s.setEndTime+=df;if(s.vipEndTime)s.vipEndTime+=df;
-  etv=v;
-  save("sessions/"+at,S.sessions[at]);closeM();
-  if(vw==="floor")render();else renderOrderPartial();
+  const tableId=at,identity=cloneData(S.sessions[tableId]);
+  await withDataOperation("table:"+tableId,async()=>{
+    entryTimeBusy=true;etv=v;
+    try{
+      rModal();
+      await waitForSessionSaveQueue(tableId);
+      if(sessionSaveStates[tableId]?.status==="error")throw Object.assign(new Error("unsaved orders"),{userMessage:"未保存のオーダーがあります。保存エラーを解消してから変更してください。"});
+      const session=cloneData(S.sessions[tableId]);
+      if(!sameSessionIdOnly(session,identity)||Number(session.startTime)!==Number(identity.startTime))throw Object.assign(new Error("session changed"),{userMessage:"対象テーブルは会計または変更されています。最新状態を確認してください。"});
+      if(tableSessionAssignments(S.assignments,tableId,session).some(([id])=>isPendingAssignment(id)))throw Object.assign(new Error("pending assignment"),{userMessage:"付け回しの保存中です。保存完了後に変更してください。"});
+      await guardedEntryTimeUpdate(tableId,session,ns);
+      entryTimeBusy=false;
+      sbs(true,"同期済み ✓");closeM();render();refreshFloorModal();
+    }catch(error){
+      sbs(false,"保存エラー");
+      alert(error.userMessage||"入店時刻を保存できませんでした。入力内容を確認して再実行してください。");
+    }finally{
+      entryTimeBusy=false;
+      if(md==="et")rModal();
+    }
+  });
 }
 async function remItem(id){
   const current=S.sessions[at];const t=current?.items?.find(i=>i.id===id);if(!t)return;
@@ -2017,7 +2073,7 @@ function failCheckout(error,fallback){
 }
 function tableChangeAssignments(assignments,tableId,session){
   return Object.entries(assignments||{}).filter(([,a])=>
-    a.tableId===tableId&&(!a.endTime||(session.startTime&&a.sessionId===session.startTime))
+    a.tableId===tableId&&(!a.endTime||assignmentMatchesSession(a,session))
   );
 }
 function tableChangeUpdates(oldId,newId,session,assignments){
@@ -2045,6 +2101,23 @@ async function guardedAtomicTableChange(oldId,newId,expected,trace=()=>{}){
   const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(oldId).get();
   root.assignments=snap.val()||{};
   const {updates,expectedRecords}=tableChangeUpdates(oldId,newId,remote,root.assignments);
+  if(Object.values(expectedRecords).some(a=>a.endTime&&a.sessionId!==remote.startTime)){
+    // The legacy TC proof accepts only unchanged entry-time links. Repair known links
+    // with the existing scoped record proofs in the same atomic move instead.
+    Object.entries(expectedRecords).forEach(([path,a])=>{
+      if(assignmentMatchesSession(a,remote))updates[FB_ROOT+"/"+path].sessionId=remote.startTime;
+    });
+    updates[FB_ROOT+"/sessions/"+newId]=ensureSessionId(updates[FB_ROOT+"/sessions/"+newId]);
+    trace("validated",{assignmentCount:Object.keys(expectedRecords).length,pathCount:Object.keys(updates).length});
+    trace("saveStart");
+    await guardedScopedCommit(root,updates,{
+      expectedRecords:{...expectedRecords,["sessions/"+oldId]:remote,["sessions/"+newId]:null},
+      expectedActiveBizDay:root.activeBizDay||null,
+      counterWrites:["_tableAssignmentRevisions/"+oldId,"_tableAssignmentRevisions/"+newId]
+    });
+    trace("saveDone");
+    return;
+  }
   const prepared=prepareVersionedRecordUpdates(root,updates,{expectedRecords});
   const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
   const moved=ensureSessionId({...prepared[FB_ROOT+"/sessions/"+newId],_rev:1,_nodeWriteVersion:_verNum(APP_VERSION),_nodeWriteNonce:nonce});
@@ -2202,7 +2275,7 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
-  if(checkoutBusy||tableChangeBusy)return;
+  if(checkoutBusy||tableChangeBusy||entryTimeBusy)return;
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
@@ -2216,7 +2289,7 @@ function sv(v,extra){
 }
 function tc2(id){if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
-  if(checkoutBusy||tableChangeBusy)return;
+  if(checkoutBusy||tableChangeBusy||entryTimeBusy)return;
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
   const fom=document.getElementById("floor-order-modal");if(!fom)return;
   fom.style.display="flex";
@@ -4003,7 +4076,7 @@ sessionMap[key].assigns.push(a);
   const currentSess=S.sessions[tableId];
   const sessionId=assigns[0].sessionId;
   // 現在進行中のセッションは除外
-  if(currentSess&&(sessionId===currentSess.startTime||sessionId==null))return false;
+  if(currentSess&&(sessionId==null||assigns.some(a=>assignmentMatchesSession(a,currentSess))))return false;
   return true;
 })
 .sort((a,b)=>{
@@ -4020,7 +4093,7 @@ const group=assigns.sort((a,b)=>a.startTime-b.startTime);
 const sessionTs=group[0].sessionId||group[0].startTime;
 const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
 // 会計履歴からセッション情報を取得
-const histRec=(S.history||[]).find(h=>h.tableId===t.id&&h.startTime===group[0].sessionId);
+const histRec=(S.history||[]).find(h=>h.tableId===t.id&&assignmentMatchesSession(group[0],h));
 const guests=histRec?.guests||"?";
 const honNames=histRec?(histRec.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean):[];
 const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(itemCastName).filter(Boolean):[];
@@ -4077,19 +4150,7 @@ function rTableDetail(){
   const t=S.tables.find(t=>t.id===tid);
   if(!t)return '<div style="padding:20px;"><button class="btn" onclick="sv(\'list\')" style="color:#888;background:none;font-size:13px;">← リストへ戻る</button><div style="color:#555;margin-top:16px;">テーブルが見つかりません</div></div>';
   const s=S.sessions[tid];
-  // セッションがある場合はそのstartTime以降のアサインのみ表示（前回客のデータを除外）
-  // hhmm2tsの秒切り捨て分を考慮して60秒のマージンを設ける
-  const sessionStart=s?s.startTime:null;
-  const allA=Object.values(S.assignments||{})
-.filter(a=>{
-  if(a.tableId!==tid)return false;
-  // セッションなし（会計終了後）は何も表示しない
-  if(sessionStart===null)return false;
-  // sessionIdがある場合はそれで一致判定（最も確実）
-  if(a.sessionId!=null)return a.sessionId===sessionStart;
-  // sessionIdがない古いデータはstartTimeで判定（60秒のマージン）
-  return a.startTime>=(sessionStart-60000);
-})
+  const allA=tableSessionAssignments(S.assignments,tid,s).map(([,a])=>a)
 .sort((a,b)=>a.startTime-b.startTime);
   const acA=allA.filter(a=>!a.endTime);
   const doneA=allA.filter(a=>a.endTime);
@@ -5574,8 +5635,8 @@ function dta(id){if(S.sessions[id])return;S.tables=S.tables.filter(t=>t.id!==id)
 function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
-function om(name){if(tableChangeBusy)return;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy)return;md=null;document.getElementById("md").innerHTML="";}
+function om(name){if(tableChangeBusy||entryTimeBusy)return;md=name;rModal();}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy||entryTimeBusy)return;md=null;document.getElementById("md").innerHTML="";}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -6280,7 +6341,7 @@ sessionMap[key].assigns.push(a);
 .filter(({tableId,assigns})=>{
   const currentSess=S.sessions[tableId];
   const sessionId=assigns[0].sessionId;
-  if(currentSess&&(sessionId===currentSess.startTime||sessionId==null))return false;
+  if(currentSess&&(sessionId==null||assigns.some(a=>assignmentMatchesSession(a,currentSess))))return false;
   return true;
 })
 .sort((a,b)=>{
@@ -6295,7 +6356,7 @@ const t=S.tables.find(t=>t.id===tableId);
 const label=t?.label||tableId;
 const sessionTs=assigns[0].sessionId||assigns[0].startTime;
 const inTime=new Date(sessionTs).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"});
-const histRec=(S.history||[]).find(h=>h.tableId===tableId&&h.startTime===assigns[0].sessionId);
+const histRec=(S.history||[]).find(h=>h.tableId===tableId&&assignmentMatchesSession(assigns[0],h));
 const note=histRec?.note||"";
 const doneA=assigns.filter(a=>a.endTime).sort((a,b)=>a.startTime-b.startTime);
 doneA.forEach(a=>{
@@ -7440,6 +7501,13 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div></div>';
   }
 
+  else if(md==="et"&&s&&entryTimeBusy){
+h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
+  +'<div role="status" aria-live="polite" style="padding:28px 0;text-align:center;">'
+  +'<span class="tc-save-spinner" aria-hidden="true"></span>'
+  +'<div style="margin-top:12px;">入店時刻と付け回し履歴を保存中...</div>'
+  +'</div></div></div>';
+  }
   else if(md==="et"&&s){
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:360px;">'
   +'<h3 style="margin-bottom:8px;font-size:16px;color:#d4a017;">入店時刻を変更</h3>'

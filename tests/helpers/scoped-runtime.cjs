@@ -61,6 +61,7 @@ function contextFor(db,state=fixture()){
     ['function castIdQueryValues','const optimisticRootPaths'],
     ['const optimisticRootPaths','function bizDayOperation'],
     ['function bizDayOperation','// ===== SESSIONS ====='],
+    ['function assignmentMatchesSession','async function guardedEntryTimeUpdate'],
     ['async function guardedCloseSession','async function checkout'],
     ['function tableChangeAssignments','// ===== RENDER ENGINE ====='],
     ['function closedBizDayConflictMessage','async function confirmDeleteBizDay'],
