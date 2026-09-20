@@ -21,7 +21,7 @@ function contextFor(){
   };
   vm.createContext(context);
   for(const [from,to] of [
-    ['function extensionMinutesTotal','function extensionSingleChargeCount'],
+    ['function extensionMinutesTotal','function isSingleChargeExtensionEligible'],
     ['function historySetEndTime','// ===== HISTORY / SETTINGS'],
     ['function buildRestoredSessionFromHistory','async function guardedRestoreHistoryToFloor']
   ])vm.runInContext(source(from,to),context);

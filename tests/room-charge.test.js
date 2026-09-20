@@ -6,6 +6,7 @@ const vm=require("vm");
 const app=fs.readFileSync(path.join(__dirname,"..","app.js"),"utf8");
 const helperSource=app.slice(app.indexOf("function roomTypeFromItem"),app.indexOf("function addExt"));
 const context={
+  POS_CHARGES:require('../charge-core.js'),
   S:{menus:{
     vip:[
       {id:"v60",label:"VIP室料 60分",price:30000,minutes:60},
@@ -47,18 +48,17 @@ assert.strictEqual(scaledExtension.qty,5);
 assert.strictEqual(context.sessionRoomType({items:[{isVipCharge:true}]}),"vip");
 assert.strictEqual(context.sessionRoomType({items:[{isRoomCharge:true,roomType:"karaoke"}]}),"karaoke");
 
-const extensionBlock=app.slice(app.indexOf("function addExt"),app.indexOf("function addRoomCharge"));
-assert.match(extensionBlock,/roomChargeItemForMinutes\(roomType,ext\.minutes,s\.guests/);
-assert.match(extensionBlock,/if\(extRoom\)ni\.push/);
+const extensionBlock=app.slice(app.indexOf("function extensionAdditions"),app.indexOf("function addRoomCharge"));
+assert.match(extensionBlock,/roomChargeItemForMinutes\(roomType,minutes,s\.guests/);
+assert.match(extensionBlock,/if\(room\)added\.push/);
 
 const estimateBlock=app.slice(app.indexOf("function calcEstForMinutes"),app.indexOf("function rModal"));
-assert.match(estimateBlock,/roomChargeItemForMinutes\(roomType,extraMinutes,s\.guests/);
-assert.match(estimateBlock,/const roomType=includeRoomCharge\?sessionRoomType\(s\):""/);
-assert.match(estimateBlock,/calcEstForMinutes\(s,30,estIncludeRoom\)/);
+assert.match(estimateBlock,/extensionAdditions\(s,ext,\{roomIncluded:includeRoomCharge/);
+assert.match(estimateBlock,/calcEstForMinutes\(s,30,estIncludeRoom,estIncludeSingle\)/);
 assert.doesNotMatch(estimateBlock,/est-vip|useVip/);
 
 assert.match(app,/let estIncludeRoom=false/);
-assert.match(app,/function openEstimate\(\)\{estCustomMin=0;estIncludeRoom=false;om\("est"\);\}/);
+assert.match(app,/function openEstimate\(\)\{estCustomMin=0;estIncludeRoom=false;estIncludeSingle=POS_CHARGES\.defaultSC\(S\.sessions\[at\]\);om\("est"\);\}/);
 assert.match(app,/onclick="setEstimateRoomIncluded\(false\)"[\s\S]*?>なし<\/button>/);
 assert.match(app,/onclick="setEstimateRoomIncluded\(true\)"[\s\S]*?>あり<\/button>/);
 assert.match(app,/const roomSuffix=estIncludeRoom&&estimateRoomType/);
