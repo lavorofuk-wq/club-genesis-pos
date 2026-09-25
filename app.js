@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.8";
+const APP_VERSION="6.150";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -1661,6 +1661,30 @@ function singleChargeModalHtml(s){
   const amount=chargeLegacyId?0:count*singleChargePrice();
   return '<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:420px;"><h3>シングルチャージ</h3>'+chargeTargetSelect(s)+source+'<div class="charge-options">'+(chargeLegacyId?'金額変更なし':'追加 ¥'+fmt(amount)+(count>1?'（'+count+'回分）':''))+'</div>'+(!count?'<div class="charge-error">この対象時間分のSCは登録済みです</div>':'')+'<button class="btn gbg charge-secondary" '+(!count?'disabled':'onclick="addSCToSession()"')+'>'+(chargeLegacyId?'対象を設定':'追加する')+'</button><button class="btn charge-secondary" onclick="closeM()">キャンセル</button></div></div>';
 }
+function assignmentWithType(assignment,newType,changedAt=Date.now()){
+  if(!assignment)return null;
+  const desired=cloneData(assignment);
+  const start=Number(assignment.startTime)||0;
+  const rawEnd=Number(assignment.endTime);
+  const end=Number.isFinite(rawEnd)&&rawEnd>=start&&assignment.endTime!=null?rawEnd:Infinity;
+  const clip=time=>Math.max(start,Math.min(end,time));
+  const entries=(Array.isArray(assignment.typeHistory)?assignment.typeHistory:[])
+    .filter(entry=>entry&&typeof entry.type==="string"&&Number.isFinite(Number(entry.startTime)))
+    .map(entry=>({type:entry.type,startTime:clip(Number(entry.startTime))}))
+    .sort((a,b)=>a.startTime-b.startTime);
+  if(!entries.length)entries.push({type:assignment.type,startTime:start});
+  entries[0].startTime=start;
+  const history=[];
+  entries.forEach(entry=>{if(history[history.length-1]?.type!==entry.type)history.push(entry);});
+  const last=history[history.length-1];
+  const time=Number(changedAt);
+  // Keep the original type and conversion boundary even when a manual time edit
+  // places the assignment in the future or closes it before the current time.
+  if(last.type!==newType)history.push({type:newType,startTime:Math.max(last.startTime,clip(Number.isFinite(time)?time:Date.now()))});
+  desired.type=newType;
+  desired.typeHistory=history;
+  return desired;
+}
 async function addBanai(cid){
   const c=S.casts.find(c=>c.id===cid);if(!c)return;
   const tableId=at;
@@ -1671,7 +1695,7 @@ async function addBanai(cid){
   desiredSession.items=[...desiredSession.items,{id:"b_"+cid+"_"+Date.now(),label:"場内指名料 ("+c.name+")",price:BANAI_SHIMEI_PRICE,qty:1,castId:cid,castName:c.name,isBanaiShimei:true}];
   desiredSession.banaiShimeis=[...(desiredSession.banaiShimeis||[]),cid];
   const freeA=Object.values(S.assignments||{}).find(a=>String(a.castId)===String(cid)&&a.tableId===tableId&&!a.endTime&&a.type==="free");
-  const desiredAssignment=freeA?{...cloneData(freeA),type:"banai"}:null;
+  const desiredAssignment=freeA?assignmentWithType(freeA,"banai"):null;
   if(!requireFirebaseReady())return;
   const updates={[FB_ROOT+"/sessions/"+tableId]:desiredSession};
   if(desiredAssignment)updates[FB_ROOT+"/assignments/"+freeA.id]=desiredAssignment;
@@ -1799,7 +1823,7 @@ desired.banaiShimeis=(desired.banaiShimeis||[]).filter(cid=>cid!==t.castId);
 const banaiA=Object.values(S.assignments||{}).find(a=>a.tableId===at&&String(a.castId)===String(t.castId)&&!a.endTime&&a.type==="banai");
 if(banaiA){
   assignmentExpected=cloneData(banaiA);
-  assignmentDesired={...cloneData(banaiA),type:"free"};
+  assignmentDesired=assignmentWithType(banaiA,"free");
 }
   }else{
 desired.items=(desired.items||[]).filter(i=>i.id!==id);
@@ -4669,6 +4693,7 @@ function rAnalysis(){
   html+='<button class="btn" onclick="analysisSt.mode=\'uriage\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaDateSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上情報</button>';
   html+='</div>';
   html+='</div>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;"><div class="st" style="margin-bottom:12px;">リスト情報</div><p class="la-description">キャストごとの接客回数・時間、待機時間、場内延長を確認できます。</p><button class="btn la-button la-primary" onclick="openListAnalysis()">リスト情報</button></div>';
   html+='</div>';
   return html;
 }
@@ -6935,6 +6960,7 @@ function rModal(){
   const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
   if(chargeSaveBusy){c.innerHTML='<div class="mo"><div class="mb" role="status" aria-live="polite" style="max-width:400px;text-align:center;padding:36px 20px;"><span class="tc-save-spinner" aria-hidden="true"></span><div style="margin-top:16px;">明細を保存・同期中...</div></div></div>';return;}
+  if(["anaListDate","anaListCast","anaListDetail"].includes(md)){c.innerHTML=listAnalysisModalHtml(md);return;}
   const s=at?S.sessions[at]:null;
   let h="";
   const isBig=DEV!=="mobile";
@@ -8701,7 +8727,7 @@ async function startAssignAt(castId,tableId,type,startTs,prevAssignId=null){
   const previous=prevAssignId?S.assignments[prevAssignId]:null;
   if(prevAssignId&&(!previous||previous.endTime||String(previous.castId)!==String(castId))){alert("移動元の付け回し情報が最新ではありません。");return;}
   const aid="a_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
-  const desiredAssignment={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt:startTs,endTime:null,sessionId:localSession.startTime};
+  const desiredAssignment={id:aid,castId:c.id,castName:c.name,tableId,type,startTime:startTs,attachedAt:startTs,endTime:null,sessionId:localSession.startTime,typeHistory:[{type,startTime:startTs}]};
   const desiredShift=shiftWithStatus(shift,"active",Date.now());
   const desiredPrevious=previous?{...cloneData(previous),endTime:startTs}:null;
   const updates={
@@ -8743,7 +8769,7 @@ async function changeAssignType(aid,newType){
   if(isPendingAssignment(aid)){sbs(false,"保存中...");return;}
   const current=S.assignments[aid];if(!current)return;
   const expected=cloneData(current);
-  const desired={...cloneData(current),type:newType};
+  const desired=assignmentWithType(current,newType);
   await withDataOperation("assignment:"+aid,async()=>{
     try{
       await guardedRecordSet("assignments",aid,expected,desired);
