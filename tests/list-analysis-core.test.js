@@ -436,3 +436,78 @@ test('free average requires identified visits but does not require an attendance
   assert.equal(noShift.attendanceDays,0);
   assert.equal(noShift.types.free.averageMs,null);
 });
+
+test('banai rate divides all banai visits by all free visits, including short free visits and direct nominations',()=>{
+  const assignments=Array.from({length:10},(_,index)=>{
+    const start=1+index*0.5,end=start+0.25;
+    return assignment('visit-'+index,index<3?'banai':'free',start,end,{sessionId:at(start),typeHistory:index<3?[
+      {type:'free',startTime:at(start)},{type:'banai',startTime:at(start)+4*MINUTE}
+    ]:[{type:'free',startTime:at(start)}]});
+  });
+  assignments.push(assignment('direct-1','banai',6,6.25,{sessionId:at(6)}));
+  assignments.push(assignment('direct-2','banai',6.5,6.75,{sessionId:at(6.5)}));
+  assignments.push(assignment('return','banai',7,7.25,{sessionId:at(1)}));
+  const value=report([day({assignments})]);
+  assert.equal(value.types.free.count,10);
+  assert.equal(value.freeAverage.count,7,'short visits are excluded only from the free time average');
+  assert.equal(value.types.banai.count,5);
+  assert.equal(value.banaiRate,50);
+});
+
+test('banai rate uses whole-period totals and supports zero and ratios above one hundred percent',()=>{
+  const first=day({assignments:[assignment('one-free','free',1,1.25)]});
+  assert.equal(report([first]).banaiRate,0);
+  const second=day({id:'2026-09-25',date:'2026-09-25',endedAt:at(32),shifts:[shift(24,32)],assignments:[
+    assignment('second-free','free',25,25.25,{sessionId:at(25)}),
+    ...[26,27,28].map(start=>assignment('direct-'+start,'banai',start,start+0.25,{sessionId:at(start)}))
+  ]});
+  assert.equal(report([first,second]).banaiRate,150);
+  assert.equal(report([first,second],{to:at(24)}).banaiRate,0);
+  assert.equal(report([first,{...second,endedAt:null}]).banaiRate,0);
+});
+
+test('banai rate is unavailable without free visits or with unidentified free or banai visits',()=>{
+  assert.equal(buildReport().banaiRate,null);
+  assert.equal(report([day({assignments:[assignment('banai','banai',1,2)]})]).banaiRate,null);
+  for(const type of ['free','banai']){
+    const value=report([day({assignments:[
+      assignment('free','free',1,2),
+      assignment('banai','banai',2,3),
+      assignment('unknown',type,4,5,{sessionId:null})
+    ]})]);
+    assert.equal(value.banaiRate,null);
+  }
+  const honOnlyUnknown=report([day({assignments:[
+    assignment('free','free',1,2),assignment('banai','banai',2,3),
+    assignment('unknown-hon','hon',4,5,{sessionId:null})
+  ]})]);
+  assert.equal(honOnlyUnknown.banaiRate,100);
+});
+
+test('banai extensions exclude hon visits for any cast without excluding later free customers at the same table',()=>{
+  const calls=[];
+  const data=day({assignments:[
+    assignment('hon-table-banai','banai',1,2),
+    assignment('free-table-banai','banai',3,4,{sessionId:at(3)}),
+    assignment('own-hon-banai','banai',5,6,{sessionId:at(5)})
+  ],history:[
+    {id:'other-hon',tableId:'T1',startTime:at(1),endTime:at(2.5),items:[
+      {isHonShimei:true,castId:'b'},{isBanaiShimei:true,castId:'a'},extension('excluded-1'),extension('excluded-2')
+    ]},
+    {id:'free-visit',tableId:'T1',startTime:at(3),endTime:at(4.5),items:[
+      {isBanaiShimei:true,castId:'a'},extension('included-1'),extension('included-2')
+    ]},
+    {id:'own-hon',tableId:'T1',startTime:at(5),endTime:at(6.5),items:[
+      {isHonShimei:true,castId:'a'},extension('excluded-3')
+    ]}
+  ]});
+  const before=JSON.stringify(data);
+  const value=report([data],{extensionSales:(record,cid)=>{calls.push([record.id,cid]);return 8000;}});
+  assert.equal(value.types.banai.count,3);
+  assert.equal(value.extensionCount,2);
+  assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionSales,8000);
+  assert.ok(Math.abs(value.extensionRate-100/3)<1e-10);
+  assert.deepEqual(calls,[['free-visit','a']]);
+  assert.equal(JSON.stringify(data),before);
+});

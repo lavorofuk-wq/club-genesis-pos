@@ -55,7 +55,7 @@ function listAnalysisDuration(ms){
 }
 function listAnalysisAverage(value,unit){return value==null?"—":Number(value).toLocaleString("ja-JP",{minimumFractionDigits:1,maximumFractionDigits:1})+unit;}
 function listAnalysisPeriod(report){return(report.from||"開始指定なし")+" 〜 "+(report.to||"終了指定なし")+"（営業日）";}
-function listAnalysisReportHtml(report){
+function listAnalysisReportHtml(report,{print=false}={}){
   const esc=listAnalysisEscape,types=[["hon","本指名"],["banai","場内指名"],["free","フリー"]];
   const money=n=>esc(pAmt(n));
   const ratio=report.extensionRate==null?"—":listAnalysisAverage(report.extensionRate,"%");
@@ -67,13 +67,13 @@ function listAnalysisReportHtml(report){
     +'<div class="la-report-head"><div><div class="la-brand">CLUB GENESIS / ANALYSIS</div><h1>リスト情報</h1></div><div class="la-report-date">作成日時<br>'+esc(new Date(report.createdAt).toLocaleString("ja-JP",{hour12:false}))+'</div></div>'
     +'<div class="la-identity"><h2>'+esc(report.castName)+'</h2><p>'+esc(listAnalysisPeriod(report))+'</p></div>'
     +(noData?'<p class="la-empty">選択した期間のリスト・場内延長データはありません。</p>':"")
-    +'<section class="la-block"><h3>接客実績 <small>表の平均は1出勤日あたり</small></h3><div class="la-table-scroll"><table class="la-table"><thead><tr><th scope="col">種別</th><th scope="col">回数</th><th scope="col">平均回数 / 日</th><th scope="col">平均時間 / 日</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="la-free-average">'+metric("フリーの平均時間",listAnalysisDuration(report.freeAverage?.averageMs),"1来店卓あたり・合算5分以下を除外")+'</div></section>'
+    +'<section class="la-block"><h3>接客実績 <small>表の平均は1出勤日あたり</small></h3><div class="la-table-scroll"><table class="la-table"><thead><tr><th scope="col">種別</th><th scope="col">回数</th><th scope="col">平均回数 / 日</th><th scope="col">平均時間 / 日</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="la-contact-summary">'+metric("フリーの平均時間",listAnalysisDuration(report.freeAverage?.averageMs),print?"1来店卓あたり":"1来店卓あたり・合算5分以下を除外")+metric("場内率",listAnalysisAverage(report.banaiRate,"%"),"場内指名 "+report.types.banai.count+" 卓 ÷ フリー "+report.types.free.count+" 卓")+'</div></section>'
     +'<section class="la-block"><h3>場内延長</h3><div class="la-summary">'+metric("延長回数",report.extensionCount+'<em> 回</em>',"延長した来店卓数 "+report.extensionTables+" 卓")+metric("場内延長売上",money(report.extensionSales))+metric("場内指名に対する延長割合",ratio,"延長 "+report.extensionTables+" 卓 ÷ 場内指名 "+report.types.banai.count+" 卓")+'</div></section>'
-    +'<aside class="la-notes"><p>回数：同じ来店テーブルは各種別1回。会計後の別のお客様は別の来店として数えます。フリー→場内指名はそれぞれ1回。再着席の時間は合算します。</p><p>表の平均：合計 ÷ 出勤日数。フリーの平均時間：同じ来店卓のフリー時間を合算し、5分を超える卓の合計時間 ÷ 対象卓数。5分以下の卓も表の回数・日平均には含みます。時間は分単位に四捨五入します。</p><p>場内延長：回数は延長操作数、割合は延長した来店卓数 ÷ 場内指名についた来店卓数。同じ来店で複数回延長しても割合の分子は1卓です。売上は売上情報と同じ配分（延長後の注文を含む小計）を使用し、本指名のあるテーブルは対象外です。分母0は「—」で表示します。</p><p>営業終了済みのデータのみ対象。対象時間は各営業日19:00〜翌18:59です。</p>'
+    +(!print?'<aside class="la-notes"><p>回数：同じ来店テーブルは各種別1回。会計後の別のお客様は別の来店として数えます。フリー→場内指名はそれぞれ1回。再着席の時間は合算します。</p><p>表の平均：合計 ÷ 出勤日数。フリーの平均時間：同じ来店卓のフリー時間を合算し、5分を超える卓の合計時間 ÷ 対象卓数。5分以下の卓も表の回数・日平均には含みます。時間は分単位に四捨五入します。</p><p>場内率：場内指名についた来店卓数 ÷ フリーについた来店卓数。最初から場内指名の卓も含みます。フリーが0卓、またはフリー・場内指名の来店を特定できない場合は「—」で表示します。</p><p>場内延長：回数は延長操作数、割合は延長した来店卓数 ÷ 場内指名についた来店卓数。同じ来店で複数回延長しても割合の分子は1卓です。売上は売上情報と同じ配分（延長後の注文を含む小計）を使用し、本指名のあるテーブルは対象外です。分母0は「—」で表示します。</p><p>営業終了済みのデータのみ対象。対象時間は各営業日19:00〜翌18:59です。</p>'
     +(report.legacyTypeAssignments?'<p class="la-caution">種別変更履歴のない過去の付け回し '+report.legacyTypeAssignments+' 件は、保存されている種別で集計しています。変更前の回数・時間は復元できません。</p>':"")
     +(report.unresolvedVisitAssignments?'<p class="la-caution">来店を特定できない付け回し '+report.unresolvedVisitAssignments+' 件は時間のみ集計し、回数には含めていません。該当種別の平均回数と、場内指名の回数が不明な場合の延長割合は算出していません。</p>':"")
     +((report.unresolvedVisitTypes||[]).includes("free")?'<p class="la-caution">フリーの来店を特定できない記録があるため、フリーの平均時間は算出していません。</p>':"")
-    +(!report.attendanceDays&&!noData?'<p class="la-caution">対象の出勤記録がないため、出勤日数あたりの平均は算出できません。</p>':"")+'</aside>'
+    +(!report.attendanceDays&&!noData?'<p class="la-caution">対象の出勤記録がないため、出勤日数あたりの平均は算出できません。</p>':"")+'</aside>':"")
     +'</article>';
 }
 function listAnalysisModalHtml(kind){
@@ -93,7 +93,7 @@ function listAnalysisModalHtml(kind){
 }
 function listAnalysisPrintHtml(report,cssUrl){
   const esc=listAnalysisEscape;
-  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc('リスト情報_'+report.castName+'_'+(report.from||'全期間')+'_'+(report.to||''))+'</title><link rel="stylesheet" href="'+esc(cssUrl)+'"></head><body class="la-print-page"><div class="la-print-controls"><button class="la-button la-primary" onclick="window.print()">A4印刷 / PDF保存</button><span>用紙：A4・縦 ／ PDFに保存する場合は印刷先を「PDFに保存」に変更</span></div>'+listAnalysisReportHtml(report)+'</body></html>';
+  return '<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc('リスト情報_'+report.castName+'_'+(report.from||'全期間')+'_'+(report.to||''))+'</title><link rel="stylesheet" href="'+esc(cssUrl)+'"></head><body class="la-print-page"><div class="la-print-controls"><button class="la-button la-primary" onclick="window.print()">A4印刷 / PDF保存</button><span>用紙：A4・縦 ／ PDFに保存する場合は印刷先を「PDFに保存」に変更</span></div>'+listAnalysisReportHtml(report,{print:true})+'</body></html>';
 }
 function printListAnalysis(){
   const report=listAnalysisState.report;if(!report)return;

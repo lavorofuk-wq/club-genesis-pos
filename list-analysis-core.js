@@ -118,7 +118,7 @@
   function buildReport(options={}){
     const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,
       freeAverage:emptyFreeAverage(),
-      extensionRate:null,days:[],missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[]};
+      banaiRate:null,extensionRate:null,days:[],missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[]};
     const cid=identity(options.castId),from=timestamp(options.from)??-Infinity,to=timestamp(options.to)??Infinity;
     if(!cid||to<=from)return result;
     const daily=new Map();
@@ -192,6 +192,7 @@
         const start=timestamp(record.startTime);
         if(start==null||start<from||start>=to)return;
         const items=rows(record.items);
+        // Any cast's hon nomination makes the whole visit ineligible for banai extensions.
         if(items.some(item=>item.isHonShimei))return;
         const visit=JSON.stringify([dayId,identity(record.tableId),recordKey(record,index)]);
         let hasTarget=false;
@@ -253,6 +254,8 @@
     });
     if(result.types.banai.count&&!result.unresolvedVisitTypes.includes('banai'))
       result.extensionRate=result.extensionTables/result.types.banai.count*100;
+    if(result.types.free.count&&!result.unresolvedVisitTypes.some(type=>type==='free'||type==='banai'))
+      result.banaiRate=result.types.banai.count/result.types.free.count*100;
     return result;
   }
   return {buildReport};
