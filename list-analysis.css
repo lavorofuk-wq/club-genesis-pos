@@ -34,6 +34,7 @@
 .la-metric em{font-size:12px;font-style:normal;font-weight:400;}
 .la-metric>small{font-size:10px;color:#64748b;}
 .la-block{margin-top:22px;}
+.la-free-average{margin-top:12px;max-width:340px;}
 .la-report h3{font-size:14px;margin:0 0 9px;color:#183655;}
 .la-report h3 small{font-size:10px;font-weight:400;color:#64748b;margin-left:8px;}
 .la-table-scroll{overflow-x:auto;}
@@ -83,7 +84,7 @@
   .la-table thead{display:table-header-group;}
   .la-table tr{break-inside:avoid;page-break-inside:avoid;}
   .la-block h3{break-after:avoid;}
-  .la-block:not(.la-daily),.la-notes,.la-report-head,.la-identity{break-inside:avoid;}
+  .la-block,.la-notes,.la-report-head,.la-identity{break-inside:avoid;}
   .la-report{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
   .la-notes{font-size:8pt;}
 }

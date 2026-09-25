@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.150.3-auth';
-const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.150.3', './boot-compat.js?v=6.150.3', './firebase-init.js?v=6.150.3', './gms-json-core.js?v=6.150.3', './sync-core.js?v=6.150.3', './charge-core.js?v=6.150.3', './list-analysis-core.js?v=6.150.3', './list-analysis-ui.js?v=6.150.3', './app.js?v=6.150.3', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.150.4-auth';
+const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.150.4', './boot-compat.js?v=6.150.4', './firebase-init.js?v=6.150.4', './gms-json-core.js?v=6.150.4', './sync-core.js?v=6.150.4', './charge-core.js?v=6.150.4', './list-analysis-core.js?v=6.150.4', './list-analysis-ui.js?v=6.150.4', './app.js?v=6.150.4', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));

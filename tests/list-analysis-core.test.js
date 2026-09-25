@@ -342,3 +342,97 @@ test('duplicate snapshots, overlapping intervals, Firebase object collections an
   assert.equal(report([data],{from:at(9),to:at(1)}).days.length,0);
   assert.equal(buildReport().days.length,0);
 });
+
+test('free average combines returns per visit and excludes short visits only from the new average',()=>{
+  const data=day({assignments:[
+    assignment('first','free',1,1+4/60),
+    assignment('return','free',1.5,1.5+8/60),
+    assignment('short','free',2,2+5/60,{sessionId:at(2)}),
+    assignment('next-customers','free',3,3+6/60,{sessionId:at(3)})
+  ]});
+  const before=JSON.stringify(data),value=report([data]);
+  assert.deepEqual(value.freeAverage,{count:2,ms:18*MINUTE,averageMs:9*MINUTE});
+  assert.deepEqual(value.types.free,{count:3,ms:23*MINUTE,averageCount:3,averageMs:23*MINUTE});
+  assert.equal(JSON.stringify(data),before);
+});
+
+test('free average applies the exact five-minute boundary before rounding and handles no eligible visits',()=>{
+  const short=assignment('five','free',1,1+5/60);
+  const over=assignment('over-five','free',2,2+5/60,{sessionId:at(2),endTime:at(2)+5*MINUTE+1});
+  assert.deepEqual(report([day({assignments:[short]})]).freeAverage,{count:0,ms:0,averageMs:null});
+  assert.deepEqual(report([day({assignments:[short,over]})]).freeAverage,
+    {count:1,ms:5*MINUTE+1,averageMs:5*MINUTE+1});
+  assert.deepEqual(buildReport().freeAverage,{count:0,ms:0,averageMs:null});
+  assert.equal(report([day({endedAt:null,assignments:[over]})]).freeAverage.count,0);
+});
+
+test('free average uses only free time before a type change and excludes zero-length phases',()=>{
+  const value=report([day({assignments:[
+    assignment('short-free','banai',1,1.5,{typeHistory:[
+      {type:'free',startTime:at(1)},{type:'banai',startTime:at(1)+4*MINUTE}
+    ]}),
+    assignment('longer-free','banai',2,2.5,{sessionId:at(2),typeHistory:[
+      {type:'free',startTime:at(2)},{type:'banai',startTime:at(2)+8*MINUTE}
+    ]}),
+    assignment('instant','banai',3,3.5,{sessionId:at(3),typeHistory:[
+      {type:'free',startTime:at(3)},{type:'banai',startTime:at(3)}
+    ]})
+  ]})]);
+  assert.deepEqual(value.freeAverage,{count:1,ms:8*MINUTE,averageMs:8*MINUTE});
+  assert.equal(value.types.free.count,3);
+  assert.equal(value.types.free.ms,12*MINUTE);
+  assert.equal(value.types.banai.count,3);
+});
+
+test('free average merges overlapping returns and duplicate snapshots before applying the cutoff',()=>{
+  const first=assignment('first','free',1,1+3/60);
+  const data=day({assignments:[first,first,
+    assignment('overlap','free',1+2/60,1+5/60),
+    assignment('next','harem',2,2+4/60,{sessionId:at(2)}),
+    assignment('next-overlap','free',2+2/60,2+6/60,{sessionId:at(2),typeHistory:[
+      {type:'free',startTime:at(2)+2*MINUTE},{type:'free',startTime:at(2)+3*MINUTE}
+    ]})
+  ]});
+  const value=report([data,data]);
+  assert.deepEqual(value.freeAverage,{count:1,ms:6*MINUTE,averageMs:6*MINUTE});
+  assert.equal(value.types.free.count,2);
+  assert.equal(value.types.free.ms,11*MINUTE);
+});
+
+test('free average weights visits across business days instead of averaging daily averages',()=>{
+  const value=report([
+    day({assignments:[assignment('six','free',1,1+6/60)]}),
+    day({id:'2026-09-25',date:'2026-09-25',endedAt:at(32),shifts:[shift(24,32)],assignments:[
+      assignment('ten','free',25,25+10/60,{sessionId:at(25)}),
+      assignment('fourteen','free',26,26+14/60,{sessionId:at(26)})
+    ]})
+  ]);
+  assert.deepEqual(value.freeAverage,{count:3,ms:30*MINUTE,averageMs:10*MINUTE});
+  assert.deepEqual(value.days.map(row=>row.freeAverage.averageMs),[12*MINUTE,6*MINUTE]);
+  assert.equal(value.types.free.averageCount,1.5);
+});
+
+test('free average respects corrected session aliases and period and shift boundaries',()=>{
+  const data=day({assignments:[
+    assignment('old','free',1,1+4/60,{sessionId:String(at(1))}),
+    assignment('new','free',2,2+8/60,{sessionId:at(0.5)})
+  ],history:[{id:'receipt',tableId:'T1',sessionId:'ses_'+at(1)+'_abc123',startTime:at(0.5),endTime:at(3)}]});
+  assert.deepEqual(report([data]).freeAverage,{count:1,ms:12*MINUTE,averageMs:12*MINUTE});
+  const twelve=assignment('twelve','free',1,1+12/60);
+  assert.equal(report([day({assignments:[twelve]})],{from:at(1)+7*MINUTE}).freeAverage.averageMs,null);
+  assert.equal(report([day({shifts:[shift(0,1+5/60)],assignments:[twelve]})]).freeAverage.averageMs,null);
+});
+
+test('free average requires identified visits but does not require an attendance record',()=>{
+  const known=assignment('known','free',1,1+12/60);
+  const unknown=assignment('unknown','free',2,2.5,{sessionId:null});
+  const value=report([day({assignments:[known,unknown]})]);
+  assert.equal(value.freeAverage.count,1);
+  assert.equal(value.freeAverage.ms,12*MINUTE);
+  assert.equal(value.freeAverage.averageMs,null,'do not present a partial mean as the full selected-period average');
+  assert.deepEqual(value.unresolvedVisitTypes,['free']);
+  const noShift=report([day({shifts:[],assignments:[known]})]);
+  assert.equal(noShift.freeAverage.averageMs,12*MINUTE);
+  assert.equal(noShift.attendanceDays,0);
+  assert.equal(noShift.types.free.averageMs,null);
+});

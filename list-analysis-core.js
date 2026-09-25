@@ -11,6 +11,7 @@
   const timestamp=value=>value!=null&&value!==''&&Number.isFinite(Number(value))?Number(value):null;
   const assignmentType=value=>value==='harem'?'free':(['hon','banai','free','help'].includes(value)?value:null);
   const emptyTypes=()=>Object.fromEntries(TYPES.map(type=>[type,{count:0,ms:0,averageCount:null,averageMs:null}]));
+  const emptyFreeAverage=()=>({count:0,ms:0,averageMs:null});
   const range=(start,end,from,to)=>start!=null&&end!=null&&Math.min(end,to)>Math.max(start,from)?[Math.max(start,from),Math.min(end,to)]:null;
 
   function merge(intervals){
@@ -105,16 +106,18 @@
   }
   function newDay(date){
     return {date,attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,
+      freeAverage:emptyFreeAverage(),
       missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[],
       _work:[],_waiting:[],_occupied:[],_breaks:[],_typeIntervals:{hon:[],banai:[],free:[]},
       _visits:{hon:new Set(),banai:new Set(),free:new Set()},_extensionEvents:new Set(),_extensionVisits:new Set(),
-      _unresolvedTypes:new Set()};
+      _unresolvedTypes:new Set(),_freeVisits:new Map()};
   }
 
   // Only completed business days participate in this report.
   // Attendance and averages use business dates; transaction sales use visit startTime.
   function buildReport(options={}){
     const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,
+      freeAverage:emptyFreeAverage(),
       extensionRate:null,days:[],missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[]};
     const cid=identity(options.castId),from=timestamp(options.from)??-Infinity,to=timestamp(options.to)??Infinity;
     if(!cid||to<=from)return result;
@@ -178,6 +181,10 @@
           if(visit)row._visits[segment.type].add(visit);
           else{unresolvedVisit=true;row._unresolvedTypes.add(segment.type);}
           row._typeIntervals[segment.type].push(...pieces);
+          if(segment.type==='free'&&visit){
+            if(!row._freeVisits.has(visit))row._freeVisits.set(visit,[]);
+            row._freeVisits.get(visit).push(...pieces);
+          }
         });
         if(unresolvedVisit)row.unresolvedVisitAssignments++;
       });
@@ -216,6 +223,14 @@
         }
       });
       row.unresolvedVisitTypes=TYPES.filter(type=>row._unresolvedTypes.has(type));
+      // The average uses one sample per visit, including all returns to that visit.
+      // Apply the five-minute cutoff to exact merged durations, not rounded values.
+      row._freeVisits.forEach(intervals=>{
+        const ms=duration(intervals);
+        if(ms>5*60000){row.freeAverage.count++;row.freeAverage.ms+=ms;}
+      });
+      if(row.freeAverage.count&&!row._unresolvedTypes.has('free'))
+        row.freeAverage.averageMs=row.freeAverage.ms/row.freeAverage.count;
       row.extensionCount=row._extensionEvents.size;row.extensionTables=row._extensionVisits.size;
       const hasActivity=row.workMs||row.waitingMs||row.extensionCount||row.extensionSales||row.legacyTypeAssignments||
         row.unresolvedVisitAssignments||TYPES.some(type=>row.types[type].count||row.types[type].ms);
@@ -225,8 +240,11 @@
       ['attendanceDays','workMs','waitingMs','extensionCount','extensionTables','extensionSales','missingWaitingDays','legacyTypeAssignments','unresolvedVisitAssignments']
         .forEach(key=>{result[key]+=row[key];});
       TYPES.forEach(type=>{result.types[type].count+=row.types[type].count;result.types[type].ms+=row.types[type].ms;});
+      result.freeAverage.count+=row.freeAverage.count;result.freeAverage.ms+=row.freeAverage.ms;
     });
     result.unresolvedVisitTypes=TYPES.filter(type=>result.days.some(row=>row.unresolvedVisitTypes.includes(type)));
+    if(result.freeAverage.count&&!result.unresolvedVisitTypes.includes('free'))
+      result.freeAverage.averageMs=result.freeAverage.ms/result.freeAverage.count;
     TYPES.forEach(type=>{
       if(result.attendanceDays){
         if(!result.unresolvedVisitTypes.includes(type))result.types[type].averageCount=result.types[type].count/result.attendanceDays;

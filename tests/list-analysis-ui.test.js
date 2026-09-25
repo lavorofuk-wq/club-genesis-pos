@@ -161,16 +161,16 @@ test('closing a business day includes its saved snapshot and sales ignore all cu
   assert.doesNotMatch(html,/営業中のデータ|100%を超える/);
 });
 
-test('empty reports are readable and report names, periods, and daily labels are escaped',()=>{
+test('empty reports are readable and report names and periods are escaped',()=>{
   const ctx=contextFor();
   const report={...LIST_ANALYSIS.buildReport({castId:'a'}),castName:'<script>bad()</script>',from:'<from>',to:'<to>',createdAt:START};
   const empty=ctx.listAnalysisReportHtml(report);
-  assert.match(empty,/選択した期間のリスト・出勤・場内延長データはありません/);
+  assert.match(empty,/選択した期間のリスト・場内延長データはありません/);
   assert.doesNotMatch(empty,/NaN|undefined|Infinity|<script>|<from>|<to>|営業日別の内訳/);
   assert.match(empty,/&lt;script&gt;bad\(\)&lt;\/script&gt;/);
   const populated={...report,days:[{date:'<date>',types:report.types,waitingMs:0,extensionCount:0,extensionSales:0}],legacyTypeAssignments:1,missingWaitingDays:1};
   const html=ctx.listAnalysisReportHtml(populated);
-  assert.match(html,/営業日別の内訳/);assert.match(html,/&lt;date&gt;/);assert.match(html,/復元できません/);
+  assert.doesNotMatch(html,/営業日別の内訳|&lt;date&gt;|待機時間|待機ログ|勤務時間/);assert.match(html,/復元できません/);
   assert.match(html,/出勤日数あたりの平均は算出できません/);
 });
 
@@ -186,7 +186,43 @@ test('unresolved visits keep time visible and show unavailable count averages an
   assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
   assert.match(html,/来店を特定できない付け回し 1 件は時間のみ集計/);
   assert.match(html,/該当種別の平均回数と、場内指名の回数が不明な場合の延長割合は算出していません/);
-  assert.equal((html.match(/来店不明の記録あり/g)||[]).length,2);
+  assert.equal((html.match(/来店不明の記録あり/g)||[]).length,1);
+});
+
+test('modal and A4 print share free visit averages and omit daily, work, attendance count, and waiting displays',()=>{
+  const ctx=contextFor();savedFixture(ctx);ctx.S.activeBizDay=null;
+  ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const report=ctx.state.report;
+  report.freeAverage={count:2,ms:20*60000,averageMs:10*60000};
+  report.attendanceDays=37;report.missingWaitingDays=1;
+  report.days[0].date='日別専用ラベル';
+  const before=JSON.stringify(report);
+  const outputs=[ctx.listAnalysisModalHtml('anaListDetail'),ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css')];
+  for(const html of outputs){
+    assert.match(html,/フリーの平均時間<\/span><strong>0時間10分<\/strong>/);
+    assert.match(html,/1来店卓あたり・合算5分以下を除外/);
+    assert.match(html,/平均回数 \/ 日/);assert.match(html,/平均時間 \/ 日/);
+    assert.match(html,/表の平均は1出勤日あたり/);
+    assert.match(html,/同じ来店卓のフリー時間を合算し、5分を超える卓の合計時間 ÷ 対象卓数/);
+    assert.match(html,/5分以下の卓も表の回数・合計時間には含みます/);
+    assert.doesNotMatch(html,/営業日別の内訳|日別専用ラベル|la-daily|勤務時間|待機|<span>出勤日数<\/span>|出勤 37 日/);
+  }
+  assert.equal(JSON.stringify(report),before,'rendering must preserve saved report values');
+});
+
+test('free averages show a dash when unavailable and explain unidentified free visits',()=>{
+  const ctx=contextFor();
+  const report={...LIST_ANALYSIS.buildReport({castId:'a'}),castName:'A',from:'',to:'',createdAt:START,
+    freeAverage:{count:0,ms:0,averageMs:null}};
+  const empty=ctx.listAnalysisReportHtml(report);
+  assert.match(empty,/フリーの平均時間<\/span><strong>—<\/strong>/);
+  assert.doesNotMatch(empty,/フリーの来店を特定できない記録/);
+  report.freeAverage={count:1,ms:10*60000,averageMs:null};
+  report.unresolvedVisitAssignments=1;report.unresolvedVisitTypes=['free'];
+  const unresolved=ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css');
+  assert.match(unresolved,/フリーの平均時間<\/span><strong>—<\/strong>/);
+  assert.match(unresolved,/フリーの来店を特定できない記録があるため、フリーの平均時間は算出していません/);
+  assert.doesNotMatch(unresolved,/NaN|undefined|Infinity/);
 });
 
 test('printing escapes the standalone document and waits for the popup stylesheet load',()=>{
