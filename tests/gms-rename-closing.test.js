@@ -232,6 +232,35 @@ test("旧集計のGMS出力は再利用せず、訂正版と未送信作り直�
   assert.deepEqual(clone(context.S), before, "過去の保存データと出力履歴は書き換えない");
 });
 
+test("Tax・SC固定の割引後小計と会計金額をPOSのGMS出力に保持する", () => {
+  const context = createContext();
+  Object.assign(context, { TAX_RATE: 0.3, TOTAL_ROUND_UNIT: 100, roundCharge: n => Math.ceil(n / 100) * 100 });
+  vm.runInContext(sourceBetween("function standardChargeFromSubtotal", "function isV(id)"), context);
+  const state = registeredState("regular");
+  addOrders(state);
+  const rec = state.history[0];
+  rec.items = [
+    { ...rec.items[0], price: 30000 },
+    { ...rec.items.find(item => item.isBanaiExtension), price: 4000 },
+    { ...rec.items.find(item => item.category === "champagneWine"), price: 16000 }
+  ];
+  Object.assign(rec, context.ct({ items: rec.items, adjustedTotal: 50000, adjustedTotalBaseSubtotal: 50000, adjustedTotalTax: 15000 }));
+  rec.splits = [{ method: "cash", amount: 50000 }];
+  context.S = closeSyntheticDay(state);
+  const before = clone(context.S);
+  const payload = clone(context.gmsClosingPayload(businessDate));
+  assert.equal(payload._gmsError, undefined, payload._gmsError);
+  delete payload._gmsMeta;
+  const transaction = payload.transactions.find(row => row.transactionId === rec.id);
+  assert.equal(transaction.subtotal, 35000);
+  assert.equal(transaction.tax, 15000);
+  assert.equal(transaction.discount, 15000);
+  assert.equal(transaction.total, 50000);
+  for (const row of payload.castSales) assert.equal(row.jonaiExtensionSales, 7000);
+  assert.deepEqual(GMS_JSON.validatePayload(payload), []);
+  assert.deepEqual(clone(context.S), before);
+});
+
 test("旧形式の場内延長IDを営業終了JSONに保持しボトル対象の検証を通す", () => {
   for (const field of ["banaiExtCastId", "castId"]) {
     const context = createContext();

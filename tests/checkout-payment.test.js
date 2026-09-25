@@ -91,6 +91,25 @@ test('checkout freezes the submitted payment during asynchronous saves',async()=
   assert.equal(Object.values(state.history)[0].splits[0].amount,7800);
 });
 
+test('checkout saves the discounted subtotal with original tax/SC and a balanced payment',async()=>{
+  const {ctx,state,db}=setup([{method:'cash',amount:20000},{method:'card',amount:30000}]);
+  Object.assign(state.sessions.t1,{
+    items:[{isSet:true,price:50000,qty:1}],
+    adjustedTotal:50000,adjustedTotalBaseSubtotal:50000,adjustedTotalTax:15000
+  });
+  ctx.S.sessions.t1=clone(state.sessions.t1);
+  await ctx.checkout();
+  assert.equal(db.writes.length,1);
+  const rec=Object.values(state.history)[0];
+  assert.equal(rec.grossSubtotal,50000);
+  assert.equal(rec.subtotal,35000);
+  assert.equal(rec.tax,15000);
+  assert.equal(rec.discount,15000);
+  assert.equal(rec.total,50000);
+  assert.equal(rec.splits.reduce((sum,sp)=>sum+sp.amount,0),50000);
+  assert.equal(rec.items[0].price,50000,'the original order price must remain unchanged');
+});
+
 test('checkout rejects blank and fractional DOM inputs without rounding or clearing them',async()=>{
   for(const value of ['', '7800.5', '-1']){
     const {ctx,db}=setup();

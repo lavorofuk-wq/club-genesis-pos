@@ -217,3 +217,43 @@ test('dohan counts only its recorded target, honors quantities, and does not gue
   assert.equal(ctx._salesDataTotalsFromHist(hist).dohanCount,3);
   assert.equal(JSON.stringify(hist),before);
 });
+
+test('fixed-tax discounts use the reduced subtotal in hon-shimei analysis, data and GMS exports',()=>{
+  const ctx=contextFor();
+  Object.assign(ctx,{TAX_RATE:0.3,TOTAL_ROUND_UNIT:100,roundCharge:n=>Math.ceil(n/100)*100});
+  vm.runInContext(source('function standardChargeFromSubtotal','function isV(id)'),ctx);
+  for(const target of [50000,60000])for(const count of [1,2,3]){
+    const ids=['a','b','c'].slice(0,count);
+    const items=[{isSet:true,price:50000-count*2000},...ids.map(castId=>({isHonShimei:true,castId,price:2000}))];
+    const totals=ctx.ct({items,adjustedTotal:target,adjustedTotalBaseSubtotal:50000,adjustedTotalTax:15000});
+    assert.equal(totals.subtotal,target-15000);
+    const hist=[record(items,totals)],before=JSON.stringify(hist);
+    const expected=Math.floor((target-15000)/count);
+    ctx.S.bizDays={closed:{date:'2026-09-24',endedAt:1,history:hist}};
+    for(const cid of ids){
+      assert.equal(ctx._salesDataStatsFromHist(hist).find(r=>r.castId===cid).honShimeiSales,expected);
+      assert.equal(ctx.gmsCastSales(hist).find(r=>r.castId===cid).honShimeiSales,expected);
+      assert.equal(ctx.anaCastDetailRows(hist,cid,cid).reduce((s,r)=>s+r.honSales,0),expected);
+      ctx.analysisSt={mode:'uriage',castId:cid,castName:cid};
+      assert.equal(metric(ctx.renderAnalysis(),'小計（本指名）'),ctx.pAmt(expected));
+      ctx.exportUriageCSV(hist,cid,cid);
+      assert.equal(Number(ctx.csv.split('\n')[1].split(',')[1]),expected);
+    }
+    assert.equal(JSON.stringify(hist),before);
+  }
+});
+
+test('fixed-tax discounts scale post-extension sales including bottles, excluding pre-extension orders',()=>{
+  const ctx=contextFor();
+  Object.assign(ctx,{TAX_RATE:0.3,TOTAL_ROUND_UNIT:100,roundCharge:n=>Math.ceil(n/100)*100});
+  vm.runInContext(source('function standardChargeFromSubtotal','function isV(id)'),ctx);
+  for(const target of [50000,60000,15000])for(const count of [1,2,3]){
+    const ids=['a','b','c'].slice(0,count);
+    const items=[{isSet:true,price:30000},extension(ids,4000),{category:'champagneWine',price:16000}];
+    const totals=ctx.ct({items,adjustedTotal:target,adjustedTotalBaseSubtotal:50000,adjustedTotalTax:15000});
+    assert.equal(totals.tax,15000);
+    assert.equal(totals.subtotal,target-15000);
+    const expected=Math.floor(20000*((target-15000)/50000)/count);
+    verifyAnalysis([record(items,totals)],Object.fromEntries(ids.map(id=>[id,expected])));
+  }
+});

@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.150";
+const APP_VERSION="6.150.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -276,21 +276,27 @@ function standardChargeFromSubtotal(subtotal){
   const total=roundCharge(sub+rawTax);
   return{subtotal:sub,tax:Math.max(0,total-sub),total};
 }
-function adjustedChargeFromTotal(total){
+function adjustedChargeFromTotal(total,fixedTax){
   const finalTotal=Math.max(0,Math.round(Number(total)||0));
-  const subtotal=Math.floor(finalTotal/(1+TAX_RATE)/TOTAL_ROUND_UNIT)*TOTAL_ROUND_UNIT;
+  // Keep legacy in-progress discounts unchanged until the operator reapplies them.
+  const subtotal=fixedTax==null
+    ?Math.floor(finalTotal/(1+TAX_RATE)/TOTAL_ROUND_UNIT)*TOTAL_ROUND_UNIT
+    :finalTotal-Number(fixedTax);
   return{subtotal,tax:Math.max(0,finalTotal-subtotal),total:finalTotal};
 }
 function hasActiveAdjustedTotal(ses,grossSubtotal){
   if(!ses||!Object.prototype.hasOwnProperty.call(ses,"adjustedTotal"))return false;
   const total=Number(ses.adjustedTotal);
   const base=Number(ses.adjustedTotalBaseSubtotal);
-  return Number.isFinite(total)&&total>=0&&total%TOTAL_ROUND_UNIT===0&&Number.isFinite(base)&&base===grossSubtotal;
+  const tax=ses.adjustedTotalTax;
+  return Number.isFinite(total)&&total>=0&&total%TOTAL_ROUND_UNIT===0&&Number.isFinite(base)&&base===grossSubtotal
+    &&(tax==null||(Number.isFinite(Number(tax))&&Number(tax)>=0&&total>=Number(tax)));
 }
 function clearAdjustedTotalFields(ses){
   if(!ses)return;
   delete ses.adjustedTotal;
   delete ses.adjustedTotalBaseSubtotal;
+  delete ses.adjustedTotalTax;
 }
 function stripLegacyActiveDiscounts(sessions){
   Object.values(sessions||{}).forEach(session=>{
@@ -303,8 +309,8 @@ function ct(ses){
   const grossSubtotal=sessionGrossSubtotal(ses);
   const standard=standardChargeFromSubtotal(grossSubtotal);
   if(hasActiveAdjustedTotal(ses,grossSubtotal)){
-    const adjusted=adjustedChargeFromTotal(ses.adjustedTotal);
-    if(adjusted.total<standard.total&&adjusted.subtotal<=grossSubtotal){
+    const adjusted=adjustedChargeFromTotal(ses.adjustedTotal,ses.adjustedTotalTax);
+    if(adjusted.total<standard.total&&adjusted.subtotal>=0&&adjusted.subtotal<=grossSubtotal){
       const discount=Math.max(0,grossSubtotal-adjusted.subtotal);
       return{grossSubtotal,subtotal:adjusted.subtotal,discount,subDiscAmt:discount,totalDiscAmt:0,tax:adjusted.tax,total:adjusted.total,rate:TAX_RATE,discountMode:"finalTotal"};
     }
@@ -1970,12 +1976,13 @@ function adjustedTotalResult(s,value){
   const standard=standardChargeFromSubtotal(grossSubtotal);
   const raw=String(value??"").trim();
   if(raw==="")return{valid:false,empty:true,grossSubtotal,standard};
-  const targetTotal=Math.round(Number(raw));
+  const targetTotal=Number(raw);
   if(!Number.isFinite(targetTotal)||targetTotal<0)return{valid:false,message:"0円以上の合計金額を入力してください。",grossSubtotal,standard};
   if(targetTotal%TOTAL_ROUND_UNIT!==0)return{valid:false,message:"割引後合計は100円単位で入力してください。",grossSubtotal,standard};
   if(targetTotal>standard.total)return{valid:false,message:"通常合計以下の金額を入力してください。",grossSubtotal,standard};
+  if(targetTotal<standard.tax)return{valid:false,message:"Tax+SC（¥"+fmt(standard.tax)+"）を下回る合計にはできません。",grossSubtotal,standard};
   if(targetTotal===standard.total)return{valid:true,clear:true,grossSubtotal,standard,...standard,discount:0};
-  const adjusted=adjustedChargeFromTotal(targetTotal);
+  const adjusted=adjustedChargeFromTotal(targetTotal,standard.tax);
   if(adjusted.subtotal>grossSubtotal)return{valid:false,message:"この金額では割引後小計が通常小計を超えます。",grossSubtotal,standard};
   return{valid:true,clear:false,grossSubtotal,standard,...adjusted,discount:Math.max(0,grossSubtotal-adjusted.subtotal)};
 }
@@ -2007,6 +2014,7 @@ function applyAdjustedTotal(){
   else{
     s.adjustedTotal=result.total;
     s.adjustedTotalBaseSubtotal=result.grossSubtotal;
+    s.adjustedTotalTax=result.tax;
   }
   save("sessions/"+at,s);closeM();renderOrderPartial();
 }
@@ -7220,7 +7228,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div style="padding:9px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">通常小計</div><div style="font-size:15px;font-weight:800;color:#0f172a;">¥'+fmt(grossSubtotal)+'</div></div>'
   +'<div style="padding:9px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:6px;"><div style="font-size:10px;color:#64748b;margin-bottom:3px;">通常合計</div><div style="font-size:15px;font-weight:800;color:#0f172a;">¥'+fmt(standard.total)+'</div></div>'
   +'</div>'
-  +'<input type="number" id="adjusted-total-input" inputmode="numeric" pattern="[0-9]*" min="0" step="100" class="ip" placeholder="割引後の合計金額（100円単位）" value="'+currentValue+'" oninput="updateAdjustedTotalPreview()" onkeydown="if(event.key===\'Enter\')applyAdjustedTotal()" style="font-size:20px;font-weight:800;text-align:right;margin-bottom:12px;" />'
+  +'<input type="number" id="adjusted-total-input" inputmode="numeric" pattern="[0-9]*" min="'+roundCharge(standard.tax)+'" step="100" class="ip" placeholder="割引後の合計金額（100円単位）" value="'+currentValue+'" oninput="updateAdjustedTotalPreview()" onkeydown="if(event.key===\'Enter\')applyAdjustedTotal()" style="font-size:20px;font-weight:800;text-align:right;margin-bottom:12px;" />'
   +'<div id="adjusted-total-preview" style="margin-bottom:14px;">'+adjustedTotalPreviewHtml(preview)+'</div>'
   +'<button id="adjusted-total-apply" class="btn gbg" onclick="applyAdjustedTotal()" '+(preview.valid?'':'disabled')+' style="width:100%;padding:12px;font-size:14px;font-weight:800;">'+(hasAdjusted?'変更を適用':'割引を適用')+'</button>'
   +(hasAdjusted?'<button class="btn" onclick="clearAdjustedTotal()" style="width:100%;margin-top:8px;padding:10px;color:#b91c1c;border-color:#fca5a5;">割引を解除</button>':'')
