@@ -1,5 +1,5 @@
 // リスト分析の選択画面・集計表示・A4印刷。元データの更新は行わない。
-let listAnalysisState={from:"",to:"",castId:null,castName:"",report:null,error:"",initialized:false};
+let listAnalysisState={from:"",to:"",castId:null,castName:"",report:null,days:null,error:"",initialized:false,loading:false,requestId:0};
 function listAnalysisEscape(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function listAnalysisRange(){
   const {from,to}=listAnalysisState;
@@ -10,24 +10,62 @@ function listAnalysisRange(){
 }
 function listAnalysisDays(){
   // 営業中・再編集中の営業日は保存済みスナップショットも集計しない。
-  return Object.entries(S.bizDays||{}).filter(([id,day])=>day&&Number(day.endedAt)>0&&id!==S.activeBizDay).map(([id,day])=>({...day,id,date:day.date||id}));
+  const days=listAnalysisState.days===null?S.bizDays:listAnalysisState.days;
+  return Object.entries(days||{}).filter(([id,day])=>day&&Number(day.endedAt)>0&&id!==S.activeBizDay).map(([id,day])=>({...day,id,date:day.date||id}));
+}
+function cancelListAnalysisLoad(){
+  listAnalysisState.requestId++;listAnalysisState.loading=false;listAnalysisState.error="";
+}
+function closeListAnalysis(){cancelListAnalysisLoad();closeM();}
+function listAnalysisBack(kind){cancelListAnalysisLoad();md=kind;rModal();}
+function listAnalysisSetDate(field,value){
+  cancelListAnalysisLoad();listAnalysisState[field]=value;listAnalysisState.days={};rModal();
+}
+function listAnalysisAllDates(){
+  cancelListAnalysisLoad();listAnalysisState.from="";listAnalysisState.to="";listAnalysisState.days={};rModal();
 }
 function listAnalysisSetMonth(){
+  cancelListAnalysisLoad();listAnalysisState.days={};
   const date=S.activeBizDay||getBizDate();
   listAnalysisState.from=date.slice(0,7)+"-01";listAnalysisState.to=date;listAnalysisState.error="";
   rModal();
 }
 function openListAnalysis(){
+  cancelListAnalysisLoad();listAnalysisState.days={};
   md="anaListDate";
   if(!listAnalysisState.initialized){listAnalysisState.initialized=true;listAnalysisSetMonth();}
   else rModal();
 }
-function listAnalysisNext(){
+async function listAnalysisLoadDays(kind,onLoaded){
+  const st=listAnalysisState;if(st.loading||md!==kind||vw!=="analysis")return false;
+  const requestId=++st.requestId,from=st.from,to=st.to,castId=st.castId,range=listAnalysisRange();
+  const current=()=>st.requestId===requestId&&md===kind&&vw==="analysis"&&st.from===from&&st.to===to&&st.castId===castId;
+  st.loading=true;st.error="";
+  if(kind==="anaListDate")st.days={};
+  rModal();
+  try{
+    const days=await ANALYSIS_DATA.loadDays({db:window._db,root:FB_ROOT,...range});
+    if(!current())return false;
+    st.days=days;st.loading=false;onLoaded();return true;
+  }catch(error){
+    if(!current())return false;
+    st.error=kind==="anaListDetail"?"最新データを取得できませんでした。前回の集計を表示しています。接続状態を確認して、再度更新してください。":"データを取得できませんでした。接続状態を確認して、再度お試しください。";
+    st.loading=false;rModal();return false;
+  }finally{
+    if(st.requestId===requestId)st.loading=false;
+  }
+}
+async function listAnalysisNext(){
+  if(listAnalysisState.loading||md!=="anaListDate")return false;
   const range=listAnalysisRange();
   if((range.from!=null&&!Number.isFinite(range.from))||(range.to!=null&&!Number.isFinite(range.to))||(range.from!=null&&range.to!=null&&range.from>=range.to)){
     listAnalysisState.error="終了営業日は開始営業日以降を選択してください。";rModal();return;
   }
-  listAnalysisState.error="";md="anaListCast";rModal();
+  return listAnalysisLoadDays("anaListDate",()=>{md="anaListCast";rModal();});
+}
+async function reloadListAnalysis(){
+  if(!listAnalysisState.report)return false;
+  return listAnalysisLoadDays("anaListDetail",refreshListAnalysis);
 }
 function listAnalysisCasts(){
   const casts=new Map();
@@ -37,6 +75,7 @@ function listAnalysisCasts(){
   return [...casts.values()];
 }
 function selectListAnalysisCast(castId){
+  if(listAnalysisState.loading||listAnalysisState.error)return;
   const cast=listAnalysisCasts().find(c=>c.id===String(castId));if(!cast)return;
   listAnalysisState.castId=cast.id;listAnalysisState.castName=cast.name;
   refreshListAnalysis();
@@ -78,18 +117,19 @@ function listAnalysisReportHtml(report,{print=false}={}){
 }
 function listAnalysisModalHtml(kind){
   const st=listAnalysisState,esc=listAnalysisEscape;
-  const button=(label,action,primary=false)=>'<button class="btn la-button'+(primary?' la-primary':'')+'" onclick="'+action+'">'+label+'</button>';
+  const button=(label,action,primary=false,disabled=false)=>'<button class="btn la-button'+(primary?' la-primary':'')+'" onclick="'+action+'"'+(disabled?' disabled':'')+'>'+label+'</button>';
+  const status=(st.loading?'<p class="la-hint" role="status">選択した期間のデータを読み込み中...</p>':"")+(st.error?'<p class="la-error" role="alert">'+esc(st.error)+'</p>':"");
   let body="";
   if(kind==="anaListDate"){
-    body='<h3>リスト情報 — 期間選択</h3><p class="la-description">集計したい開始・終了営業日を選択してください。</p><div class="la-date-fields"><label>開始営業日<input type="date" class="ip" value="'+esc(st.from)+'" onchange="listAnalysisState.from=this.value" /></label><label>終了営業日<input type="date" class="ip" value="'+esc(st.to)+'" onchange="listAnalysisState.to=this.value" /></label></div><p class="la-hint">営業終了済みのみ。各営業日19:00〜翌18:59の記録を対象にします。</p><div class="la-actions">'+button("当月","listAnalysisSetMonth()")+button("全期間","listAnalysisState.from='';listAnalysisState.to='';listAnalysisState.error='';rModal()")+'</div>'+(st.error?'<p class="la-error" role="alert">'+esc(st.error)+'</p>':"")+'<div class="la-footer">'+button("次へ（キャスト選択）","listAnalysisNext()",true)+button("キャンセル","closeM()")+'</div>';
+    body='<h3>リスト情報 — 期間選択</h3><p class="la-description">集計したい開始・終了営業日を選択してください。</p><div class="la-date-fields"><label>開始営業日<input type="date" class="ip" value="'+esc(st.from)+'" onchange="listAnalysisSetDate(\'from\',this.value)"'+(st.loading?' disabled':'')+' /></label><label>終了営業日<input type="date" class="ip" value="'+esc(st.to)+'" onchange="listAnalysisSetDate(\'to\',this.value)"'+(st.loading?' disabled':'')+' /></label></div><p class="la-hint">営業終了済みのみ。各営業日19:00〜翌18:59の記録を対象にします。</p><div class="la-actions">'+button("当月","listAnalysisSetMonth()",false,st.loading)+button("全期間","listAnalysisAllDates()",false,st.loading)+'</div>'+status+'<div class="la-footer">'+button(st.loading?"読み込み中...":"次へ（キャスト選択）","listAnalysisNext()",true,st.loading)+button("キャンセル","closeListAnalysis()")+'</div>';
   }else if(kind==="anaListCast"){
     const casts=listAnalysisCasts();
-    body='<h3>リスト情報 — キャスト選択</h3><p class="la-description">'+esc(listAnalysisPeriod(st))+'</p><div class="la-casts">'+casts.map(c=>'<button class="btn la-button" data-cast-id="'+esc(c.id)+'" onclick="selectListAnalysisCast(this.dataset.castId)">'+esc(c.name)+'</button>').join("")+'</div>'+(!casts.length?'<p class="la-empty">対象キャストがいません。</p>':"")+'<div class="la-footer">'+button("← 期間選択に戻る","md='anaListDate';rModal()")+button("閉じる","closeM()")+'</div>';
+    body='<h3>リスト情報 — キャスト選択</h3><p class="la-description">'+esc(listAnalysisPeriod(st))+'</p><div class="la-casts">'+casts.map(c=>'<button class="btn la-button" data-cast-id="'+esc(c.id)+'" onclick="selectListAnalysisCast(this.dataset.castId)">'+esc(c.name)+'</button>').join("")+'</div>'+(!casts.length?'<p class="la-empty">対象キャストがいません。</p>':"")+'<div class="la-footer">'+button("← 期間選択に戻る","listAnalysisBack('anaListDate')")+button("閉じる","closeListAnalysis()")+'</div>';
   }else{
     if(!st.report)return"";
-    body='<div class="la-toolbar">'+button("← キャスト選択","md='anaListCast';rModal()")+button("最新の情報に更新","refreshListAnalysis()")+button("A4印刷 / PDF保存","printListAnalysis()",true)+'</div>'+listAnalysisReportHtml(st.report)+'<div class="la-footer">'+button("閉じる","closeM()")+'</div>';
+    body='<div class="la-toolbar">'+button("← キャスト選択","listAnalysisBack('anaListCast')")+button(st.loading?"更新中...":"最新の情報に更新","reloadListAnalysis()",false,st.loading)+button("A4印刷 / PDF保存","printListAnalysis()",true)+'</div>'+status+listAnalysisReportHtml(st.report)+'<div class="la-footer">'+button("閉じる","closeListAnalysis()")+'</div>';
   }
-  return '<div class="mo" onclick="closeM()"><div class="mb la-modal'+(kind==="anaListDetail"?' la-wide':'')+'" role="dialog" aria-modal="true" aria-label="リスト情報" onclick="event.stopPropagation()">'+body+'</div></div>';
+  return '<div class="mo" onclick="closeListAnalysis()"><div class="mb la-modal'+(kind==="anaListDetail"?' la-wide':'')+'" role="dialog" aria-modal="true" aria-label="リスト情報" onclick="event.stopPropagation()">'+body+'</div></div>';
 }
 function listAnalysisPrintHtml(report,cssUrl){
   const esc=listAnalysisEscape;

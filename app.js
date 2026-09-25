@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.150.6";
+const APP_VERSION="6.150.7";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -142,7 +142,7 @@ let now=Date.now();
 let priceHidden=false;
 let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
-let analysisSt={mode:null,castId:null,castName:null};
+let analysisSt={mode:null,castId:null,castName:null,days:null,loading:false,error:"",requestId:0};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
 let checkoutBusy=false;
 let checkoutProgress=null;
@@ -440,7 +440,7 @@ function togglePriceHide(){
 
 // ===== FIREBASE =====
 const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
-const BIZ_DAYS_VIEWS=new Set(["analysis","shifts","backupDetail"]);
+const BIZ_DAYS_VIEWS=new Set(["shifts","backupDetail"]);
 const HISTORY_PAGE_SIZE=24;
 const BACKUP_VIEWS=new Set(["admin","backupDetail"]);
 const lazyDataState={
@@ -4698,12 +4698,44 @@ function rAnalysis(){
   html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
   html+='<div class="st" style="margin-bottom:12px;">売上情報</div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap;">';
-  html+='<button class="btn" onclick="analysisSt.mode=\'uriage\';analysisSt.castId=null;analysisSt.castName=null;md=\'anaDateSel\';rModal()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上情報</button>';
+  html+='<button class="btn" onclick="openSalesAnalysis()" style="padding:9px 18px;border-radius:6px;font-size:13px;font-weight:700;background:rgba(212,160,23,.08);border:1px solid rgba(212,160,23,.25);color:#d4a017;touch-action:manipulation;">売上情報</button>';
   html+='</div>';
   html+='</div>';
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;"><div class="st" style="margin-bottom:12px;">リスト情報</div><p class="la-description">キャストごとの接客回数・時間、待機時間、場内延長を確認できます。</p><button class="btn la-button la-primary" onclick="openListAnalysis()">リスト情報</button></div>';
+  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;"><div class="st" style="margin-bottom:12px;">リスト情報</div><p class="la-description">キャストごとの接客回数・平均時間、場内率、場内延長を確認できます。</p><button class="btn la-button la-primary" onclick="openListAnalysis()">リスト情報</button></div>';
   html+='</div>';
   return html;
+}
+function openSalesAnalysis(){
+  analysisSt.requestId++;
+  Object.assign(analysisSt,{mode:"uriage",castId:null,castName:null,days:null,loading:false,error:""});
+  md="anaDateSel";rModal();
+}
+function salesAnalysisRange(){
+  const from=histFilter.from?new Date(histFilter.from+"T"+(histFilter.fromTime||"19:00")).getTime():null;
+  const to=histFilter.to?new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime()+1:null;
+  return{from,to};
+}
+async function anaNext(){
+  if(analysisSt.loading)return;
+  const range=salesAnalysisRange();
+  if((range.from!=null&&!Number.isFinite(range.from))||(range.to!=null&&!Number.isFinite(range.to))||
+    (range.from!=null&&range.to!=null&&range.to<=range.from)){
+    analysisSt.error="終了日時は開始日時以降を選択してください。";rModal();return false;
+  }
+  const requestId=++analysisSt.requestId,filterKey=JSON.stringify(histFilter);
+  const current=()=>requestId===analysisSt.requestId&&md==="anaDateSel"&&vw==="analysis"&&filterKey===JSON.stringify(histFilter);
+  analysisSt.loading=true;analysisSt.error="";analysisSt.days=null;rModal();
+  try{
+    const days=await ANALYSIS_DATA.loadDays({db:window._db,root:FB_ROOT,...range});
+    if(!current())return false;
+    analysisSt.days=days;analysisSt.loading=false;md="anaCastSel";rModal();return true;
+  }catch(error){
+    if(!current())return false;
+    analysisSt.error="データを取得できませんでした。接続を確認し、もう一度「次へ」を押してください。";
+    analysisSt.loading=false;rModal();return false;
+  }finally{
+    if(requestId===analysisSt.requestId)analysisSt.loading=false;
+  }
 }
 function anaSetMonth(){
   const biz=S.activeBizDay||getBizDate();
@@ -4736,7 +4768,7 @@ function clearHistFilter(){histFilter={from:"",to:"",fromTime:"19:00",toTime:"18
 function getFilteredHist(){
   // 分析は営業終了済みの営業日だけを対象にする
   let allHist=[];
-  Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).forEach(day=>{
+  Object.values(getAnalysisBizDays()).filter(day=>day&&day.endedAt).forEach(day=>{
 if(Array.isArray(day.history))allHist=allHist.concat(day.history);
   });
   // 重複除去（id基準）
@@ -4748,6 +4780,9 @@ if(histFilter.from){const from=new Date(histFilter.from+"T"+(histFilter.fromTime
 if(histFilter.to){const to=new Date(histFilter.to+"T"+(histFilter.toTime||"18:59")+":59").getTime();if(h.startTime>to)return false;}
 return true;
   }).sort((a,b)=>b.startTime-a.startTime);
+}
+function getAnalysisBizDays(){
+  return typeof analysisSt!=="undefined"&&analysisSt.days!=null?analysisSt.days:(S.bizDays||{});
 }
 function exportCSV(){
   const data=getFilteredHist();
@@ -6063,6 +6098,12 @@ ln("--------------------------------");
 }
 
 function _findHistRec(hid){
+  if(vw==="analysis"&&analysisSt.days){
+    for(const day of Object.values(analysisSt.days)){
+      const record=(day.history||[]).find(row=>row.id===hid);
+      if(record)return record;
+    }
+  }
   let h=(S.history||[]).find(x=>x.id===hid);
   if(!h){for(const day of Object.values(S.bizDays||{})){h=(day.history||[]).find(x=>x.id===hid);if(h)break;}}
   return h||null;
@@ -6110,7 +6151,7 @@ function safeShiftDurationMsInRange(sh,range){
 function _getShiftMsForCast(castId,filtered){
   let ms=0;
   const range=_analysisRangeFromFilter(filtered);
-  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
+  const allShifts=Object.values(getAnalysisBizDays()).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}));
   const seen=new Set();
   allShifts.forEach(sh=>{
     if(String(sh.castId)!==String(castId))return;
@@ -6357,7 +6398,7 @@ function anaCastNameKey(name){
 function anaShiftRowsForCast(castId,castName,filtered){
   const range=anaDetailRange();
   const nameKey=anaCastNameKey(castName);
-  const allShifts=Object.values(S.bizDays||{}).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}).map(sh=>({...sh,_dayEndedAt:d.endedAt,_dayDate:d.date})));
+  const allShifts=Object.values(getAnalysisBizDays()).filter(day=>day&&day.endedAt).flatMap(d=>Object.values(d.shifts||{}).map(sh=>({...sh,_dayEndedAt:d.endedAt,_dayDate:d.date})));
   const seen=new Set();
   return allShifts.filter(sh=>{
     const idMatched=String(sh.castId)===String(castId);
@@ -7984,21 +8025,23 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div></div>';
   }
   else if(md==="anaDateSel"){
+const busy=analysisSt.loading?' disabled':'';
 const periodLabel=histFilter.from||"";
 const periodTo=histFilter.to||"";
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;padding:20px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:#d4a017;">売上情報 — 期間選択</h3>'
   +'<div style="font-size:12px;color:#888;margin-bottom:16px;">表示したい期間を選択してください</div>'
   +'<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
-  +'<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+periodLabel+'" onchange="histFilter.from=this.value;" />'
+  +'<input type="date"'+busy+' class="ip" style="flex:1;min-width:120px;" value="'+periodLabel+'" onchange="histFilter.from=this.value;" />'
   +'<span style="color:#555;font-size:12px;">〜</span>'
-  +'<input type="date" class="ip" style="flex:1;min-width:120px;" value="'+periodTo+'" onchange="histFilter.to=this.value;" />'
+  +'<input type="date"'+busy+' class="ip" style="flex:1;min-width:120px;" value="'+periodTo+'" onchange="histFilter.to=this.value;" />'
   +'</div>'
   +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">'
-  +'<button class="btn" onclick="anaSetMonth()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;touch-action:manipulation;">当月</button>'
-  +'<button class="btn" onclick="anaClrFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">クリア</button>'
+  +'<button class="btn" '+busy+' onclick="anaSetMonth()" style="padding:6px 12px;background:rgba(184,150,12,.1);border:1px solid rgba(184,150,12,.2);color:#d4a017;border-radius:4px;font-size:12px;touch-action:manipulation;">当月</button>'
+  +'<button class="btn" '+busy+' onclick="anaClrFilter()" style="padding:6px 12px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:12px;touch-action:manipulation;">クリア</button>'
   +'</div>'
-  +'<button class="btn gbg" onclick="md=\'anaCastSel\';rModal()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:6px;touch-action:manipulation;margin-bottom:8px;">次へ（キャスト選択）</button>'
+  +(analysisSt.error?'<p class="la-error" role="alert">'+analysisSt.error+'</p>':'')
+  +'<button class="btn gbg"'+busy+' onclick="anaNext()" style="width:100%;padding:11px;font-weight:700;font-size:14px;border-radius:6px;touch-action:manipulation;margin-bottom:8px;">'+(analysisSt.loading?'データを読み込み中…':'次へ（キャスト選択）')+'</button>'
   +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">キャンセル</button>'
   +'</div></div>';
   }

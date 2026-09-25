@@ -15,20 +15,26 @@ const START=timestamp('2026-09-24T19:00:00'),HOUR=3600000;
 
 function contextFor(){
   const ctx={
-    Date,URL,LIST_ANALYSIS,APP_VERSION:app.match(/const APP_VERSION="([^"]+)"/)[1],
+    Date,URL,LIST_ANALYSIS,FB_ROOT:'pos-dev',ANALYSIS_DATA:{loadDays:async()=>clone(ctx.S.bizDays)},APP_VERSION:app.match(/const APP_VERSION="([^"]+)"/)[1],
     S:{casts:[],bizDays:{},activeBizDay:null,history:[],sessions:{},assignments:{},shifts:{}},
-    md:null,modalCalls:0,alerts:[],rendered:'',
+    md:null,vw:'analysis',modalCalls:0,alerts:[],rendered:'',
     allCasts:()=>ctx.S.casts,normalizeCastType:require('../gms-json-core').normalizeCastType,getBizDate:()=> '2026-09-26',
     rModal:()=>{ctx.modalCalls++;},
+    closeM:()=>{ctx.md=null;},
     ct:()=>{throw new Error('live session totals must not be read by closed-day analysis');},
     banaiExtensionSalesForCast:(items,cid,subtotal)=>subtotal,
     pAmt:value=>'¥'+Number(value).toLocaleString('ja-JP'),
     document:{baseURI:'https://example.test/pos/index.html'},
-    window:{open:()=>null},alert:message=>ctx.alerts.push(message)
+    window:{open:()=>null,_db:{}},alert:message=>ctx.alerts.push(message)
   };
   vm.createContext(ctx);
   vm.runInContext(ui+'\nthis.state=listAnalysisState;',ctx);
   return ctx;
+}
+function deferred(){
+  let resolve,reject;
+  const promise=new Promise((accept,fail)=>{resolve=accept;reject=fail;});
+  return{promise,resolve,reject};
 }
 function activeFixture(ctx){
   const date='2026-09-24';
@@ -84,14 +90,140 @@ test('month defaults follow the active business date and reopening preserves a s
   assert.deepEqual(clone(ctx.listAnalysisRange()),{from:null,to:null});
 });
 
-test('invalid or reversed dates keep the period modal open and same-day periods proceed',()=>{
+test('invalid or reversed dates keep the period modal open and same-day periods proceed',async()=>{
   const ctx=contextFor();ctx.md='anaListDate';
   for(const [from,to] of [['2026-09-25','2026-09-24'],['invalid','2026-09-24'],['2026-09-24','invalid']]){
-    ctx.state.from=from;ctx.state.to=to;ctx.listAnalysisNext();
+    ctx.state.from=from;ctx.state.to=to;await ctx.listAnalysisNext();
     assert.equal(ctx.md,'anaListDate');assert.ok(ctx.state.error);
   }
-  ctx.state.from='2026-09-24';ctx.state.to='2026-09-24';ctx.listAnalysisNext();
+  ctx.state.from='2026-09-24';ctx.state.to='2026-09-24';await ctx.listAnalysisNext();
   assert.equal(ctx.md,'anaListCast');assert.equal(ctx.state.error,'');
+});
+
+test('Next fetches only the selected range once and uses its private snapshot after cast selection',async()=>{
+  const ctx=contextFor(),pending=deferred(),calls=[];
+  const saved=savedFixture(ctx);ctx.S.activeBizDay=null;ctx.S.casts=[{id:'a',name:'A'}];
+  const days={'2026-09-24':clone(saved)};
+  days['2026-09-24'].history[0].subtotal=24000;
+  ctx.ANALYSIS_DATA.loadDays=args=>{calls.push(args);return pending.promise;};
+  const before=JSON.stringify(ctx.S);
+  ctx.openListAnalysis();
+  ctx.listAnalysisSetDate('from','2026-09-24');ctx.listAnalysisSetDate('to','2026-09-24');
+  assert.equal(calls.length,0,'opening and choosing dates must not fetch data');
+  const loading=ctx.listAnalysisNext();await ctx.listAnalysisNext();
+  assert.equal(calls.length,1);assert.equal(ctx.md,'anaListDate');assert.equal(ctx.state.loading,true);
+  assert.equal(ctx.state.report,null);
+  assert.equal(calls[0].db,ctx.window._db);assert.equal(calls[0].root,'pos-dev');
+  assert.equal(calls[0].from,START);assert.equal(calls[0].to,START+24*HOUR);
+  assert.match(ctx.listAnalysisModalHtml('anaListDate'),/role="status"/);
+  assert.match(ctx.listAnalysisModalHtml('anaListDate'),/onclick="listAnalysisNext\(\)" disabled/);
+  assert.match(ctx.listAnalysisModalHtml('anaListDate'),/onclick="closeListAnalysis\(\)"[^>]*>キャンセル/);
+  pending.resolve(days);assert.equal(await loading,true);
+  assert.equal(ctx.md,'anaListCast');assert.equal(ctx.state.loading,false);
+  ctx.selectListAnalysisCast('a');
+  assert.equal(ctx.state.report.extensionSales,24000);
+  assert.equal(calls.length,1,'cast selection computes from the fetched snapshot');
+  assert.equal(JSON.stringify(ctx.S),before,'fetching must not replace the application cache');
+  ctx.S.activeBizDay='2026-09-24';assert.deepEqual(clone(ctx.listAnalysisDays()),[]);
+});
+
+test('failed Next stays in the date modal and retrying with empty data never falls back to cached history',async()=>{
+  const ctx=contextFor();savedFixture(ctx);ctx.S.activeBizDay=null;ctx.S.casts=[{id:'a',name:'A'}];
+  ctx.ANALYSIS_DATA.loadDays=async()=>{throw new Error('offline');};
+  ctx.openListAnalysis();
+  assert.equal(await ctx.listAnalysisNext(),false);
+  assert.equal(ctx.md,'anaListDate');assert.equal(ctx.state.loading,false);
+  assert.match(ctx.state.error,/データを取得できませんでした/);
+  assert.deepEqual(clone(ctx.listAnalysisDays()),[]);
+  ctx.selectListAnalysisCast('a');assert.equal(ctx.state.report,null);
+  ctx.ANALYSIS_DATA.loadDays=async()=>({});
+  assert.equal(await ctx.listAnalysisNext(),true);
+  ctx.selectListAnalysisCast('a');
+  assert.equal(ctx.state.report.extensionSales,0);assert.equal(ctx.state.report.types.banai.count,0);
+  assert.equal(ctx.state.error,'');
+});
+
+test('closing or changing dates invalidates a pending fetch without reopening the modal',async()=>{
+  for(const leave of [ctx=>ctx.closeListAnalysis(),ctx=>ctx.listAnalysisSetDate('from','2026-08-01')]){
+    const ctx=contextFor(),pending=deferred();
+    ctx.ANALYSIS_DATA.loadDays=()=>pending.promise;
+    ctx.openListAnalysis();const loading=ctx.listAnalysisNext();
+    leave(ctx);const expectedModal=ctx.md,renderCount=ctx.modalCalls;
+    pending.resolve({old:{endedAt:START+HOUR}});
+    assert.equal(await loading,false);assert.equal(ctx.md,expectedModal);
+    assert.equal(ctx.modalCalls,renderCount);assert.equal(ctx.state.loading,false);
+    assert.deepEqual(clone(ctx.state.days),{});assert.equal(ctx.state.error,'');
+  }
+});
+
+test('reopening the same range starts a new request and stale success or failure cannot finish it',async()=>{
+  for(const rejected of [false,true]){
+    const ctx=contextFor(),old=deferred(),fresh=deferred();let calls=0;
+    ctx.ANALYSIS_DATA.loadDays=()=>++calls===1?old.promise:fresh.promise;
+    ctx.openListAnalysis();const first=ctx.listAnalysisNext();
+    ctx.closeListAnalysis();ctx.openListAnalysis();const second=ctx.listAnalysisNext();
+    if(rejected)old.reject(new Error('old failure'));else old.resolve({old:{endedAt:START+HOUR}});
+    assert.equal(await first,false);assert.equal(ctx.md,'anaListDate');assert.equal(ctx.state.loading,true);
+    assert.equal(ctx.state.error,'');assert.deepEqual(clone(ctx.state.days),{});
+    fresh.resolve({fresh:{endedAt:START+HOUR}});assert.equal(await second,true);
+    assert.deepEqual(Object.keys(ctx.state.days),['fresh']);assert.equal(ctx.md,'anaListCast');
+  }
+});
+
+test('refresh fetches fresh data, prevents duplicate requests, and preserves the prior report on failure',async()=>{
+  const ctx=contextFor();savedFixture(ctx);ctx.S.activeBizDay=null;
+  ctx.state.days=clone(ctx.S.bizDays);ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const previous=ctx.state.report,previousDays=ctx.state.days;
+  ctx.ANALYSIS_DATA.loadDays=async()=>{throw new Error('offline');};
+  assert.equal(await ctx.reloadListAnalysis(),false);
+  assert.equal(ctx.state.report,previous);assert.equal(ctx.state.days,previousDays);
+  assert.match(ctx.listAnalysisModalHtml('anaListDetail'),/前回の集計を表示しています/);
+  const pending=deferred();let calls=0;
+  ctx.ANALYSIS_DATA.loadDays=()=>{calls++;return pending.promise;};
+  const loading=ctx.reloadListAnalysis();await ctx.reloadListAnalysis();
+  assert.equal(calls,1);assert.equal(ctx.state.report,previous);
+  assert.match(ctx.listAnalysisModalHtml('anaListDetail'),/onclick="reloadListAnalysis\(\)" disabled/);
+  pending.resolve({});assert.equal(await loading,true);
+  assert.equal(ctx.state.report.extensionSales,0);assert.notEqual(ctx.state.report,previous);
+  assert.equal(ctx.state.error,'');assert.equal(ctx.state.loading,false);
+  assert.deepEqual(clone(ctx.listAnalysisDays()),[]);
+});
+
+test('pending refresh cannot overwrite another cast, changed range, or reopened period modal',async()=>{
+  for(const leave of [
+    ctx=>{ctx.listAnalysisBack('anaListCast');ctx.selectListAnalysisCast('b');},
+    ctx=>{ctx.state.from='2026-08-01';},
+    ctx=>ctx.openListAnalysis()
+  ]){
+    const ctx=contextFor(),pending=deferred();savedFixture(ctx);ctx.S.activeBizDay=null;
+    ctx.S.casts=[{id:'a',name:'A'},{id:'b',name:'B'}];
+    ctx.state.days=clone(ctx.S.bizDays);ctx.selectListAnalysisCast('a');
+    ctx.ANALYSIS_DATA.loadDays=()=>pending.promise;
+    const loading=ctx.reloadListAnalysis();leave(ctx);
+    const report=ctx.state.report,expectedModal=ctx.md,renderCount=ctx.modalCalls;
+    pending.resolve({});assert.equal(await loading,false);
+    assert.equal(ctx.state.report,report);assert.equal(ctx.md,expectedModal);assert.equal(ctx.modalCalls,renderCount);
+    assert.equal(ctx.state.loading,false);
+  }
+});
+
+test('switching away from analysis prevents late Next and refresh results from changing the modal or report',async()=>{
+  for(const refreshing of [false,true]){
+    const ctx=contextFor(),pending=deferred();let calls=0;
+    savedFixture(ctx);ctx.S.activeBizDay=null;
+    if(refreshing){
+      ctx.state.days=clone(ctx.S.bizDays);ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+    }else ctx.openListAnalysis();
+    ctx.ANALYSIS_DATA.loadDays=()=>{calls++;return pending.promise;};
+    const action=refreshing?ctx.reloadListAnalysis:ctx.listAnalysisNext;
+    const loading=action();
+    const report=ctx.state.report,days=ctx.state.days,modal=ctx.md,renderCount=ctx.modalCalls;
+    ctx.vw='home'; // sv() can leave md set while changing the main view.
+    pending.resolve({fresh:{endedAt:START+HOUR}});
+    assert.equal(await loading,false);assert.equal(ctx.md,modal);assert.equal(ctx.modalCalls,renderCount);
+    assert.equal(ctx.state.report,report);assert.equal(ctx.state.days,days);assert.equal(ctx.state.loading,false);
+    assert.equal(await action(),false);assert.equal(calls,1,'another view must not start analysis requests');
+  }
 });
 
 test('cast selection keeps opaque IDs intact and escapes names and attributes',()=>{
