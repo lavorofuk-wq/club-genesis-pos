@@ -182,7 +182,7 @@ test('unresolved visits keep time visible and show unavailable count averages an
   report.days=[{date:'2026-09-24',types:report.types,waitingMs:0,extensionCount:0,extensionSales:0,unresolvedVisitTypes:['banai']}];
   const html=ctx.listAnalysisReportHtml(report);
   const banai=html.match(/<tr><th scope="row"><span class="la-dot la-banai"><\/span>場内指名<\/th>(.*?)<\/tr>/)[1];
-  assert.match(banai,/来店不明の記録あり/);assert.match(banai,/<td>1時間00分<\/td><td>—<\/td><td>1時間00分<\/td>/);
+  assert.match(banai,/来店不明の記録あり/);assert.match(banai,/<td>—<\/td><td>1時間00分<\/td>/);
   assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
   assert.match(html,/来店を特定できない付け回し 1 件は時間のみ集計/);
   assert.match(html,/該当種別の平均回数と、場内指名の回数が不明な場合の延長割合は算出していません/);
@@ -204,8 +204,8 @@ test('modal and A4 print share free visit averages and omit daily, work, attenda
     assert.match(html,/平均回数 \/ 日/);assert.match(html,/平均時間 \/ 日/);
     assert.match(html,/表の平均は1出勤日あたり/);
     assert.match(html,/同じ来店卓のフリー時間を合算し、5分を超える卓の合計時間 ÷ 対象卓数/);
-    assert.match(html,/5分以下の卓も表の回数・合計時間には含みます/);
-    assert.doesNotMatch(html,/営業日別の内訳|日別専用ラベル|la-daily|勤務時間|待機|<span>出勤日数<\/span>|出勤 37 日/);
+    assert.match(html,/5分以下の卓も表の回数・日平均には含みます/);
+    assert.doesNotMatch(html,/<th scope="col">合計時間<\/th>|営業日別の内訳|日別専用ラベル|la-daily|勤務時間|待機|<span>出勤日数<\/span>|出勤 37 日/);
   }
   assert.equal(JSON.stringify(report),before,'rendering must preserve saved report values');
 });
