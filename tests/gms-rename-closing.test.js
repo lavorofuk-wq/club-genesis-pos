@@ -135,6 +135,12 @@ function output(context, closed) {
   assert.ok(payload._gmsMeta.contentHash, "実prepareSubmission経路で提出情報を生成する");
   delete payload._gmsMeta;
   assert.deepEqual(GMS_JSON.validatePayload(payload), [], "ダウンロード前の実検証を通る");
+  for (const sale of payload.castSales) {
+    assert.equal(sale.honShimeiSales, 15000);
+    assert.equal(sale.jonaiExtensionSales, 26000, "場内延長売上にボトル売上を含める");
+    assert.equal(sale.jonaiExtensionBackSales, 15000, "バック対象売上は内数として保持する");
+    assert.equal(sale.totalAttributedSales, 41000, "ボトル売上を合計に二重加算しない");
+  }
   assert.deepEqual(clone(closed), before, "JSON生成が保存済み営業記録を書き換えない");
   return payload;
 }
@@ -189,6 +195,42 @@ for (const castType of ["regular", "trial", "dispatch"]) {
     });
   }
 }
+
+test("旧集計のGMS出力は再利用せず、訂正版と未送信作り直しにボトル込み売上を出力する", () => {
+  const context = createContext();
+  const state = registeredState("regular");
+  addOrders(state);
+  context.S = closeSyntheticDay(state);
+  const legacyBase = clone(context.gmsClosingBasePayload(businessDate));
+  for (const sale of legacyBase.castSales) sale.jonaiExtensionSales -= sale.jonaiExtensionBackSales;
+  const legacy = GMS_JSON.prepareSubmission(legacyBase, {}, { generatedAt: new Date(clockOut).toISOString(), nonce: 1 });
+  const previous = {
+    schemaVersion: 3, submissionId: legacy.payload.submissionId, checksum: legacy.payload.checksum,
+    contentHash: legacy.meta.contentHash, payload: legacy.payload
+  };
+  context.S.gmsExportMeta[businessDate] = previous;
+  const before = clone(context.S);
+  for (const options of [{ correction: true }, { rebuildUnsubmitted: true }]) {
+    const payload = clone(context.gmsClosingPayload(businessDate, options));
+    assert.equal(payload._gmsError, undefined, payload._gmsError);
+    assert.equal(payload._gmsMeta.reused, false);
+    assert.notEqual(payload._gmsMeta.contentHash, previous.contentHash);
+    delete payload._gmsMeta;
+    assert.notEqual(payload.submissionId, previous.submissionId);
+    assert.notEqual(payload.checksum, previous.checksum);
+    assert.equal(payload.supersedesSubmissionId, options.correction ? previous.submissionId : undefined);
+    assert.deepEqual(payload.transactions, legacy.payload.transactions);
+    assert.deepEqual(payload.sales, legacy.payload.sales);
+    assert.deepEqual(payload.castWork, legacy.payload.castWork);
+    for (const sale of payload.castSales) {
+      assert.equal(sale.jonaiExtensionSales, 26000);
+      assert.equal(sale.jonaiExtensionBackSales, 15000);
+      assert.equal(sale.totalAttributedSales, 41000);
+    }
+    assert.deepEqual(GMS_JSON.validatePayload(payload), []);
+  }
+  assert.deepEqual(clone(context.S), before, "過去の保存データと出力履歴は書き換えない");
+});
 
 test("通常の営業終了JSON経路は同IDの名前競合を隠さず停止する", () => {
   const context = createContext();

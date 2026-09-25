@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.6";
+const APP_VERSION="6.149.7";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -3226,7 +3226,7 @@ function gmsCastSales(hist,nameMap){
     }else{
       const salesScale=recordSalesScale(items,h.subtotal);
       gmsBanaiExtensionSalesPhases(items).forEach(phase=>{
-        const share=Math.floor((phase.total||0)*salesScale/phase.ids.length);
+        const share=Math.floor(((phase.total||0)+(phase.backTotal||0))*salesScale/phase.ids.length);
         const backShare=Math.floor((phase.backTotal||0)*salesScale/phase.ids.length);
         phase.ids.forEach(id=>{const row=ensure(id,gmsCastName(id,"",nameMap));row.jonaiExtensionSales+=share;row.jonaiExtensionBackSales+=backShare;});
       });
@@ -3236,7 +3236,7 @@ function gmsCastSales(hist,nameMap){
       ids.forEach(id=>{ensure(id,gmsCastName(id,i.castName,nameMap)).drinkSales+=gmsInt((i.price||0)*(i.qty||1));});
     });
   });
-  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales+(r.jonaiExtensionBackSales||0)})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
+  return Object.values(map).map(r=>({...r,totalAttributedSales:r.honShimeiSales+r.jonaiExtensionSales})).sort((a,b)=>b.totalAttributedSales-a.totalAttributedSales);
 }
 function gmsCastSalesSummary(rows){
   return(rows||[]).reduce((sum,row)=>({
@@ -6182,7 +6182,7 @@ function banaiExtensionSalesForCast(items,castId,salesSubtotal){
   const salesScale=recordSalesScale(items,salesSubtotal);
   return banaiExtensionSalesPhases(items).reduce((total,phase)=>{
     if(!phase.ids.includes(cid))return total;
-    return total+Math.floor(phase.total*salesScale/phase.ids.length);
+    return total+Math.floor(((phase.total||0)+(phase.backTotal||0))*salesScale/Math.max(1,phase.ids.length));
   },0);
 }
 function banaiExtensionBackSalesForCast(items,castId,salesSubtotal){
@@ -6214,22 +6214,18 @@ function anaHonShare(rec,cid){
   return Math.floor(recordSalesSubtotal(rec)/honCount);
 }
 function anaBanaiExtMatch(item,cid){
-  return item&&item.isBanaiExtension&&((item.banaiExtCastIds||[]).map(String).includes(String(cid))||(item.banaiExtCastId&&String(item.banaiExtCastId)===String(cid)));
+  return item&&item.isBanaiExtension&&[...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(id=>id!=null&&id!=="").map(String).includes(String(cid));
 }
 function anaBanaiExtensionDetails(items,cid,salesSubtotal){
   let currentIds=[];
-  let sales=0;
+  const sales=banaiExtensionSalesForCast(items,cid,salesSubtotal);
   const liquors=[];
-  const salesScale=recordSalesScale(items,salesSubtotal);
   (items||[]).forEach(item=>{
     if(item.isBanaiExtension){
       currentIds=[...new Set([...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(x=>x!=null&&x!=="").map(String))];
     }
     if(!currentIds.length||!currentIds.includes(String(cid))||item.isDiscount)return;
-    const shareCount=Math.max(1,currentIds.length);
-    const amount=Math.max(0,Number(item.price)||0)*Math.max(1,Number(item.qty)||1);
     if(isBanaiExtensionBackItem(item))liquors.push(anaLiquorLabel(item));
-    else sales+=Math.floor(amount*salesScale/shareCount);
   });
   return{sales,liquors};
 }
@@ -6391,8 +6387,7 @@ const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
 return a+recordSalesSubtotal(h)/honCount;
   },0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
-  const _becMatchCSV=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
-  const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatchCSV)&&!(h.items||[]).some(i=>i.isHonShimei));
+  const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(i=>anaBanaiExtMatch(i,cid))&&!(h.items||[]).some(i=>i.isHonShimei));
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid,h.subtotal),0);
   const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid,h.subtotal),0);
   const hon=honRecs.length;
@@ -6405,7 +6400,7 @@ return a+recordSalesSubtotal(h)/honCount;
 ["キャスト","本指名小計","場内延長小計","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"],
 [castName,Math.round(sub),Math.round(banaiExtSub),Math.round(banaiExtBack),kumi,guests,hon,ban,banaiExt,dohan,workHStr]
   ];
-  rows[0]=["キャスト","本指名小計","場内延長小計","場内延長バック","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"];
+  rows[0]=["キャスト","本指名小計","場内延長小計","場内延長バック（内数）","組数","総客数","本指名件数","場内指名件数","場内延長件数","同伴件数","稼働時間(h)"];
   _dlCSV(bom+rows.map(r=>r.join(",")).join("\n"),"uriage_"+castName+".csv");
 }
 function exportAssignHistCSV(){
@@ -8022,10 +8017,8 @@ if(isShimei){
 } else {
   const cid=String(castId);
   const allRecs=filtered.filter(h=>(h.items||[]).some(i=>(i.isHonShimei||i.isBanaiShimei)&&String(i.castId)===cid));
-  // 場内延長: banaiExtCastIds(複数対応)にこのキャストを含むextensionアイテムを持つ履歴
-  const _becMatch=(i)=>i.isBanaiExtension&&((i.banaiExtCastIds||[]).map(String).includes(cid)||(i.banaiExtCastId&&String(i.banaiExtCastId)===cid));
   // 場内延長はオールフリー（本指名なし）のテーブルのみ対象
-  const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(_becMatch)&&!(h.items||[]).some(i=>i.isHonShimei));
+  const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(i=>anaBanaiExtMatch(i,cid))&&!(h.items||[]).some(i=>i.isHonShimei));
   const honRecs=allRecs.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid));
   const kumi=allRecs.length;
   const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
@@ -8045,7 +8038,7 @@ if(isShimei){
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
   statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,165,0,.06);border:1px solid rgba(255,165,0,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（場内延長）</div><div style="font-size:14px;font-weight:700;color:#ffa500;">'+pAmt(Math.round(banaiExtSub))+'</div></div>';
-  statsHtml+='<div style="padding:8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">場延バック</div><div style="font-size:14px;font-weight:700;color:#f59e0b;">'+pAmt(Math.round(banaiExtBack))+'</div></div>';
+  statsHtml+='<div style="padding:8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">うち場延バック</div><div style="font-size:14px;font-weight:700;color:#f59e0b;">'+pAmt(Math.round(banaiExtBack))+'</div></div>';
   statsHtml+='<div style="padding:8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">組数</div><div style="font-size:15px;font-weight:700;color:#e8dcc8;">'+kumi+'<span style="font-size:11px;color:#888;">組</span></div></div>';
   statsHtml+='</div>';
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr;gap:6px;margin-bottom:4px;">';
