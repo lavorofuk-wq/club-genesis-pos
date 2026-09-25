@@ -32,14 +32,8 @@ function listAnalysisNext(){
 function listAnalysisCasts(){
   const casts=new Map();
   const add=(id,name)=>{if(id!=null&&id!==""&&!casts.has(String(id)))casts.set(String(id),{id:String(id),name:String(name||id)});};
-  allCasts().filter(c=>c.active!==false).forEach(c=>add(c.id,c.name));
-  const range=listAnalysisRange();
-  listAnalysisDays().forEach(day=>{
-    const start=new Date(day.date+"T19:00:00").getTime();
-    if((range.from!=null&&day.endedAt<=range.from)||(range.to!=null&&start>=range.to))return;
-    Object.values(day.shifts||{}).forEach(s=>{if(s)add(s.castId,s.castName);});
-    Object.values(day.assignments||{}).forEach(a=>{if(a)add(a.castId,a.castName);});
-  });
+  // 過去の履歴から候補を復元せず、現在の在籍名簿だけを使用する。
+  allCasts().filter(c=>c&&c.active!==false&&normalizeCastType(c.castType,c.isTrial,c.status)!=="trial").forEach(c=>add(c.id,c.name));
   return [...casts.values()];
 }
 function selectListAnalysisCast(castId){

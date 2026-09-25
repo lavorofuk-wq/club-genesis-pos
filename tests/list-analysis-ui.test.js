@@ -18,7 +18,7 @@ function contextFor(){
     Date,URL,LIST_ANALYSIS,APP_VERSION:app.match(/const APP_VERSION="([^"]+)"/)[1],
     S:{casts:[],bizDays:{},activeBizDay:null,history:[],sessions:{},assignments:{},shifts:{}},
     md:null,modalCalls:0,alerts:[],rendered:'',
-    allCasts:()=>ctx.S.casts,getBizDate:()=> '2026-09-26',
+    allCasts:()=>ctx.S.casts,normalizeCastType:require('../gms-json-core').normalizeCastType,getBizDate:()=> '2026-09-26',
     rModal:()=>{ctx.modalCalls++;},
     ct:()=>{throw new Error('live session totals must not be read by closed-day analysis');},
     banaiExtensionSalesForCast:(items,cid,subtotal)=>subtotal,
@@ -102,7 +102,7 @@ test('cast selection keeps opaque IDs intact and escapes names and attributes',(
     '2026-08-01':{date:'2026-08-01',endedAt:timestamp('2026-08-02T03:00:00'),assignments:[{castId:'outside',castName:'Outside'}]}
   };
   ctx.state.from='2026-09-24';ctx.state.to='2026-09-24';
-  assert.deepEqual(clone(ctx.listAnalysisCasts()).map(c=>c.id),[id,'7','old']);
+  assert.deepEqual(clone(ctx.listAnalysisCasts()).map(c=>c.id),[id,'7']);
   const html=ctx.listAnalysisModalHtml('anaListCast');
   assert.ok(html.includes('data-cast-id="'+ctx.listAnalysisEscape(id)+'"'));
   assert.ok(html.includes(ctx.listAnalysisEscape(name)));
@@ -132,7 +132,7 @@ test('unclosed business days and the reopened day are excluded while other close
   ctx.S.bizDays['2026-09-26']={date:'2026-09-26',shifts:[{castId:'missing-end',castName:'Missing end'}]};
   ctx.S.bizDays['2026-09-27']={date:'2026-09-27',endedAt:0};
   assert.deepEqual(clone(ctx.listAnalysisDays()).map(day=>day.id),['2026-09-23']);
-  assert.deepEqual(clone(ctx.listAnalysisCasts()).map(cast=>cast.id),['a']);
+  assert.deepEqual(clone(ctx.listAnalysisCasts()).map(cast=>cast.id),[]);
   delete ctx.S.bizDays['2026-09-23'];
   assert.deepEqual(clone(ctx.listAnalysisCasts()),[]);
 });
@@ -224,4 +224,36 @@ test('analysis entry points and all new cached assets use the current applicatio
   vm.runInContext(app.slice(start,end),ctx);
   assert.match(ctx.rAnalysis(),/onclick="openListAnalysis\(\)"[^>]*>リスト情報<\/button>/);
   assert.match(app,/\["anaListDate","anaListCast","anaListDetail"\]\.includes\(md\)\)\{c.innerHTML=listAnalysisModalHtml\(md\);return;/);
+});
+
+
+test('list candidates exclude trial and departed casts without restoring them from historical records',()=>{
+  const ctx=contextFor();
+  ctx.S.casts=[
+    {id:'regular',name:'在籍',castType:'regular',active:true},
+    {id:'trial',name:'体入',castType:'trial',active:true},
+    {id:'legacy-trial',name:'旧体入',isTrial:true},
+    {id:'status-trial',name:'旧状態の体入',status:'trial'},
+    {id:'departed',name:'退店済',castType:'regular',active:false},
+    {id:'dispatch',name:'在籍派遣',castType:'dispatch',active:true}
+  ];
+  ctx.S.bizDays={closed:{date:'2026-09-24',endedAt:START+8*HOUR,
+    shifts:['trial','legacy-trial','status-trial','departed','removed-from-roster'].map(castId=>({castId,castName:castId,clockIn:START,clockOut:START+HOUR})),
+    assignments:[{castId:'removed-from-roster',castName:'名簿から削除済み',startTime:START,endTime:START+HOUR,type:'free'}]}};
+  const before=JSON.stringify(ctx.S);
+  for(const range of [{from:'',to:''},{from:'2026-09-24',to:'2026-09-24'}]){
+    Object.assign(ctx.state,range);
+    assert.deepEqual(clone(ctx.listAnalysisCasts()).map(c=>c.id),['regular','dispatch']);
+    const html=ctx.listAnalysisModalHtml('anaListCast');
+    assert.doesNotMatch(html,/旧体入|旧状態の体入|退店済|名簿から削除済み|data-cast-id="trial"/);
+    for(const id of ['trial','legacy-trial','status-trial','departed','removed-from-roster']){
+      ctx.state.castId=null;ctx.state.report=null;ctx.md='anaListCast';ctx.selectListAnalysisCast(id);
+      assert.equal(ctx.md,'anaListCast');assert.equal(ctx.state.report,null);assert.equal(ctx.state.castId,null);
+    }
+  }
+  ctx.S.casts=ctx.S.casts.filter(c=>c.id!=='regular'&&c.id!=='dispatch');
+  assert.deepEqual(clone(ctx.listAnalysisCasts()),[]);
+  assert.match(ctx.listAnalysisModalHtml('anaListCast'),/対象キャストがいません/);
+  ctx.S.casts=JSON.parse(before).casts;
+  assert.equal(JSON.stringify(ctx.S),before,'candidate filtering must not delete historical data');
 });
