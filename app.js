@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.149.7";
+const APP_VERSION="6.149.8";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -2055,9 +2055,13 @@ async function checkout(){
   if(checkoutBusy)return;
   const checkoutTableId=at;
   const identity=cloneData(S.sessions[checkoutTableId]);
+  if(!coState.splits?.length)coState.splits=[{method:coState.payMethod||"cash",amount:ct(identity).total}];
   document.querySelectorAll(".sp-amt").forEach((el,i)=>{
-  if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;
+  if(coState.splits[i])coState.splits[i].amount=el.value.trim()===""?NaN:Number(el.value);
   });
+  const splits=coState.splits.map(sp=>({...sp}));
+  const initialPaymentError=checkoutPaymentError(ct(identity).total,splits);
+  if(initialPaymentError){failCheckout({userMessage:initialPaymentError});return;}
   const shouldPrintStoreCopy=confirm("支払方法などを記載した完成された店舗控えを印刷しますか？");
   checkoutBusy=true;
   checkoutError="";
@@ -2076,8 +2080,9 @@ async function checkout(){
     return;
   }
   const totals=ct(s);
-  const splits=coState.splits&&coState.splits.length>0?coState.splits:null;
-  const payMethod=splits?splits[0].method:(coState.payMethod||"cash");
+  const paymentError=checkoutPaymentError(totals.total,splits);
+  if(paymentError){failCheckout({userMessage:paymentError});return;}
+  const payMethod=splits[0].method;
   const now_co=Date.now();
   const rec={
 id:now_co*1000+Math.floor(Math.random()*1000),
@@ -2117,6 +2122,14 @@ splits:splits||null,
     checkoutBusy=false;checkoutProgress=null;checkoutError="";
     closeM();render();
   }
+}
+function checkoutPaymentError(total,splits){
+  if(!Number.isSafeInteger(total)||total<0)return "会計の合計金額を確認してください。";
+  if(!Array.isArray(splits)||!splits.length||splits.some(sp=>!sp||!["cash","card"].includes(sp.method)||!Number.isSafeInteger(sp.amount)||sp.amount<0)){
+    return "支払金額は0円以上の整数で入力し、支払方法を確認してください。";
+  }
+  if(splits.reduce((sum,sp)=>sum+sp.amount,0)!==total)return "支払内訳と現在の合計金額が一致していません。金額を確認して再入力してください。";
+  return "";
 }
 function setCheckoutProgress(message,percent){
   checkoutProgress={
@@ -3079,19 +3092,26 @@ async function saveGmsTargetEdit(){
   alert("同伴・ボトルバック対象キャストを保存しました。\n会計金額・決済・指名内容は変更していません。");
 }
 
+function historySalesCSV(hist,includeDetails=false){
+  const header=["日時","テーブル","人数","小計","割引","税+SC","合計","支払方法",...(includeDetails?["明細"]:[]),"現金金額","カード金額"];
+  const rows=hist.map(h=>{
+    const {cashTotal,cardTotal}=_paymentBreakdownFromHist([h]);
+    const method=cashTotal>0&&cardTotal>0?"現金・カード":cardTotal>0?"カード":cashTotal>0?"現金":(h.splits?.[0]?.method||h.payMethod)==="card"?"カード":"現金";
+    const row=[new Date(h.startTime).toLocaleString("ja-JP"),h.tableLabel||"",h.guests,h.subtotal||0,h.discount||0,h.tax||0,h.total||0,method];
+    if(includeDetails)row.push((h.items||[]).map(i=>(i.qty>1?i.label+"×"+i.qty:i.label)+"(¥"+fmt(Math.abs(i.price*(i.qty||1)))+")").join("／"));
+    return [...row,cashTotal,cardTotal];
+  });
+  const cell=value=>{
+    const text=String(value??"");
+    return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;
+  };
+  return "\uFEFF"+[header,...rows].map(row=>row.map(cell).join(",")).join("\n");
+}
 function exportDayCSV(dayId){
   const day=S.bizDays[dayId];if(!day)return;
   const hist=day.history||[];
   if(!hist.length){alert("この営業日の売上データがありません");return;}
-  const bom="\uFEFF";
-  const header=["日時","テーブル","人数","小計","割引","税+SC","合計","支払方法"].join(",");
-  const rows=hist.map(h=>[
-new Date(h.startTime).toLocaleString("ja-JP"),
-h.tableLabel||"",h.guests,
-h.subtotal||0,h.discount||0,h.tax||0,h.total||0,
-h.payMethod==="card"?"カード":"現金"
-  ].join(","));
-  const csv=bom+header+"\n"+rows.join("\n");
+  const csv=historySalesCSV(hist);
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download="genesis_"+day.date+".csv";a.click();URL.revokeObjectURL(url);
@@ -3279,7 +3299,7 @@ function gmsTransactionItems(items,nameMap){
       itemId:String(item.id||""),label:String(item.label||""),category,
       price:Number(item.price)||0,quantity:Math.max(0,Number(item.qty)||1),
       castId,castName,
-      banaiExtCastIds:(item.banaiExtCastIds||[]).map(String),
+      banaiExtCastIds:gmsUniqueStrings([...(item.banaiExtCastIds||[]),...(item.isBanaiExtension?[item.banaiExtCastId,item.castId]:[])]),
       isSet:!!item.isSet,isHonShimei:!!item.isHonShimei,isBanaiShimei:!!item.isBanaiShimei,
       isExtension:!!item.isExtension,isBanaiExtension:!!item.isBanaiExtension,isVipCharge:!!item.isVipCharge,isRoomCharge:!!(item.isRoomCharge||item.isVipCharge||item.isKaraokeCharge),isKaraokeCharge:!!item.isKaraokeCharge,roomType:String(item.roomType||roomTypeFromItem(item)||""),roomMinutes:Number(item.roomMinutes)||0,isRoomExtension:!!item.isRoomExtension,isDiscount:!!item.isDiscount,isFreeDrink:!!item.isFreeDrink,freeDrinkMinutes:Number(item.freeDrinkMinutes)||0,
       backTargetCastIds,backTargetCastNames,backType,backAllocation
@@ -4699,13 +4719,7 @@ return true;
 function exportCSV(){
   const data=getFilteredHist();
   if(data.length===0){alert("エクスポートするデータがありません");return;}
-  const bom="\uFEFF";
-  const header=["日時","テーブル","人数","小計","割引","税+SC","合計","支払方法","明細"].join(",");
-  const rows=data.map(h=>{
-const detail=(h.items||[]).map(i=>(i.qty>1?i.label+"×"+i.qty:i.label)+"(¥"+fmt(Math.abs(i.price*(i.qty||1)))+")").join("／");
-return[new Date(h.startTime).toLocaleString("ja-JP"),h.tableLabel||"",h.guests,h.subtotal||0,h.discount||0,h.tax||0,h.total||0,h.payMethod==="card"?"カード":"現金",'"'+detail+'"'].join(",");
-  });
-  const csv=bom+header+"\n"+rows.join("\n");
+  const csv=historySalesCSV(data,true);
   const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||S.activeBizDay||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
@@ -4717,15 +4731,19 @@ function spSetMethod(idx,method){
   coState.splits[idx].method=method;rModal();
 }
 function spUpdateAmt(idx,val){
-  coState.splits[idx].amount=parseInt(val)||0;
+  coState.splits[idx].amount=val.trim()===""?NaN:Number(val);
   const s=S.sessions[at];if(!s)return;
   const total=ct(s).total;
   const used=coState.splits.reduce((a,sp)=>a+(sp.amount||0),0);
   const rem=total-used;
+  const paymentError=checkoutPaymentError(total,coState.splits);
   // 残額表示を更新
   const remEl=document.getElementById("sp-remain");
   if(remEl){
-if(rem>0){
+if(paymentError&&(rem===0||!Number.isFinite(rem)||coState.splits.some(sp=>!Number.isSafeInteger(sp.amount)||sp.amount<0))){
+  remEl.textContent=paymentError;
+  remEl.style.color="#ff6b6b";remEl.style.background="rgba(255,80,80,.08)";remEl.style.border="1px solid rgba(255,80,80,.2)";
+}else if(rem>0){
   remEl.textContent="残り ¥"+fmt(rem);
   remEl.style.color="#ff6b6b";remEl.style.background="rgba(255,80,80,.08)";remEl.style.border="1px solid rgba(255,80,80,.2)";
 }else if(rem<0){
@@ -4739,7 +4757,7 @@ if(rem>0){
   // 確定ボタンの活性/非活性を更新
   const confirmBtn=document.getElementById("sp-confirm-btn");
   if(confirmBtn){
-if(rem===0){
+if(!paymentError){
   confirmBtn.disabled=false;
   confirmBtn.textContent="✓ 会計終了を確定する";
   confirmBtn.className="btn gbg";
@@ -4753,7 +4771,7 @@ if(rem===0){
   }
 }
 function spAdd(total){
-  document.querySelectorAll(".sp-amt").forEach((el,i)=>{if(coState.splits[i])coState.splits[i].amount=parseInt(el.value)||0;});
+  document.querySelectorAll(".sp-amt").forEach((el,i)=>{if(coState.splits[i])coState.splits[i].amount=el.value.trim()===""?NaN:Number(el.value);});
   const used=coState.splits.reduce((a,sp)=>a+(sp.amount||0),0);
   coState.splits.push({method:"cash",amount:Math.max(0,total-used)});
   md="co2";rModal();
@@ -6121,7 +6139,7 @@ const guests=records.reduce((a,h)=>a+(h.guests||0),0);
 const sub=records.reduce((a,h)=>a+(h.subtotal||h.total),0);
 const hon=records.filter(h=>(h.items||[]).some(i=>i.isHonShimei&&String(i.castId)===cid)).length;
 const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
-const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
+const dohan=filtered.reduce((sum,h)=>sum+castDohanCount(h.items,cid),0);
 const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
 html+='<div style="border-top:1px solid rgba(255,255,255,.08);padding-top:12px;">';
 html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">';
@@ -6210,8 +6228,19 @@ function anaHasHonCast(rec,cid){
 }
 function anaHonShare(rec,cid){
   if(!anaHasHonCast(rec,cid))return 0;
-  const honCount=Math.max(1,(rec.items||[]).filter(i=>i.isHonShimei).length);
+  const honCount=Math.max(1,new Set((rec.items||[]).filter(i=>i.isHonShimei).map(i=>String(i.castId||itemCastName(i)))).size);
   return Math.floor(recordSalesSubtotal(rec)/honCount);
+}
+function dohanTargetCastId(item){
+  if(!item||gmsItemCategory(item)!=="dohan"||item.isDiscount)return "";
+  const ids=[...new Set((item.backTargetCastIds||[]).filter(id=>id!=null&&id!=="").map(String))];
+  // Legacy records without a single recorded target must not be attributed by guesswork.
+  if(ids.length)return ids.length===1?ids[0]:"";
+  return item.castId==null?"":String(item.castId);
+}
+function castDohanCount(items,cid){
+  if(cid==null||cid==="")return 0;
+  return(items||[]).reduce((sum,item)=>sum+(dohanTargetCastId(item)===String(cid)?Math.max(1,Number(item.qty)||1):0),0);
 }
 function anaBanaiExtMatch(item,cid){
   return item&&item.isBanaiExtension&&[...(item.banaiExtCastIds||[]),item.banaiExtCastId,item.castId].filter(id=>id!=null&&id!=="").map(String).includes(String(cid));
@@ -6332,9 +6361,9 @@ function anaCastDetailRows(filtered,castId,castName){
     if(isHon){
       row.honCount+=1;
       row.honSales+=anaHonShare(rec,cid);
-      if(items.some(i=>i.id==="dh"||i.label==="同伴料"))row.dohanCount+=1;
       items.filter(isBanaiExtensionBackItem).forEach(i=>row.honLiquors.push(anaLiquorLabel(i)));
     }
+    row.dohanCount+=castDohanCount(items,cid);
     row.banaiCount+=items.filter(i=>i.isBanaiShimei&&String(i.castId)===cid).length;
     if(!items.some(i=>i.isHonShimei)&&items.some(i=>anaBanaiExtMatch(i,cid))){
       const det=anaBanaiExtensionDetails(items,cid,rec.subtotal);
@@ -6382,10 +6411,7 @@ function exportUriageCSV(filtered,castId,castName){
   const kumi=records.length;
   const guests=records.reduce((a,h)=>a+(h.guests||0),0);
   // 本指名売上: 同テーブルの本指名人数で均等分配
-  const sub=honRecs.reduce((a,h)=>{
-const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
-return a+recordSalesSubtotal(h)/honCount;
-  },0);
+  const sub=honRecs.reduce((a,h)=>a+anaHonShare(h,cid),0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const banaiExtRecs=filtered.filter(h=>(h.items||[]).some(i=>anaBanaiExtMatch(i,cid))&&!(h.items||[]).some(i=>i.isHonShimei));
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid,h.subtotal),0);
@@ -6393,7 +6419,7 @@ return a+recordSalesSubtotal(h)/honCount;
   const hon=honRecs.length;
   const ban=records.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
-  const dohan=records.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
+  const dohan=filtered.reduce((sum,h)=>sum+castDohanCount(h.items,cid),0);
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
   const bom="\uFEFF";
   const rows=[
@@ -6644,10 +6670,11 @@ function _salesDataStatsFromHist(hist){
         liquorItems.forEach(item=>addLiquor(row,item,honTargetNames));
         roomChargeItems.forEach(item=>addRoomCharge(row,item,honTargetNames));
       });
-      if(items.some(i=>i&&(i.id==="dh"||i.label==="\u540c\u4f34\u6599"))){
-        uniqueHon.forEach(i=>{ensure(i.castId,itemCastName(i)||i.castName).dohanCount+=1;});
-      }
     }
+    items.forEach(item=>{
+      const id=dohanTargetCastId(item);
+      if(id)ensure(id,gmsCastName(id,String(item.castId||"")===id?itemCastName(item):"")).dohanCount+=Math.max(1,Number(item.qty)||1);
+    });
     items.filter(i=>i&&i.isBanaiShimei).forEach(i=>{
       ensure(i.castId,itemCastName(i)||i.castName).banaiCount+=Math.max(1,Number(i.qty)||1);
     });
@@ -7114,14 +7141,15 @@ if(!coState.splits||coState.splits.length===0)
   coState.splits=[{method:"cash",amount:total}];
 const splits=coState.splits;
 const splitTotal=splits.reduce((a,sp)=>a+(sp.amount||0),0);
-// total=0のときは無条件でremaining=0扱い
-const remaining=total===0?0:total-splitTotal;
+const remaining=total-splitTotal;
+const paymentError=checkoutPaymentError(total,splits);
+const invalidPayment=splits.some(sp=>!Number.isSafeInteger(sp.amount)||sp.amount<0||!["cash","card"].includes(sp.method));
 let splitRows="";
 splits.forEach((sp,i)=>{
   splitRows+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">';
   splitRows+='<button class="btn" onclick="spSetMethod('+i+',\'cash\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:11px;font-weight:700;background:'+(sp.method==="cash"?"linear-gradient(135deg,#b8960c,#e8c84a)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="cash"?"#b8960c":"rgba(255,255,255,.1)")+';color:'+(sp.method==="cash"?"#1a1200":"#666")+';touch-action:manipulation;">現金</button>';
   splitRows+='<button class="btn" onclick="spSetMethod('+i+',\'card\')" style="width:52px;padding:8px 4px;border-radius:6px;font-size:11px;font-weight:700;background:'+(sp.method==="card"?"rgba(56,189,248,.2)":"rgba(255,255,255,.06)")+';border:2px solid '+(sp.method==="card"?"#38bdf8":"rgba(255,255,255,.1)")+';color:'+(sp.method==="card"?"#38bdf8":"#666")+';touch-action:manipulation;">カード</button>';
-  splitRows+='<input type="number" inputmode="numeric" class="ip sp-amt" value="'+sp.amount+'" style="width:110px;font-size:16px;font-weight:700;" oninput="spUpdateAmt('+i+',this.value)"/>';
+  splitRows+='<input type="number" min="0" step="1" inputmode="numeric" class="ip sp-amt" value="'+(Number.isFinite(sp.amount)?sp.amount:"")+'" style="width:110px;font-size:16px;font-weight:700;" oninput="spUpdateAmt('+i+',this.value)"/>';
   if(splits.length>1)splitRows+='<button class="btn" onclick="spRemove('+i+')" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
   splitRows+='</div>';
 });
@@ -7140,14 +7168,16 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'<button class="btn" onclick="spAdd('+total+')" style="width:100%;padding:8px;margin-bottom:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;font-size:13px;touch-action:manipulation;">＋ 支払いを分ける</button>'
   // 残額表示：常にdivを出しておき中身をspUpdateAmtで更新する
   +'<div id="sp-remain" style="text-align:right;font-size:14px;font-weight:700;margin-bottom:10px;padding:8px 12px;border-radius:6px;'
-    +(remaining>0
+    +(invalidPayment
+      ?'color:#ff6b6b;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);">'+paymentError
+      :remaining>0
       ?'color:#ff6b6b;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);">残り ¥'+fmt(remaining)
       :remaining<0
         ?'color:#ff6b6b;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);">超過 ¥'+fmt(-remaining)
         :'color:#4ade80;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.2);">✓ 過不足なし')
   +'</div>'
   // 確定ボタン：合計が一致している場合のみ活性
-  +(remaining===0
+  +(!paymentError
     ?'<button id="sp-confirm-btn" class="btn gbg" onclick="checkout()" style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;touch-action:manipulation;">✓ 会計終了を確定する</button>'
     :'<button id="sp-confirm-btn" class="btn" disabled style="width:100%;padding:14px;font-size:16px;font-weight:700;border-radius:8px;opacity:.4;cursor:not-allowed;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#666;">金額を合わせてください</button>')
   +'</div></div>';
@@ -8023,17 +8053,14 @@ if(isShimei){
   const kumi=allRecs.length;
   const guests=allRecs.reduce((a,h)=>a+(h.guests||0),0);
   // 本指名売上: テーブル小計を同テーブルの本指名人数で均等分配
-  const sub=honRecs.reduce((a,h)=>{
-    const honCount=Math.max(1,(h.items||[]).filter(i=>i.isHonShimei).length);
-    return a+recordSalesSubtotal(h)/honCount;
-  },0);
+  const sub=honRecs.reduce((a,h)=>a+anaHonShare(h,cid),0);
   // 場内延長売上: オールフリーのみ・場内延長以降の小計を対象キャスト数で均等分配
   const banaiExtSub=banaiExtRecs.reduce((a,h)=>a+banaiExtensionSalesForCast(h.items,cid,h.subtotal),0);
   const banaiExtBack=banaiExtRecs.reduce((a,h)=>a+banaiExtensionBackSalesForCast(h.items,cid,h.subtotal),0);
   const hon=honRecs.length;
   const ban=allRecs.filter(h=>(h.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===cid)).length;
   const banaiExt=banaiExtRecs.length;
-  const dohan=allRecs.filter(h=>(h.items||[]).some(i=>i.label==="同伴料")).length;
+  const dohan=filtered.reduce((sum,h)=>sum+castDohanCount(h.items,cid),0);
   const workHStr=_fmtWorkH(_getShiftMsForCast(castId,filtered));
   statsHtml+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:6px;margin-bottom:6px;">';
   statsHtml+='<div style="padding:8px;background:rgba(212,160,23,.06);border:1px solid rgba(212,160,23,.15);border-radius:6px;text-align:center;"><div style="font-size:10px;color:#888;">小計（本指名）</div><div style="font-size:14px;font-weight:700;color:#d4a017;">'+pAmt(Math.round(sub))+'</div></div>';

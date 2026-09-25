@@ -97,6 +97,7 @@ const salesStatsContext={
   banaiExtensionSalesPhases:items=>items.filter(item=>item.mockPhase).map(item=>item.mockPhase)
 };
 vm.createContext(salesStatsContext);
+vm.runInContext(app.slice(app.indexOf("function dohanTargetCastId"),app.indexOf("function anaBanaiExtMatch")),salesStatsContext);
 vm.runInContext(salesRowsSource,salesStatsContext);
 const salesHist=[
   {subtotal:100000,items:[

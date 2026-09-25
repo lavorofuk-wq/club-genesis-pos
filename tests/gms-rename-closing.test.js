@@ -232,6 +232,31 @@ test("旧集計のGMS出力は再利用せず、訂正版と未送信作り直�
   assert.deepEqual(clone(context.S), before, "過去の保存データと出力履歴は書き換えない");
 });
 
+test("旧形式の場内延長IDを営業終了JSONに保持しボトル対象の検証を通す", () => {
+  for (const field of ["banaiExtCastId", "castId"]) {
+    const context = createContext();
+    const state = registeredState("regular");
+    addOrders(state);
+    const items = state.history[0].items;
+    const extension = items.find(item => item.isBanaiExtension);
+    delete extension.banaiExtCastIds;
+    extension[field] = castId;
+    const bottle = items.find(item => item.category === "champagneWine");
+    bottle.backTargetCastIds = [castId];
+    bottle.backTargetCastNames = [state.casts[0].name];
+    bottle.backAllocation = "single";
+    context.S = closeSyntheticDay(state);
+    const before = clone(context.S);
+    const payload = clone(context.gmsClosingPayload(businessDate));
+    assert.equal(payload._gmsError, undefined, payload._gmsError);
+    assert.deepEqual(payload.transactions[0].items.find(item => item.isBanaiExtension).banaiExtCastIds, [castId]);
+    assert.equal(payload.castSales.find(row => row.castId === castId).jonaiExtensionSales, 52000);
+    delete payload._gmsMeta;
+    assert.deepEqual(GMS_JSON.validatePayload(payload), []);
+    assert.deepEqual(clone(context.S), before);
+  }
+});
+
 test("通常の営業終了JSON経路は同IDの名前競合を隠さず停止する", () => {
   const context = createContext();
   let state = registeredState("trial");

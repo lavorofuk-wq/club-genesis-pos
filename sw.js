@@ -1,5 +1,5 @@
-const CACHE = 'genesis-pos-v6.149.7-auth';
-const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.149.7', './firebase-init.js?v=6.149.7', './gms-json-core.js?v=6.149.7', './sync-core.js?v=6.149.7', './charge-core.js?v=6.149.7', './app.js?v=6.149.7', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'genesis-pos-v6.149.8-auth';
+const ASSETS = ['./', './index.html', './styles.css', './boot-compat.js?v=6.149.8', './firebase-init.js?v=6.149.8', './gms-json-core.js?v=6.149.8', './sync-core.js?v=6.149.8', './charge-core.js?v=6.149.8', './app.js?v=6.149.8', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));

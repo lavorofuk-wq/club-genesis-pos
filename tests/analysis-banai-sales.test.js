@@ -172,3 +172,48 @@ test('multiple checkouts sum their independently rounded sales',()=>{
     record([extension(['a','b','c'],4000)],{id:2})
   ],{a:2666,b:2666,c:2666});
 });
+
+test('hon-shimei sales use unique casts and floor each checkout in every view',()=>{
+  for(const duplicate of [false,true]){
+    const ctx=contextFor();
+    const items=['a','b','c',...(duplicate?['a']:[])].map(castId=>({isHonShimei:true,castId,price:2000}));
+    const hist=[record(items,{subtotal:10000}),record(items,{id:2,subtotal:10000})];
+    const before=JSON.stringify(hist);
+    ctx.S.bizDays={closed:{date:'2026-09-24',endedAt:1,history:hist}};
+    for(const cid of ['a','b','c']){
+      assert.equal(ctx._salesDataStatsFromHist(hist).find(r=>r.castId===cid).honShimeiSales,6666);
+      assert.equal(ctx.gmsCastSales(hist).find(r=>r.castId===cid).honShimeiSales,6666);
+      assert.equal(ctx.anaCastDetailRows(hist,cid,cid).reduce((s,r)=>s+r.honSales,0),6666);
+      ctx.analysisSt={mode:'uriage',castId:cid,castName:cid};
+      assert.equal(metric(ctx.renderAnalysis(),'小計（本指名）'),'YEN 6,666');
+      ctx.exportUriageCSV(hist,cid,cid);
+      assert.equal(Number(ctx.csv.split('\n')[1].split(',')[1]),6666);
+    }
+    assert.equal(JSON.stringify(hist),before);
+  }
+});
+
+test('dohan counts only its recorded target, honors quantities, and does not guess missing targets',()=>{
+  const ctx=contextFor();
+  const hist=[record([
+    {isHonShimei:true,castId:'a',price:2000},
+    {isHonShimei:true,castId:'b',price:2000},
+    {isBanaiShimei:true,castId:'c',price:2000},
+    {category:'dohan',label:'同伴料',castId:'b',backTargetCastIds:['a'],price:3000,qty:2},
+    {category:'dohan',label:'同伴料',castId:'a',price:3000},
+    {category:'dohan',label:'同伴料',price:3000},
+    {category:'dohan',label:'同伴料',backTargetCastIds:['a','b'],price:3000}
+  ])];
+  const before=JSON.stringify(hist);
+  ctx.S.bizDays={closed:{date:'2026-09-24',endedAt:1,history:hist}};
+  for(const [cid,expected] of [['a',3],['b',0],['c',0]]){
+    assert.equal(ctx._salesDataStatsFromHist(hist).find(r=>r.castId===cid).dohanCount,expected);
+    assert.equal(ctx.anaCastDetailRows(hist,cid,cid).reduce((s,r)=>s+r.dohanCount,0),expected);
+    ctx.analysisSt={mode:'uriage',castId:cid,castName:cid};
+    assert.equal(metric(ctx.renderAnalysis(),'同伴'),expected+'件');
+    ctx.exportUriageCSV(hist,cid,cid);
+    assert.equal(Number(ctx.csv.split('\n')[1].split(',')[9]),expected);
+  }
+  assert.equal(ctx._salesDataTotalsFromHist(hist).dohanCount,3);
+  assert.equal(JSON.stringify(hist),before);
+});
