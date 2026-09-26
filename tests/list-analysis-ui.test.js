@@ -510,3 +510,78 @@ test('all-period modal and PDF include receipt-confirmed extensions without seat
   assert.match(screen,/場内指名の付け回し 1 件は、場内延長割合の集計から除外しています/);
   assert.doesNotMatch(printed,/付け回しが残っていない|会計履歴で確認できる|集計から除外|la-notes|la-caution|5分以下/);
 });
+
+
+test('all-cast averages reuse the fetched period and cache across cast switches with targeted invalidation',async()=>{
+  const ctx=contextFor();savedFixture(ctx);ctx.S.activeBizDay=null;
+  ctx.S.casts=[{id:'a',name:'A'},{id:'b',name:'B'},{id:'trial',name:'Trial',castType:'trial'},{id:'departed',name:'Departed',active:false}];
+  const calls=[],loads=[];
+  ctx.LIST_ANALYSIS={...LIST_ANALYSIS,buildCastAverages:args=>{calls.push(args);return LIST_ANALYSIS.buildCastAverages(args);}};
+  ctx.ANALYSIS_DATA.loadDays=async args=>{loads.push(args);return clone(ctx.S.bizDays);};
+  ctx.openListAnalysis();ctx.listAnalysisSetDate('from','2026-09-24');ctx.listAnalysisSetDate('to','2026-09-24');
+  await ctx.listAnalysisNext();assert.equal(calls.length,0);
+  ctx.selectListAnalysisCast('a');
+  const first=ctx.state.report.allCastAverages;
+  assert.equal(calls.length,1);assert.deepEqual(clone(calls[0].castIds),['a','b']);
+  assert.equal(calls[0].from,START);assert.equal(calls[0].to,START+24*HOUR);
+  assert.deepEqual(clone(calls[0].days).map(day=>day.id),['2026-09-24']);
+  assert.equal(first.castCount,2);assert.equal(first.metrics.banaiDailyMs.value,3*HOUR);assert.equal(first.metrics.banaiDailyMs.count,1);
+  ctx.selectListAnalysisCast('b');assert.equal(ctx.state.report.castName,'B');assert.equal(ctx.state.report.types.banai.count,0);
+  assert.equal(ctx.state.report.allCastAverages,first);assert.equal(calls.length,1);assert.equal(loads.length,1);
+  ctx.listAnalysisModalHtml('anaListDetail');ctx.listAnalysisPrintHtml(ctx.state.report,'https://example.test/list-analysis.css');
+  assert.equal(calls.length,1,'rendering and printing must not rebuild averages');
+  ctx.S.casts.reverse();ctx.S.casts.find(c=>c.id==='a').name='Renamed';ctx.selectListAnalysisCast('a');
+  assert.equal(calls.length,1,'roster order and display names do not change the population');
+  ctx.S.casts.push({id:'c',name:'C'});ctx.selectListAnalysisCast('a');assert.equal(calls.length,2);
+  assert.deepEqual(clone(calls[1].castIds),['a','b','c']);
+  ctx.S.casts.find(c=>c.id==='c').active=false;ctx.selectListAnalysisCast('b');assert.equal(calls.length,3);
+  ctx.S.activeBizDay='2026-09-24';ctx.selectListAnalysisCast('a');assert.equal(calls.length,4);assert.equal(calls[3].days.length,0);
+  ctx.S.activeBizDay=null;ctx.selectListAnalysisCast('a');assert.equal(calls.length,5);
+  ctx.state.from='2026-09-23';ctx.selectListAnalysisCast('a');assert.equal(calls.length,6);
+  ctx.state.to='2026-09-25';ctx.selectListAnalysisCast('a');assert.equal(calls.length,7);
+  const beforeReload=ctx.state.report.allCastAverages;
+  await ctx.reloadListAnalysis();assert.equal(calls.length,8);assert.equal(loads.length,2);
+  assert.notEqual(ctx.state.report.allCastAverages,beforeReload,'a fresh snapshot must invalidate cached averages');
+  const saved=ctx.state.report;
+  ctx.ANALYSIS_DATA.loadDays=async()=>{throw Error('offline');};await ctx.reloadListAnalysis();
+  assert.equal(ctx.state.report,saved);assert.equal(calls.length,8,'failed refresh preserves the last confirmed averages');
+});
+
+test('all-cast averages appear below extensions with six values and eligible counts in modal and A4 output',()=>{
+  const ctx=contextFor();savedFixture(ctx);ctx.S.activeBizDay=null;ctx.S.casts=[{id:'a',name:'A'}];
+  ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const report=ctx.state.report;
+  report.allCastAverages={castCount:4,metrics:{honDailyMs:{value:90*60000,count:4},banaiDailyMs:{value:45*60000,count:3},
+    freeDailyMs:{value:20*60000,count:4},freeVisitMs:{value:10*60000,count:2},banaiRate:{value:62.5,count:2},extensionRate:{value:50,count:2}}};
+  const before=JSON.stringify(report);
+  const outputs=[ctx.listAnalysisModalHtml('anaListDetail'),ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css')];
+  for(const html of outputs){
+    const section=html.match(/<section class="la-block la-all-casts">([\s\S]*?)<\/section>/)[1];
+    assert.match(section,/全キャスト平均/);assert.match(section,/在籍 4 人・各項目を算出できるキャストで平均/);
+    for(const [label,value,count] of [['本指名の平均時間 / 日','1時間30分',4],['場内指名の平均時間 / 日','0時間45分',3],
+      ['フリーの平均時間 / 日','0時間20分',4],['フリーの平均時間 / 回','0時間10分',2],['場内率','62.5%',2],['場内延長割合','50.0%',2]]){
+      assert.ok(section.includes('<span>'+label+'</span><strong>'+value+'</strong><small>対象 '+count+' 人</small>'));
+    }
+    assert.equal((section.match(/class="la-metric"/g)||[]).length,6);
+    assert.ok(html.indexOf('<h3>場内延長</h3>')<html.indexOf('la-all-casts'));
+    assert.doesNotMatch(section,/NaN|undefined|Infinity/);
+  }
+  assert.ok(outputs[0].indexOf('la-all-casts')<outputs[0].indexOf('la-notes'));
+  assert.doesNotMatch(outputs[1],/la-notes|5分以下|営業終了済みのデータのみ対象/);
+  assert.equal(JSON.stringify(report),before);
+});
+
+test('all-cast cards distinguish zero values from unavailable metrics on screen and PDF',()=>{
+  const ctx=contextFor();ctx.state.report={...LIST_ANALYSIS.buildReport({castId:'a'}),castName:'A',from:'',to:'',createdAt:START,
+    allCastAverages:{castCount:2,metrics:{honDailyMs:{value:0,count:2},banaiDailyMs:{value:null,count:0},freeDailyMs:{value:0,count:1},
+      freeVisitMs:{value:null,count:0},banaiRate:{value:0,count:1},extensionRate:{value:null,count:0}}}};
+  for(const html of [ctx.listAnalysisModalHtml('anaListDetail'),ctx.listAnalysisPrintHtml(ctx.state.report,'https://example.test/list-analysis.css')]){
+    const section=html.match(/<section class="la-block la-all-casts">([\s\S]*?)<\/section>/)[1];
+    assert.match(section,/本指名の平均時間 \/ 日<\/span><strong>0時間00分<\/strong><small>対象 2 人/);
+    assert.match(section,/場内指名の平均時間 \/ 日<\/span><strong>—<\/strong><small>対象 0 人/);
+    assert.match(section,/フリーの平均時間 \/ 回<\/span><strong>—<\/strong><small>対象 0 人/);
+    assert.match(section,/場内率<\/span><strong>0\.0%<\/strong><small>対象 1 人/);
+    assert.match(section,/場内延長割合<\/span><strong>—<\/strong><small>対象 0 人/);
+    assert.doesNotMatch(section,/NaN|undefined|Infinity/);
+  }
+});

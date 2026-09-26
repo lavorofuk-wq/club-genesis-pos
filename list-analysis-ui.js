@@ -1,5 +1,5 @@
 // リスト分析の選択画面・集計表示・A4印刷。元データの更新は行わない。
-let listAnalysisState={from:"",to:"",castId:null,castName:"",report:null,days:null,error:"",initialized:false,loading:false,requestId:0};
+let listAnalysisState={from:"",to:"",castId:null,castName:"",report:null,days:null,averagesCache:null,error:"",initialized:false,loading:false,requestId:0};
 function listAnalysisEscape(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function listAnalysisRange(){
   const {from,to}=listAnalysisState;
@@ -80,11 +80,20 @@ function selectListAnalysisCast(castId){
   listAnalysisState.castId=cast.id;listAnalysisState.castName=cast.name;
   refreshListAnalysis();
 }
+function listAnalysisCastAverages(days,range){
+  const st=listAnalysisState,snapshot=st.days===null?S.bizDays:st.days;
+  const castIds=listAnalysisCasts().map(c=>c.id).sort(),castIdsKey=JSON.stringify(castIds),cached=st.averagesCache;
+  if(cached&&cached.snapshot===snapshot&&cached.from===st.from&&cached.to===st.to&&cached.activeBizDay===S.activeBizDay&&cached.castIdsKey===castIdsKey)return cached.value;
+  const value=LIST_ANALYSIS.buildCastAverages({days,castIds,...range});
+  st.averagesCache={snapshot,from:st.from,to:st.to,activeBizDay:S.activeBizDay,castIdsKey,value};
+  return value;
+}
 function refreshListAnalysis(){
-  const atTime=Date.now(),range=listAnalysisRange();
-  const report=LIST_ANALYSIS.buildReport({days:listAnalysisDays(),castId:listAnalysisState.castId,...range,
+  const atTime=Date.now(),range=listAnalysisRange(),days=listAnalysisDays();
+  const report=LIST_ANALYSIS.buildReport({days,castId:listAnalysisState.castId,...range,
     extensionSales:(record,cid)=>banaiExtensionSalesForCast(record.items||[],cid,record.subtotal)});
-  listAnalysisState.report={...report,castName:listAnalysisState.castName,from:listAnalysisState.from,to:listAnalysisState.to,createdAt:atTime};
+  const allCastAverages=listAnalysisCastAverages(days,range);
+  listAnalysisState.report={...report,allCastAverages,castName:listAnalysisState.castName,from:listAnalysisState.from,to:listAnalysisState.to,createdAt:atTime};
   md="anaListDetail";rModal();
 }
 function listAnalysisDuration(ms){
@@ -94,6 +103,15 @@ function listAnalysisDuration(ms){
 }
 function listAnalysisAverage(value,unit){return value==null?"—":Number(value).toLocaleString("ja-JP",{minimumFractionDigits:1,maximumFractionDigits:1})+unit;}
 function listAnalysisPeriod(report){return(report.from||"開始指定なし")+" 〜 "+(report.to||"終了指定なし")+"（営業日）";}
+function listAnalysisCastAveragesHtml(averages){
+  if(!averages)return"";
+  const fields=[["honDailyMs","本指名の平均時間 / 日"],["banaiDailyMs","場内指名の平均時間 / 日"],["freeDailyMs","フリーの平均時間 / 日"],["freeVisitMs","フリーの平均時間 / 回"],["banaiRate","場内率"],["extensionRate","場内延長割合"]];
+  const cards=fields.map(([key,label])=>{
+    const result=averages.metrics[key],value=key.endsWith("Rate")?listAnalysisAverage(result.value,"%"):listAnalysisDuration(result.value);
+    return '<div class="la-metric"><span>'+label+'</span><strong>'+value+'</strong><small>対象 '+result.count+' 人</small></div>';
+  }).join("");
+  return '<section class="la-block la-all-casts"><h3>全キャスト平均 <small>在籍 '+averages.castCount+' 人・各項目を算出できるキャストで平均</small></h3><div class="la-averages-grid">'+cards+'</div></section>';
+}
 function listAnalysisReportHtml(report,{print=false}={}){
   const esc=listAnalysisEscape,types=[["hon","本指名"],["banai","場内指名"],["free","フリー"]];
   const money=n=>esc(pAmt(n));
@@ -108,6 +126,7 @@ function listAnalysisReportHtml(report,{print=false}={}){
     +(noData?'<p class="la-empty">選択した期間のリスト・場内延長データはありません。</p>':"")
     +'<section class="la-block"><h3>接客実績 <small>表の平均は1出勤日あたり</small></h3><div class="la-table-scroll"><table class="la-table"><thead><tr><th scope="col">種別</th><th scope="col">回数</th><th scope="col">平均回数 / 日</th><th scope="col">平均時間 / 日</th></tr></thead><tbody>'+rows+'</tbody></table></div><div class="la-contact-summary">'+metric("フリーの平均時間",listAnalysisDuration(report.freeAverage?.averageMs),print?"1来店卓あたり":"1来店卓あたり・合算5分以下を除外")+metric("場内率",listAnalysisAverage(report.banaiRate,"%"),"場内指名 "+report.types.banai.count+" 卓 ÷ フリー "+report.types.free.count+" 卓")+'</div></section>'
     +'<section class="la-block"><h3>場内延長</h3><div class="la-summary">'+metric("延長回数",report.extensionCount+'<em> 回</em>',"延長した来店卓数 "+report.extensionTables+" 卓")+metric("場内延長売上",money(report.extensionSales))+metric("場内指名に対する延長割合",ratio,"フリーテーブルの場内延長 "+report.extensionTables+" 卓 ÷ フリーテーブルの場内指名 "+report.extensionEligibleTables+" 卓")+'</div></section>'
+    +listAnalysisCastAveragesHtml(report.allCastAverages)
     +(!print?'<aside class="la-notes"><p>回数：同じ来店テーブルは各種別1回。会計後の別のお客様は別の来店として数えます。フリー→場内指名はそれぞれ1回。再着席の時間は合算します。</p><p>表の平均：合計 ÷ 出勤日数。フリーの平均時間：同じ来店卓のフリー時間を合算し、5分を超える卓の合計時間 ÷ 対象卓数。5分以下の卓も表の回数・日平均には含みます。時間は分単位に四捨五入します。</p><p>場内率：場内指名についた来店卓数 ÷ フリーについた来店卓数。最初から場内指名の卓も含みます。フリーが0卓、またはフリー・場内指名の来店を特定できない場合は「—」で表示します。</p><p>場内延長：回数は延長操作数、割合はフリーテーブルで場内延長した来店卓数 ÷ フリーテーブルで場内指名についた来店卓数。本指名のある来店は、延長の回数・売上・割合の分子と分母すべてから除外します。付け回しが残っていない来店も、会計履歴で確認できる対象キャストの場内指名・場内延長を含め、同じ来店は重複させません。同じ来店で複数回延長しても割合の分子は1卓です。売上は売上情報と同じ配分（延長後の注文を含む小計）を使用します。分母0は「—」で表示します。</p><p>営業終了済みのデータのみ対象。対象時間は各営業日19:00〜翌18:59です。</p>'
     +(report.legacyTypeAssignments?'<p class="la-caution">種別変更履歴のない過去の付け回し '+report.legacyTypeAssignments+' 件は、保存されている種別で集計しています。変更前の回数・時間は復元できません。</p>':"")
     +(report.unresolvedVisitAssignments?'<p class="la-caution">来店を特定できない付け回し '+report.unresolvedVisitAssignments+' 件は時間のみ集計し、回数には含めていません。該当種別の平均回数は算出していません。</p>':"")

@@ -278,5 +278,27 @@
       result.banaiRate=result.types.banai.count/result.types.free.count*100;
     return result;
   }
-  return {buildReport};
+  // Average each cast's unrounded metric with equal weight. Missing values are
+  // excluded per metric; recorded zeroes remain valid samples.
+  function buildCastAverages(options={}){
+    const castIds=[...new Set((Array.isArray(options.castIds)?options.castIds:[]).map(identity).filter(Boolean))];
+    const keys=['honDailyMs','banaiDailyMs','freeDailyMs','freeVisitMs','banaiRate','extensionRate'];
+    const metrics=Object.fromEntries(keys.map(key=>[key,{value:null,count:0}]));
+    const sums=Object.fromEntries(keys.map(key=>[key,0]));
+    castIds.forEach(castId=>{
+      // Sales amounts are not used by these averages, so avoid sales allocation work.
+      const report=buildReport({days:options.days,from:options.from,to:options.to,castId});
+      const values={honDailyMs:report.types.hon.averageMs,banaiDailyMs:report.types.banai.averageMs,
+        freeDailyMs:report.types.free.averageMs,freeVisitMs:report.freeAverage.averageMs,
+        banaiRate:report.banaiRate,extensionRate:report.extensionRate};
+      keys.forEach(key=>{
+        const value=values[key];
+        if(typeof value!=='number'||!Number.isFinite(value))return;
+        sums[key]+=value;metrics[key].count++;
+      });
+    });
+    keys.forEach(key=>{if(metrics[key].count)metrics[key].value=sums[key]/metrics[key].count;});
+    return {castCount:castIds.length,metrics};
+  }
+  return {buildReport,buildCastAverages};
 });
