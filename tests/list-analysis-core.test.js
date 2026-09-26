@@ -258,10 +258,14 @@ test('one extended table out of two banai tables has a 50 percent extension rate
   const value=report([day({assignments:[
     assignment('first','banai',1,2),
     assignment('second','banai',3,4,{tableId:'T2',sessionId:at(3)})
-  ],history:[{id:'receipt',tableId:'T1',startTime:at(1),items:[extension('e1'),extension('e2')]}]})]);
+  ],history:[
+    {id:'receipt',tableId:'T1',startTime:at(1),items:[extension('e1'),extension('e2')]},
+    {id:'second-receipt',tableId:'T2',startTime:at(3),items:[{isBanaiShimei:true,castId:'a'}]}
+  ]})]);
   assert.equal(value.types.banai.count,2);
   assert.equal(value.extensionCount,2);
   assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionEligibleTables,2);
   assert.equal(value.extensionRate,50);
 });
 
@@ -507,7 +511,100 @@ test('banai extensions exclude hon visits for any cast without excluding later f
   assert.equal(value.extensionCount,2);
   assert.equal(value.extensionTables,1);
   assert.equal(value.extensionSales,8000);
-  assert.ok(Math.abs(value.extensionRate-100/3)<1e-10);
+  assert.equal(value.extensionEligibleTables,1);
+  assert.equal(value.extensionRate,100);
+  assert.equal(value.days[0].extensionEligibleTables,1);
+  assert.equal(value.unresolvedExtensionAssignments,0);
   assert.deepEqual(calls,[['free-visit','a']]);
   assert.equal(JSON.stringify(data),before);
+});
+
+
+test('extension eligibility deduplicates returns, includes direct banai and keeps contact metrics unchanged',()=>{
+  const data=day({assignments:[
+    assignment('direct','banai',1,2),
+    assignment('return','banai',2.5,3),
+    assignment('free-first','banai',4,5,{sessionId:at(4),typeHistory:[
+      {type:'free',startTime:at(4)},{type:'banai',startTime:at(4)+MINUTE}
+    ]}),
+    assignment('hon-table','banai',6,7,{sessionId:at(6)})
+  ],history:[
+    {id:'direct',tableId:'T1',startTime:at(1),endTime:at(3.5),items:[extension('e1'),extension('e2')]},
+    {id:'free-first',tableId:'T1',startTime:at(4),endTime:at(5.5),items:[{isBanaiShimei:true,castId:'a'}]},
+    {id:'hon-table',tableId:'T1',startTime:at(6),endTime:at(7.5),items:[{isHonShimei:true,castId:'b'}]}
+  ]});
+  const value=report([data]);
+  assert.equal(value.types.banai.count,3);
+  assert.equal(value.types.free.count,1);
+  assert.equal(value.banaiRate,300);
+  assert.equal(value.extensionCount,2);
+  assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionEligibleTables,2);
+  assert.equal(value.extensionRate,50);
+  const onlyHon=report([data],{from:at(6)});
+  assert.equal(onlyHon.types.banai.count,1);
+  assert.equal(onlyHon.extensionEligibleTables,0);
+  assert.equal(onlyHon.extensionRate,null);
+  const noExtension=report([data],{from:at(4),to:at(6)});
+  assert.equal(noExtension.extensionEligibleTables,1);
+  assert.equal(noExtension.extensionRate,0);
+});
+
+test('missing, mismatched and ambiguous checkouts or missing items never imply a free table',()=>{
+  const known={id:'known',tableId:'T1',startTime:at(1),endTime:at(2.5),items:[extension('known-extension')]};
+  const cases=[
+    {history:[],assignment:assignment('unknown','banai',3,4,{sessionId:at(3)})},
+    {history:[{id:'mismatch',tableId:'T1',startTime:at(3),endTime:at(5),items:[]}],assignment:assignment('unknown','banai',3,4,{sessionId:at(2)})},
+    {history:[{id:'one',tableId:'T1',startTime:at(2.5),endTime:at(5),items:[]},{id:'two',tableId:'T1',startTime:at(3),endTime:at(5),items:[]}],assignment:assignment('unknown','banai',3,4,{sessionId:null})},
+    ...[undefined,null,'broken',['broken'],{bad:42},[[{}]]].map(items=>({history:[{id:'missing-items',tableId:'T1',startTime:at(3),items}],assignment:assignment('unknown','banai',3,4,{sessionId:at(3)})}))
+  ];
+  for(const example of cases){
+    const value=report([day({assignments:[assignment('known','banai',1,2),example.assignment],history:[known,...example.history]})]);
+    assert.equal(value.extensionEligibleTables,1);
+    assert.equal(value.extensionTables,1);
+    assert.equal(value.unresolvedExtensionAssignments,1);
+    assert.equal(value.extensionRate,null);
+  }
+});
+
+test('extension denominator uses existing stable-ID and legacy visit matching',()=>{
+  const value=report([day({assignments:[
+    assignment('old-start','banai',1,2),
+    assignment('current-id','banai',2,2.5,{sessionId:'ses_'+at(1)+'_abc'}),
+    assignment('legacy','banai',4,5,{sessionId:null}),
+    assignment('instant','banai',6,6,{sessionId:at(6)})
+  ],history:[
+    {id:'changed',sessionId:'ses_'+at(1)+'_abc',tableId:'T1',startTime:at(0.5),endTime:at(3),items:[extension('e1')]},
+    {id:'legacy',tableId:'T1',startTime:at(4),endTime:at(5.5),items:[]},
+    {id:'instant',tableId:'T1',startTime:at(6),endTime:at(6.5),items:{banai:{isBanaiShimei:true,castId:'a'}}}
+  ]})]);
+  assert.equal(value.types.banai.count,3);
+  assert.equal(value.extensionEligibleTables,3);
+  assert.equal(value.unresolvedExtensionAssignments,0);
+  assert.ok(Math.abs(value.extensionRate-100/3)<1e-10);
+});
+
+test('whole-period extension rate uses eligible visit totals and excludes open days',()=>{
+  const first=day({assignments:[assignment('a','banai',1,2)],history:[{id:'first',tableId:'T1',startTime:at(1),items:[extension('e1')]}]});
+  const second=day({id:'2026-09-25',date:'2026-09-25',endedAt:at(32),shifts:[shift(24,32)],
+    assignments:[25,27].map(n=>assignment('a'+n,'banai',n,n+1,{sessionId:at(n)})),
+    history:[25,27].map(n=>({id:'visit'+n,tableId:'T1',startTime:at(n),items:[{isBanaiShimei:true,castId:'a'}]}))});
+  const value=report([first,second,{...second,id:'open',date:'open',endedAt:null}]);
+  assert.equal(value.extensionEligibleTables,3);
+  assert.equal(value.extensionTables,1);
+  assert.ok(Math.abs(value.extensionRate-100/3)<1e-10);
+  assert.deepEqual(value.days.map(d=>d.extensionEligibleTables),[2,1]);
+});
+
+test('an extension without a matching banai seating keeps sales and count but has no guessed rate',()=>{
+  const value=report([day({assignments:[assignment('known','banai',1,2)],history:[
+    {id:'known',tableId:'T1',startTime:at(1),items:[extension('e1')]},
+    {id:'no-assignment',tableId:'T1',startTime:at(3),items:[extension('e2')]}
+  ]})],{extensionSales:()=>4000});
+  assert.equal(value.extensionEligibleTables,1);
+  assert.equal(value.extensionCount,2);
+  assert.equal(value.extensionTables,2);
+  assert.equal(value.extensionSales,8000);
+  assert.equal(value.unresolvedExtensionVisits,1);
+  assert.equal(value.extensionRate,null);
 });

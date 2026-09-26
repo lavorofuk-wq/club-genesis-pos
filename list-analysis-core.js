@@ -105,18 +105,18 @@
     return true;
   }
   function newDay(date){
-    return {date,attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,
+    return {date,attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,unresolvedExtensionVisits:0,
       freeAverage:emptyFreeAverage(),
       missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[],
       _work:[],_waiting:[],_occupied:[],_breaks:[],_typeIntervals:{hon:[],banai:[],free:[]},
       _visits:{hon:new Set(),banai:new Set(),free:new Set()},_extensionEvents:new Set(),_extensionVisits:new Set(),
-      _unresolvedTypes:new Set(),_freeVisits:new Map()};
+      _unresolvedTypes:new Set(),_freeVisits:new Map(),_extensionEligibleVisits:new Set()};
   }
 
   // Only completed business days participate in this report.
   // Attendance and averages use business dates; transaction sales use visit startTime.
   function buildReport(options={}){
-    const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,
+    const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,unresolvedExtensionVisits:0,
       freeAverage:emptyFreeAverage(),
       banaiRate:null,extensionRate:null,days:[],missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[]};
     const cid=identity(options.castId),from=timestamp(options.from)??-Infinity,to=timestamp(options.to)??Infinity;
@@ -172,7 +172,7 @@
         const visit=visitId?JSON.stringify([dayId,identity(assignment.tableId),visitId]):null;
         const typed=typeSegments(assignment,start,end);
         if(typed.legacy)row.legacyTypeAssignments++;
-        let unresolvedVisit=false;
+        let unresolvedVisit=false,unresolvedExtension=false;
         typed.segments.forEach(segment=>{
           if(!TYPES.includes(segment.type))return;
           const pieces=intersect(segment.interval,windows);
@@ -180,6 +180,17 @@
           if(!pieces.length&&!point)return;
           if(visit)row._visits[segment.type].add(visit);
           else{unresolvedVisit=true;row._unresolvedTypes.add(segment.type);}
+          if(segment.type==='banai'){
+            // An assignment ID alone identifies a visit, but cannot tell whether
+            // another cast had a hon nomination. Classify only matched checkouts.
+            const items=session?.items,hasHon=rows(items).some(item=>item.isHonShimei);
+            if(!hasHon){
+              const knownItems=items&&typeof items==='object'&&Object.values(items).every(item=>
+                item==null||(typeof item==='object'&&!Array.isArray(item)));
+              if(!knownItems)unresolvedExtension=true;
+              else row._extensionEligibleVisits.add(visit);
+            }
+          }
           row._typeIntervals[segment.type].push(...pieces);
           if(segment.type==='free'&&visit){
             if(!row._freeVisits.has(visit))row._freeVisits.set(visit,[]);
@@ -187,6 +198,7 @@
           }
         });
         if(unresolvedVisit)row.unresolvedVisitAssignments++;
+        if(unresolvedExtension)row.unresolvedExtensionAssignments++;
       });
       history.forEach((record,index)=>{
         const start=timestamp(record.startTime);
@@ -233,12 +245,14 @@
       if(row.freeAverage.count&&!row._unresolvedTypes.has('free'))
         row.freeAverage.averageMs=row.freeAverage.ms/row.freeAverage.count;
       row.extensionCount=row._extensionEvents.size;row.extensionTables=row._extensionVisits.size;
+      row.extensionEligibleTables=row._extensionEligibleVisits.size;
+      row.unresolvedExtensionVisits=[...row._extensionVisits].filter(visit=>!row._extensionEligibleVisits.has(visit)).length;
       const hasActivity=row.workMs||row.waitingMs||row.extensionCount||row.extensionSales||row.legacyTypeAssignments||
         row.unresolvedVisitAssignments||TYPES.some(type=>row.types[type].count||row.types[type].ms);
       if(!hasActivity)return;
       Object.keys(row).filter(key=>key.startsWith('_')).forEach(key=>delete row[key]);
       result.days.push(row);
-      ['attendanceDays','workMs','waitingMs','extensionCount','extensionTables','extensionSales','missingWaitingDays','legacyTypeAssignments','unresolvedVisitAssignments']
+      ['attendanceDays','workMs','waitingMs','extensionCount','extensionTables','extensionSales','extensionEligibleTables','unresolvedExtensionAssignments','unresolvedExtensionVisits','missingWaitingDays','legacyTypeAssignments','unresolvedVisitAssignments']
         .forEach(key=>{result[key]+=row[key];});
       TYPES.forEach(type=>{result.types[type].count+=row.types[type].count;result.types[type].ms+=row.types[type].ms;});
       result.freeAverage.count+=row.freeAverage.count;result.freeAverage.ms+=row.freeAverage.ms;
@@ -252,8 +266,8 @@
         result.types[type].averageMs=result.types[type].ms/result.attendanceDays;
       }
     });
-    if(result.types.banai.count&&!result.unresolvedVisitTypes.includes('banai'))
-      result.extensionRate=result.extensionTables/result.types.banai.count*100;
+    if(result.extensionEligibleTables&&!result.unresolvedExtensionAssignments&&!result.unresolvedExtensionVisits)
+      result.extensionRate=result.extensionTables/result.extensionEligibleTables*100;
     if(result.types.free.count&&!result.unresolvedVisitTypes.some(type=>type==='free'||type==='banai'))
       result.banaiRate=result.types.banai.count/result.types.free.count*100;
     return result;

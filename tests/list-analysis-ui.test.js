@@ -287,7 +287,7 @@ test('closing a business day includes its saved snapshot and sales ignore all cu
   assert.deepEqual(salesCalls,[{items:saved.history[0].items,cid:'a',subtotal:16000}]);
   assert.equal(JSON.stringify(ctx.S),before);
   const html=ctx.listAnalysisReportHtml(report);
-  assert.match(html,/延長 1 卓 ÷ 場内指名 2 卓/);assert.match(html,/50\.0%/);
+  assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 2 卓/);assert.match(html,/50\.0%/);
   assert.match(html,/営業終了済みのデータのみ対象/);
   assert.match(html,/会計後の別のお客様は別の来店として数えます/);
   assert.doesNotMatch(html,/営業中のデータ|100%を超える/);
@@ -306,6 +306,49 @@ test('empty reports are readable and report names and periods are escaped',()=>{
   assert.match(html,/出勤日数あたりの平均は算出できません/);
 });
 
+test('modal and print use only non-hon visits in the extension denominator while all banai counts stay visible',()=>{
+  const ctx=contextFor(),saved=savedFixture(ctx);
+  ctx.S.activeBizDay=null;
+  saved.history[1].items=[{id:'hon-b',isHonShimei:true,castId:'other',price:3000,qty:1}];
+  saved.history.push({id:'closed-visit-c',tableId:'T1',startTime:START+6*HOUR,endTime:START+7*HOUR,subtotal:8000,
+    items:[{id:'hon-c',isHonShimei:true,castId:'other',price:3000,qty:1}]});
+  saved.assignments.a3={...clone(saved.assignments.a2),id:'a3',sessionId:START+6*HOUR,startTime:START+6*HOUR,endTime:START+7*HOUR,
+    typeHistory:[{type:'banai',startTime:START+6*HOUR}]};
+  saved.assignments.free={...clone(saved.assignments.a1),id:'free',type:'free',endTime:START+HOUR+10*60000,
+    typeHistory:[{type:'free',startTime:START+HOUR}]};
+  saved.assignments.a1.startTime=START+HOUR+10*60000;
+  saved.assignments.a1.typeHistory=[{type:'banai',startTime:saved.assignments.a1.startTime}];
+  ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const report=ctx.state.report;
+  assert.equal(report.types.banai.count,3);assert.equal(report.banaiRate,300);
+  assert.equal(report.extensionEligibleTables,1);assert.equal(report.extensionTables,1);assert.equal(report.extensionRate,100);
+  for(const html of [ctx.listAnalysisModalHtml('anaListDetail'),ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css')]){
+    assert.match(html,/場内指名<\/th><td><b>3<\/b> 回/);
+    assert.match(html,/場内率<\/span><strong>300\.0%<\/strong><small>場内指名 3 卓 ÷ フリー 1 卓/);
+    assert.match(html,/場内指名に対する延長割合<\/span><strong>100\.0%<\/strong>/);
+    assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 1 卓/);
+    assert.doesNotMatch(html,/延長 1 卓 ÷ フリー卓の場内指名 3 卓/);
+  }
+  assert.match(ctx.listAnalysisReportHtml(report),/本指名のある来店は、延長の回数・売上・割合の分子と分母すべてから除外します/);
+});
+
+test('unmatched banai receipt makes extension rate unavailable and only the screen explains the reason',()=>{
+  const ctx=contextFor(),saved=savedFixture(ctx);ctx.S.activeBizDay=null;
+  saved.history.pop(); // The second visit ID is known, but its hon nominations cannot be checked.
+  ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const report=ctx.state.report;
+  assert.equal(report.types.banai.count,2);assert.equal(report.unresolvedExtensionAssignments,1);
+  assert.equal(report.extensionEligibleTables,1);assert.equal(report.extensionRate,null);
+  const screen=ctx.listAnalysisModalHtml('anaListDetail'),printed=ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css');
+  for(const html of [screen,printed]){
+    assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
+    assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 1 卓/);
+    assert.doesNotMatch(html,/NaN|undefined|Infinity/);
+  }
+  assert.match(screen,/会計・注文履歴から本指名の有無を確認できない場内指名の付け回しが 1 件あるため/);
+  assert.doesNotMatch(printed,/会計・注文履歴から|la-notes|la-caution/);
+});
+
 test('unresolved visits keep time visible and show unavailable count averages and extension rate',()=>{
   const ctx=contextFor();
   const report={...LIST_ANALYSIS.buildReport({castId:'a'}),castName:'A',from:'',to:'',createdAt:START,
@@ -318,7 +361,7 @@ test('unresolved visits keep time visible and show unavailable count averages an
   assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
   assert.match(html,/場内率<\/span><strong>—<\/strong>/);
   assert.match(html,/来店を特定できない付け回し 1 件は時間のみ集計/);
-  assert.match(html,/該当種別の平均回数と、場内指名の回数が不明な場合の延長割合は算出していません/);
+  assert.match(html,/該当種別の平均回数は算出していません/);
   assert.equal((html.match(/来店不明の記録あり/g)||[]).length,1);
 });
 
@@ -435,4 +478,18 @@ test('list candidates exclude trial and departed casts without restoring them fr
   assert.match(ctx.listAnalysisModalHtml('anaListCast'),/対象キャストがいません/);
   ctx.S.casts=JSON.parse(before).casts;
   assert.equal(JSON.stringify(ctx.S),before,'candidate filtering must not delete historical data');
+});
+
+
+test('extensions without a matched banai seating explain the unavailable rate only on screen',()=>{
+  const ctx=contextFor(),saved=savedFixture(ctx);ctx.S.activeBizDay=null;
+  delete saved.assignments.a1;
+  ctx.state.castId='a';ctx.state.castName='A';ctx.refreshListAnalysis();
+  const report=ctx.state.report;
+  assert.equal(report.extensionEligibleTables,1);assert.equal(report.unresolvedExtensionVisits,1);
+  assert.equal(report.extensionTables,1);assert.equal(report.extensionSales,16000);assert.equal(report.extensionRate,null);
+  const screen=ctx.listAnalysisReportHtml(report),printed=ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css');
+  assert.match(screen,/延長した来店の場内指名の付け回しを確認できない記録が 1 卓あるため/);
+  for(const html of [screen,printed])assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
+  assert.doesNotMatch(printed,/付け回しを確認できない|la-notes|la-caution/);
 });
