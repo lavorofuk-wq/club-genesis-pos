@@ -63,7 +63,8 @@ assert.match(app,/onclick="setEstimateRoomIncluded\(false\)"[\s\S]*?>なし<\/bu
 assert.match(app,/onclick="setEstimateRoomIncluded\(true\)"[\s\S]*?>あり<\/button>/);
 assert.match(app,/const roomSuffix=estIncludeRoom&&estimateRoomType/);
 
-assert.match(app,/\["karaoke","カラオケ室料（1名単価）",true\]/);
+const settingsEditor=fs.readFileSync(path.join(__dirname,"..","settings-editor.js"),"utf8");
+assert.match(settingsEditor,/\["karaoke","カラオケ室料（1名単価）"\]/);
 assert.match(app,/室料<br><small>VIP \/ カラオケ<\/small>/);
 assert.match(app,/category:type==="karaoke"\?"karaokeRoom":"vipRoom"/);
 assert.match(app,/\(k==="vip"\|\|k==="karaoke"\).*室料の分数を入力してください/);

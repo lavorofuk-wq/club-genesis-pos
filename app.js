@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.151.1";
+const APP_VERSION="6.152";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -26,6 +26,8 @@ function applyFixedShimeiPrices(menus){
 function normalizeMenus(menus){
   const normalized={...(menus||{})};
   delete normalized.discounts;
+  // Empty Firebase categories are absent; business screens still consume arrays.
+  ["normalSets","sets","options","extensions","vip","karaoke","castDrinks","drinks","champagne","keepBottles","castCustomItems","wine","whisky","shochu","brandy"].forEach(key=>{if(normalized[key]==null)normalized[key]=[];});
   return applyFixedShimeiPrices(normalized);
 }
 function normalizeCastType(value,isTrial,status){return GMS_JSON.normalizeCastType(value,isTrial,status);}
@@ -83,12 +85,12 @@ function recordCastDeparture(cast,ts,biz){
   }
   upsertLifecycle(biz,"exitedCasts",castSnapshot(cast,{exitedAt:ts}),"castId");
 }
-async function saveCastsAndLifecycle(){
+async function saveCastsAndLifecycle(desiredCasts=S.casts,desiredLifecycle=S.castLifecycleLogs||{}){
+  desiredCasts=cloneData(desiredCasts);
+  desiredLifecycle=cloneData(desiredLifecycle||{});
   if(window._db){
     await waitForSettingSaveQueue("casts");
     const state=settingSaveState("casts");
-    const desiredCasts=cloneData(S.casts);
-    const desiredLifecycle=cloneData(S.castLifecycleLogs||{});
     const version=++state.requestedVersion;
     state.latest=desiredCasts;
     state.running=true;
@@ -97,8 +99,8 @@ async function saveCastsAndLifecycle(){
     const lifecycleBase=state.confirmedLifecycleHash??window._remoteValueHashes?.castLifecycleLogs;
     try{
       const res=await guardedLightweightCastRosterSet(desiredCasts,desiredLifecycle,base,lifecycleBase);
-      state.confirmedHash=stableJson(desiredCasts);
-      state.confirmedLifecycleHash=stableJson(desiredLifecycle);
+      state.confirmedHash=settingValueHash(desiredCasts);
+      state.confirmedLifecycleHash=settingValueHash(desiredLifecycle);
       state.savedVersion=version;
       state.running=false;
       updateRemoteHash("casts",desiredCasts);
@@ -108,13 +110,14 @@ async function saveCastsAndLifecycle(){
       if(state.savedVersion<state.requestedVersion)drainSettingSaveQueue("casts");
       return res;
     }catch(error){
+      error=settingSaveError(error);
       state.running=false;
       settleSettingWaiters(state,state.requestedVersion,error);
-      setSettingSaveStatus("casts","error",error.userMessage||"キャスト名簿を保存できませんでした。入力内容は保持されています。");
+      setSettingSaveStatus("casts","error",error.userMessage);
       throw error;
     }
   }
-  return save("casts",S.casts);
+  throw settingSaveError(new Error("Firebase is not ready for cast roster write"));
 }
 function applyPosCastPolicy(casts){
   const kept=[];
@@ -484,11 +487,12 @@ function handlePosSyncRender(settingsChanged=false){
   if(at&&!checkoutBusy&&!tableChangeBusy&&!(md&&String(md).indexOf("ci-")===0)&&!S.sessions[at]){
     at=null;vw="floor";closeM();const modal=document.getElementById("floor-order-modal");if(modal)modal.style.display="none";render();return;
   }
-  if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history","settings"].includes(vw)){
+  if(S.activeBizDay===null&&["floor","list","tableDetail","assignHistory","shifts","history"].includes(vw)){
     vw="home";closeM();render();return;
   }
+  window._settingsSyncRenderNeeded=!!window._settingsSyncRenderNeeded||settingsChanged;
   if(window._fbRenderTimer)clearTimeout(window._fbRenderTimer);
-  window._fbRenderTimer=setTimeout(()=>{scheduleFirebaseRender(settingsChanged);refreshFloorModal();},80);
+  window._fbRenderTimer=setTimeout(()=>{const changed=window._settingsSyncRenderNeeded;window._settingsSyncRenderNeeded=false;scheduleFirebaseRender(changed);refreshFloorModal();},80);
 }
 function subscribeActiveBizDayRecord(db,bizDayId){
   const nextId=bizDayId?String(bizDayId):null;
@@ -513,16 +517,16 @@ function applyPosCoreValue(db,path,value){
   if(path==="appVersion"){
     rememberServerAppVersion(value);
   }else if(path==="castLifecycleLogs"){
-    if(isSettingSaveDirty("casts"))settingSaveState("casts").lastRemoteLifecycle=cloneData(value||{});
+    if(settingSaveStates.casts&&(settingSaveStates.casts.running||settingSaveStates.casts.requestedVersion>settingSaveStates.casts.savedVersion))settingSaveState("casts").lastRemoteLifecycle=cloneData(value||{});
     else{
       S.castLifecycleLogs=value||{};
       updateRemoteHash("castLifecycleLogs",S.castLifecycleLogs);
       const state=settingSaveStates.casts;if(state)state.confirmedLifecycleHash=window._remoteValueHashes.castLifecycleLogs;
     }
   }else if(path==="casts"){
-    if(value)settingsChanged=acceptRemoteSettingValue("casts",value,next=>{S.casts=applyPosCastPolicy(next);})||settingsChanged;
+    settingsChanged=acceptRemoteSettingValue("casts",value,next=>{S.casts=applyPosCastPolicy(next||[]);})||settingsChanged;
   }else if(path==="menus"){
-    if(value)settingsChanged=acceptRemoteSettingValue("menus",value,next=>{
+    settingsChanged=acceptRemoteSettingValue("menus",value,next=>{
       S.menus=normalizeMenus(next);
       if(!S.menus.champagne)S.menus.champagne=[];
       if(!S.menus.keepBottles)S.menus.keepBottles=[];
@@ -929,21 +933,28 @@ function firebaseComparableValue(value){
   return Object.keys(result).length?result:null;
 }
 function sameFirebaseValue(a,b){return stableJson(firebaseComparableValue(a))===stableJson(firebaseComparableValue(b));}
+function settingValueHash(value){return stableJson(firebaseComparableValue(value));}
+function settingHashMatches(value,expectedHash){
+  if(expectedHash===undefined)return true;
+  // Accept hashes from older callers while comparing the Firebase wire representation.
+  try{return settingValueHash(value)===settingValueHash(JSON.parse(expectedHash));}
+  catch(error){return false;}
+}
 function updateRemoteHash(path,val){
   if(!window._remoteValueHashes)window._remoteValueHashes={};
   window._remoteValueHashes[path]=stableJson(val);
 }
 function acceptRemoteSettingValue(path,value,apply){
   const state=settingSaveStates[path];
-  const remoteHash=stableJson(value===undefined?null:value);
-  if(state&&(state.running||state.requestedVersion>state.savedVersion||state.status==="error")){
+  const remoteHash=settingValueHash(value);
+  if(state&&(state.running||state.requestedVersion>state.savedVersion)){
     state.lastRemoteValue=cloneData(value);
     return false;
   }
   const previousHash=window._remoteValueHashes?.[path];
   updateRemoteHash(path,value);
-  if(previousHash===remoteHash)return false;
   if(state)state.confirmedHash=remoteHash;
+  if(previousHash!==undefined&&settingHashMatches(value,previousHash))return false;
   apply(value);
   return true;
 }
@@ -1047,7 +1058,28 @@ async function readRemoteRelative(path){
   return snap.val();
 }
 function settingConflictError(){
-  return Object.assign(new Error("setting changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。入力内容は保持しています。最新状態へ更新してから再実行してください。"});
+  return Object.assign(new Error("setting changed"),{_txConflict:true,settingKind:"conflict",userMessage:"他端末で設定が変更されています。入力内容は保持しています。最新の設定を確認してから再実行してください。"});
+}
+function classifySettingSaveError(error){
+  const code=String(error?.code||"").toLowerCase();
+  const detail=String(error?.message||"").toLowerCase();
+  let kind=error?.settingKind||"unknown",message="設定を保存できませんでした。入力内容を保持しています。もう一度お試しください。",retryable=true;
+  if(error?._txConflict||kind==="conflict"||/setting changed|history changed|scoped conflict/.test(detail)){
+    kind="conflict";message="他端末で設定が変更されています。入力内容は保持しています。最新の設定を確認してから再実行してください。";retryable=false;
+  }else if(/permission.?denied|unauthorized|unauthenticated|auth\//.test(code+" "+detail)){
+    kind="permission";message="設定の保存権限を確認できませんでした。ログイン状態を確認してください。入力内容は保持しています。";retryable=false;
+  }else if(/offline|disconnected|network|unavailable|timeout|not ready/.test(code+" "+detail)){
+    kind="offline";message="接続を確認できないため設定を保存していません。接続状態を確認してから再実行してください。入力内容は保持しています。";
+  }else if(/invalid|validation|table removal blocked/.test(code+" "+detail)){
+    kind="validation";message="入力内容または対象データの状態を確認してください。設定は保存されていません。";retryable=false;
+  }
+  return{kind,message:error?.userMessage||message,retryable};
+}
+function settingSaveError(error){
+  const result=error&&typeof error==="object"?error:new Error(String(error||"Setting save failed"));
+  const info=classifySettingSaveError(result);
+  result.settingKind=info.kind;result.userMessage=info.message;result.retryable=info.retryable;
+  return result;
 }
 function tableRemovalBlockedError(){
   return Object.assign(new Error("table removal blocked"),{userMessage:"使用中・会計終了済のテーブルは削除できません。会計とテーブル準備を完了してから再実行してください。"});
@@ -1075,7 +1107,7 @@ async function guardedLightweightSettingSet(path,value,expectedHash){
     window._db.ref(FB_ROOT+"/"+revisionPath).once("value")
   ]);
   const remoteValue=valueSnap.val();
-  if(expectedHash!==undefined&&stableJson(remoteValue)!==expectedHash)throw settingConflictError();
+  if(!settingHashMatches(remoteValue,expectedHash))throw settingConflictError();
   const revision=Math.max(0,Number(revisionSnap.val())||0)+1;
   const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
   const previousIndices=path==="tables"?await tableSettingsProof(remoteValue,value):null;
@@ -1094,8 +1126,8 @@ async function guardedLightweightCastRosterSet(casts,lifecycle,expectedCastsHash
     window._db.ref(FB_ROOT+"/castLifecycleLogs").once("value"),
     window._db.ref(FB_ROOT+"/"+revisionPath).once("value")
   ]);
-  if(expectedCastsHash!==undefined&&stableJson(castsSnap.val())!==expectedCastsHash)throw settingConflictError();
-  if(expectedLifecycleHash!==undefined&&stableJson(lifecycleSnap.val()||{})!==expectedLifecycleHash)throw settingConflictError();
+  if(!settingHashMatches(castsSnap.val(),expectedCastsHash))throw settingConflictError();
+  if(!settingHashMatches(lifecycleSnap.val(),expectedLifecycleHash))throw settingConflictError();
   const revision=Math.max(0,Number(revisionSnap.val())||0)+1;
   const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
   await guardedRootUpdate({
@@ -1121,16 +1153,17 @@ async function drainSettingSaveQueue(path){
   while(state.savedVersion<state.requestedVersion){
     const targetVersion=state.requestedVersion;
     const desired=path==="tables"&&(!state.latest||!state.latest.length)?null:cloneData(state.latest);
-    const desiredHash=stableJson(desired);
+    const desiredHash=settingValueHash(desired);
     setSettingSaveStatus(path,"saving","");
     try{
       await guardedLightweightSettingSet(path,desired,state.confirmedHash);
     }catch(error){
       let alreadySaved=false;
-      try{alreadySaved=stableJson(await readRemoteRelative(path))===desiredHash;}catch(readError){}
+      try{alreadySaved=settingHashMatches(await readRemoteRelative(path),desiredHash);}catch(readError){}
       if(!alreadySaved){
+        error=settingSaveError(error);
         state.running=false;
-        setSettingSaveStatus(path,"error",error.userMessage||"設定を保存できませんでした。入力内容は保持されています。");
+        setSettingSaveStatus(path,"error",error.userMessage);
         settleSettingWaiters(state,state.requestedVersion,error);
         return;
       }
@@ -1151,8 +1184,9 @@ function queueSettingSave(path,value){
   const promise=new Promise((resolve,reject)=>state.waiters.push({version,resolve,reject}));
   setSettingSaveStatus(path,"saving","");
   drainSettingSaveQueue(path).catch(error=>{
+    error=settingSaveError(error);
     state.running=false;
-    setSettingSaveStatus(path,"error",error.userMessage||error.message||"設定保存エラー");
+    setSettingSaveStatus(path,"error",error.userMessage);
     settleSettingWaiters(state,state.requestedVersion,error);
   });
   return promise;
@@ -2511,6 +2545,8 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
+  if(typeof settingsSaving==="function"&&settingsSaving())return;
+  if(md==="settingsEditor"){settingsClose();if(md==="settingsEditor")return;}
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;
   if(v==="tableDetail"&&tablePreparationPending(extra)){openTablePreparation(extra);return;}
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
@@ -5142,172 +5178,7 @@ function getBizDayEnd(t){
 }
 
 
-function rSettings(){
-  let html='<div style="max-width:680px;margin:0 auto;">';
-  html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">設定</h2>';
-  const syncView=settingsSyncView();
-  html+='<div id="settings-sync-state" style="padding:8px 10px;margin-bottom:12px;border:1px solid '+(syncView.status==="error"?'#fca5a5':syncView.status==="saving"?'#fdba74':'#86efac')+';background:'+(syncView.status==="error"?'#fef2f2':syncView.status==="saving"?'#fff7ed':'#f0fdf4')+';color:'+(syncView.status==="error"?'#b91c1c':syncView.status==="saving"?'#9a3412':'#047857')+';border-radius:6px;font-size:11px;font-weight:700;line-height:1.5;">'+syncView.text+'</div>';
-  html+='<div style="display:flex;gap:8px;margin-bottom:20px;">';
-  [["cast","キャスト"],["menus","メニュー料金"],["special","特殊メニュー"],["tables","テーブル"]].forEach(([k,l])=>{
-html+='<button class="nb '+(stab===k?"ac":"")+'" data-stab="'+k+'" onclick="sst(this.dataset.stab)">'+l+'</button>';
-  });
-  html+='</div>';
-if(stab==="cast"){
-const activeCasts=sc();
-html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">キャスト名簿（入店順）</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">退店したキャストはPOS名簿から削除され、GMS側で管理します。</div>';
-activeCasts.forEach(c=>{
-html+='<div class="ir" style="gap:8px;align-items:center;">'
-  +(c.castType==="trial"?'<span style="font-size:10px;color:#38bdf8;border:1px solid rgba(56,189,248,.3);border-radius:4px;padding:2px 6px;">体入</span>':'')
-  +'<input class="ip" value="'+(c.name||"")+'" data-cid="'+c.id+'" onchange="ucn(parseInt(this.dataset.cid),this.value)" style="flex:1;font-size:13px;"/>'
-  +(c.castType==="trial"?'<span style="font-size:11px;color:#64748b;white-space:nowrap;">'+(c.trialBizDay||currentCastBizDate())+'</span>':'')
-  +'<button class="btn" data-cid="'+c.id+'" onclick="dc2(parseInt(this.dataset.cid))" style="padding:4px 10px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">退店</button>'
-  +'</div>';
-});
-html+='<div style="display:flex;gap:8px;margin-top:16px;"><input class="ip" id="nci" placeholder="入店キャスト名" value="'+ncn+'" oninput="ncn=this.value" style="flex:1;"/><button class="btn gbg" onclick="ac2()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;">入店登録</button></div>';
-html+='<div style="display:flex;gap:8px;margin-top:10px;"><input class="ip" id="nti" placeholder="体入キャスト名（当日のみ）" value="'+ntn+'" oninput="ntn=this.value" style="flex:1;"/><button class="btn" onclick="actrial()" style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;background:rgba(56,189,248,.1);border:1px solid rgba(56,189,248,.25);color:#38bdf8;">体入登録</button></div>';
-html+='</div>';
-  }else if(stab==="menus"){
-const menuSections=[["normalSets","通常セットメニュー",true],["sets","特別セットメニュー",true],["extensions","延長メニュー",true],["vip","VIP室料",true],["karaoke","カラオケ室料（1名単価）",true],["drinks","ゲストオーダー（ドリンク）",false],["castDrinks","キャストDrink",false]];
-menuSections.forEach(([k,l,hm])=>{
-  const ni=nmi[k]||{label:"",price:"",minutes:""};
-  html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">'+l+'</div>';
-  (S.menus[k]||[]).forEach(item=>{
-    html+='<div class="ir" style="flex-wrap:wrap;gap:6px;">';
-    html+='<input class="ip" value="'+item.label+'" data-k="'+k+'" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
-    html+='<div style="display:flex;align-items:center;gap:6px;">';
-    if(hm&&item.minutes!=null)html+='<input type="number" inputmode="numeric" class="ip" value="'+item.minutes+'" data-k="'+k+'" data-id="'+item.id+'" onchange="umm(this.dataset.k,this.dataset.id,this.value)" style="width:52px;"/>分';
-    html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.type==="percent"?item.value:item.price||0)+'" data-k="'+k+'" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-    html+='<button class="btn" data-k="'+k+'" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-    html+='</div></div>';
-  });
-  html+='<div style="margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">';
-  html+='<input class="ip" placeholder="名前" data-k="'+k+'" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;min-width:80px;font-size:13px;"/>';
-  if(hm)html+='<input type="number" inputmode="numeric" class="ip" placeholder="分" data-k="'+k+'" data-f="minutes" value="'+ni.minutes+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:52px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="'+k+'" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:90px;"/>';
-  html+='<button class="btn gbg" data-k="'+k+'" data-hm="'+(hm?1:0)+'" onclick="ami(this.dataset.k,this.dataset.hm==\'1\')" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;white-space:nowrap;">＋ 追加</button>';
-  html+='</div></div></div>';
-});
-// シングルチャージ単価（概算計算に使用）
-{const scItem=(S.menus.options||[]).find(o=>o.id==="sc");
-html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;"><div class="st">シングルチャージ単価</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:10px;">概算シミュレーションで使用されます</div>';
-if(scItem){
-  html+='<div class="ir" style="gap:6px;">'
-    +'<span style="flex:1;font-size:13px;color:#ccc;">'+scItem.label+'</span>'
-    +'<input type="number" inputmode="numeric" class="ip" value="'+(scItem.price||2000)+'" data-k="options" data-id="'+scItem.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:90px;"/>'
-    +'</div>';
-}else{
-  html+='<div style="font-size:12px;color:#555;">¥2,000（デフォルト）</div>';
-}
-html+='</div>';}
-  }else if(stab==="tables"){
-html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">テーブル一覧</div>';
-const tableLimitReached=S.tables.length>=MAX_TABLE_COUNT;
-html+='<div style="font-size:12px;color:#666;margin-bottom:10px;">'+S.tables.length+' / '+MAX_TABLE_COUNT+' 卓</div>';
-html+='<fieldset '+(tableDeleteBusy?'disabled':'')+' style="border:0;padding:0;margin:0;min-width:0;">';
-S.tables.forEach(t=>{
-  const iu=!!S.sessions[t.id];
-  const pending=tablePreparationPending(t.id),blocked=iu||pending;
-  html+='<div class="ir" style="gap:8px;flex-wrap:wrap;">';
-  html+='<input class="ip" value="'+t.label+'" data-tid="'+t.id+'" onchange="utl(this.dataset.tid,this.value)" style="flex:1;min-width:100px;font-size:13px;"/>';
-  html+='<button class="btn" data-tid="'+t.id+'" onclick="ttv(this.dataset.tid)" style="padding:5px 12px;border-radius:4px;font-size:12px;font-weight:600;background:'+(t.vip?"rgba(124,77,255,.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(t.vip?"rgba(124,77,255,.5)":"rgba(255,255,255,.1)")+';color:'+(t.vip?"#a78bfa":"#666")+'">'+(t.vip?"★ VIP":"VIP")+'</button>';
-  html+='<button class="btn" '+(blocked?"disabled":"")+' '+(blocked?"":"data-tid=\""+t.id+"\" onclick=\"dta(this.dataset.tid)\"")+' style="padding:4px 10px;border-radius:4px;font-size:12px;background:'+(blocked?"rgba(255,255,255,.03)":"rgba(255,80,80,.1)")+';border:1px solid '+(blocked?"rgba(255,255,255,.06)":"rgba(255,80,80,.2)")+';color:'+(blocked?"#444":"#ff6b6b")+';cursor:'+(blocked?"not-allowed":"pointer")+'">'+(pending?"会計終了済":iu?"使用中":"削除")+'</button>';
-  html+='</div>';
-});
-html+='<div style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);">';
-html+='<div style="font-size:10px;color:#888;letter-spacing:.1em;margin-bottom:8px;">テーブルを追加</div>';
-html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
-html+='<input class="ip" placeholder="テーブル名" value="'+ntl+'" oninput="ntl=this.value" style="flex:1;min-width:100px;"/>';
-html+='<button class="btn" onclick="ntv=!ntv;render()" style="padding:8px 14px;border-radius:4px;font-size:13px;font-weight:600;background:'+(ntv?"rgba(124,77,255,.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(ntv?"rgba(124,77,255,.5)":"rgba(255,255,255,.1)")+';color:'+(ntv?"#a78bfa":"#666")+'">'+(ntv?"★ VIP":"VIP")+'</button>';
-html+='<button class="btn gbg" '+(tableLimitReached?'disabled':'onclick="ata()"')+' style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">'+(tableLimitReached?'上限':'＋ 追加')+'</button>';
-html+='</div></div></fieldset></div>';
-  }else if(stab==="special"){
-// 特殊メニュー：注文画面の特殊ボタンに表示される「オプション」カテゴリの編集
-html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
-html+='<div class="st">特殊メニュー一覧</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:12px;">フロアのGUEST / CASTオーダー欄に追加表示されます</div>';
-// ゲストオーダー（GUEST）
-html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#38bdf8;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(56,189,248,.15);padding-bottom:4px;">ゲストオーダー（GUEST）</div>';
-(S.menus.drinks||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="drinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="drinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-  html+='<button class="btn" data-k="drinks" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-const nid=nmi["drinks"]||{label:"",price:""};
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-html+='<input class="ip" placeholder="名前" data-k="drinks" data-f="label" value="'+nid.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="drinks" data-f="price" value="'+nid.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-html+='<button class="btn gbg" data-k="drinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';
-// キャストDrink（CAST）
-html+='<div style="margin-bottom:16px;"><div style="font-size:11px;color:#a78bfa;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(167,139,250,.15);padding-bottom:4px;">キャストDrink（CAST）</div>';
-(S.menus.castDrinks||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="castDrinks" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="castDrinks" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-  html+='<button class="btn" data-k="castDrinks" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-const nicd=nmi["castDrinks"]||{label:"",price:""};
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-html+='<input class="ip" placeholder="名前" data-k="castDrinks" data-f="label" value="'+nicd.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="castDrinks" data-f="price" value="'+nicd.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-html+='<button class="btn gbg" data-k="castDrinks" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';
-// シャンパン・ワイン（CASTオーダー）
-{const ni=nmi["champagne"]||{label:"",price:""};
-html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#ffd700;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(255,215,0,.15);padding-bottom:4px;">シャンパン・ワイン（CAST）</div>';
-(S.menus.champagne||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="champagne" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="champagne" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-  html+='<button class="btn" data-k="champagne" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-html+='<input class="ip" placeholder="銘柄名" data-k="champagne" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="champagne" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-html+='<button class="btn gbg" data-k="champagne" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';}
-// キープボトル（CASTオーダー）
-{const ni=nmi["keepBottles"]||{label:"",price:""};
-html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#f59e0b;letter-spacing:.1em;margin-bottom:8px;border-bottom:1px solid rgba(245,158,11,.15);padding-bottom:4px;">キープボトル（CAST）</div>';
-(S.menus.keepBottles||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="keepBottles" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="keepBottles" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-  html+='<button class="btn" data-k="keepBottles" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-html+='<input class="ip" placeholder="銘柄名" data-k="keepBottles" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="keepBottles" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-html+='<button class="btn gbg" data-k="keepBottles" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';}
-// キャストプリセット品名（CASTオーダー追加ボタン）
-{const ni=nmi["castCustomItems"]||{label:"",price:""};
-html+='<div style="margin-top:14px;"><div style="font-size:11px;color:#c4b5fd;letter-spacing:.1em;margin-bottom:4px;border-bottom:1px solid rgba(196,181,253,.15);padding-bottom:4px;">プリセット品名（CAST）</div>';
-html+='<div style="font-size:11px;color:#666;margin-bottom:8px;">キャストオーダー詳細に追加ボタンとして表示されます</div>';
-(S.menus.castCustomItems||[]).forEach(item=>{
-  html+='<div class="ir" style="gap:8px;">';
-  html+='<input class="ip" value="'+item.label+'" data-k="castCustomItems" data-id="'+item.id+'" onchange="uml(this.dataset.k,this.dataset.id,this.value)" style="flex:2;font-size:13px;"/>';
-  html+='<input type="number" inputmode="numeric" class="ip" value="'+(item.price||0)+'" data-k="castCustomItems" data-id="'+item.id+'" onchange="ump(this.dataset.k,this.dataset.id,this.value)" style="width:80px;"/>';
-  html+='<button class="btn" data-k="castCustomItems" data-id="'+item.id+'" onclick="dmi(this.dataset.k,this.dataset.id)" style="padding:4px 8px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:11px;">削除</button>';
-  html+='</div>';
-});
-html+='<div style="display:flex;gap:6px;margin-top:8px;align-items:center;">';
-html+='<input class="ip" placeholder="品名" data-k="castCustomItems" data-f="label" value="'+ni.label+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="flex:2;font-size:13px;"/>';
-html+='<input type="number" inputmode="numeric" class="ip" placeholder="金額" data-k="castCustomItems" data-f="price" value="'+ni.price+'" oninput="snmi(this.dataset.k,this.dataset.f,this.value)" style="width:80px;"/>';
-html+='<button class="btn gbg" data-k="castCustomItems" onclick="ami(this.dataset.k,false)" style="padding:8px 12px;border-radius:4px;font-weight:600;font-size:13px;">＋</button>';
-html+='</div></div>';}
-html+='</div>';
-  }
-  html+='</div>';
-  return html;
-}
+function rSettings(){return getSettingsEditor().renderList(stab);}
 
 // ===== 管理タブ =====
 function rAdmin(){
@@ -5646,7 +5517,7 @@ async function clearAllAssignments(){
     }catch(error){sbs(false,"リセットエラー");alert(error.userMessage||"付け回しをリセットできませんでした。");}
   });
 }
-function sst(t){stab=t;render();}
+function sst(t){if(typeof settingsSaving==="function"&&settingsSaving())return;stab=t;render();}
 function castNameItemValue(item,castId,name){
   const next=cloneData(item),id=String(castId),targetIds=Array.isArray(next?.backTargetCastIds)?next.backTargetCastIds.map(String):[];
   let changed=false;
@@ -5712,6 +5583,8 @@ async function guardedCastNameChange(castId,name){
   const expectedCasts=cloneData(S.casts),expectedLifecycle=cloneData(S.castLifecycleLogs||{});
   const plan=castNameChangePlan(S,id,name,businessDate);
   const state=settingSaveState("casts");
+  const version=++state.requestedVersion;
+  state.latest=cloneData(plan.casts);
   state.running=true;setSettingSaveStatus("casts","saving","");
   try{
     const recordChangeCount=Object.values(plan.changed).reduce((sum,keys)=>sum+keys.length,0);
@@ -5750,11 +5623,17 @@ async function guardedCastNameChange(castId,name){
     }
     S.casts=plan.casts;S.castLifecycleLogs=plan.lifecycle;
     if(businessDate){S.sessions=plan.sessions;S.shifts=plan.shifts;S.assignments=plan.assignments;S.history=plan.history;markSessionGuards(S.sessions);}
-    state.confirmedHash=stableJson(plan.casts);state.confirmedLifecycleHash=stableJson(plan.lifecycle);state.running=false;
-    updateRemoteHash("casts",plan.casts);updateRemoteHash("castLifecycleLogs",plan.lifecycle);setSettingSaveStatus("casts","saved","");
+    state.confirmedHash=settingValueHash(plan.casts);state.confirmedLifecycleHash=settingValueHash(plan.lifecycle);state.savedVersion=version;state.running=false;
+    updateRemoteHash("casts",plan.casts);updateRemoteHash("castLifecycleLogs",plan.lifecycle);
+    settleSettingWaiters(state,version,null);
+    setSettingSaveStatus("casts","saved","");
+    if(state.savedVersion<state.requestedVersion)drainSettingSaveQueue("casts");
     return true;
   }catch(error){
-    state.running=false;setSettingSaveStatus("casts","error",error.userMessage||"キャスト名を保存できませんでした。最新状態を確認してください。");throw error;
+    error=settingSaveError(error);
+    state.running=false;
+    settleSettingWaiters(state,state.requestedVersion,error);
+    setSettingSaveStatus("casts","error",error.userMessage);throw error;
   }
 }
 async function ucn(id,name){
@@ -5949,8 +5828,8 @@ async function dta(id){
 function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
-function om(name){if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
+function om(name){if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -7046,7 +6925,8 @@ function freeDrinkPriceForMinutes(minutes){
 }
 function singleChargePrice(){
   const scOpt=(S.menus.options||[]).find(o=>o.id==="sc");
-  return Number(scOpt?.price)||2000;
+  const price=Number(scOpt?.price);
+  return scOpt?.price!=null&&Number.isFinite(price)&&price>=0?price:2000;
 }
 function extensionMinutesTotal(s){
   return (s?.items||[]).reduce((sum,i)=>sum+(i.isExtension&&Number(i.extMinutes)>0?Number(i.extMinutes):0),0);
@@ -7155,6 +7035,7 @@ h+='</div>';
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
+  if(md==="settingsEditor"){const editor=getSettingsEditor();c.innerHTML=editor.renderModal();editor.mountModal?.();return;}
   if(md==="tablePreparation"){c.innerHTML=tablePreparationModalHtml();return;}
   if(chargeSaveBusy){c.innerHTML='<div class="mo"><div class="mb" role="status" aria-live="polite" style="max-width:400px;text-align:center;padding:36px 20px;"><span class="tc-save-spinner" aria-hidden="true"></span><div style="margin-top:16px;">明細を保存・同期中...</div></div></div>';return;}
   if(["anaListDate","anaListCast","anaListDetail"].includes(md)){c.innerHTML=listAnalysisModalHtml(md);return;}
@@ -7736,7 +7617,7 @@ const delSt='width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,
 let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div class="ir" style="min-height:36px;gap:4px;"><span style="flex:1;color:#ccc;font-size:13px;line-height:1.4;">'+lb+'</span><div style="display:flex;align-items:center;gap:5px;flex-shrink:0;"><span style="color:#d4a017;font-size:13px;font-weight:600;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
 if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
 const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
-const _scP=(S.menus.options||[]).find(o=>o.id==="sc")?.price||2000;
+const _scP=singleChargePrice();
 let addBtns='<button class="menu-btn" onclick="om(\'add-set\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">セット追加<br><small>+延長/入替</small></button>';
 addBtns+='<button class="menu-btn" onclick="om(\'add-hon\')" style="background:rgba(212,160,23,.12);border-color:rgba(212,160,23,.35);color:#d4a017;">本指名追加<br><small>¥'+fmt(HON_SHIMEI_PRICE)+'</small></button>';
 if(onIds.size>0)addBtns+='<button class="menu-btn" onclick="om(\'banai\')" style="background:rgba(80,200,120,.1);border-color:rgba(80,200,120,.3);color:#4ade80;">場内指名<br><small>¥'+fmt(BANAI_SHIMEI_PRICE)+'</small></button>';

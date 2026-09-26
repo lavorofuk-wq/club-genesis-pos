@@ -60,6 +60,7 @@ context.window._remoteValueHashes.menus=JSON.stringify(remote.menus);
 context.window._remoteValueHashes.tables=JSON.stringify(remote.tables);
 
 vm.createContext(context);
+vm.runInContext(stableSource,context);
 vm.runInContext(stateSource,context);
 vm.runInContext(queueSource,context);
 

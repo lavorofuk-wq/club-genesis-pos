@@ -72,15 +72,17 @@ test('stale screens use remote table state and do not hide a rejected removal',a
   assert.equal(db.writes.length,0);assert.equal(ctx.S.tables.length,2);assert.equal(alerts.length,1);
 });
 
-test('settings markup disables pending tables and gates all table controls during deletion',()=>{
+test('settings lists confirmed tables and disables deletion of preparation-pending tables',()=>{
   const {ctx}=runtime(fakeDb(data()),data());
-  Object.assign(ctx,{stab:'tables',DEV:'desktop',settingsSyncView:()=>({status:'saved',message:''})});
+  const editor=require('../settings-editor.js').create({getState:()=>ctx.S,tableBlocked:id=>ctx.S.tablePreparations?.[id]?'会計終了済':ctx.S.sessions[id]?'使用中':'',maxTables:30});
+  ctx.getSettingsEditor=()=>editor;ctx.stab='tables';
   vm.runInContext(source('function rSettings(){','function rAdmin(){'),ctx);
   ctx.S.tablePreparations={t1:{tableId:'t1'}};
   const html=ctx.rSettings();
-  assert.match(html,/<button class="btn" disabled[^>]*>会計終了済<\/button>/);
-  assert.ok(!html.includes('onclick="dta(this.dataset.tid)" data-tid="t1"'));
-  ctx.tableDeleteBusy=true;assert.match(ctx.rSettings(),/<fieldset disabled/);
+  assert.match(html,/会計終了済/);
+  assert.match(html,/<button[^>]*data-id="t1"[^>]*data-action="delete"[^>]*disabled/);
+  assert.doesNotMatch(html,/<input/,'confirmed values are edited only through a modal');
+  assert.match(html,/data-id="t2"[^>]*data-action="edit"/);
 });
 
 test('settings refreshes after readiness changes and empty tables stay empty after reload',()=>{

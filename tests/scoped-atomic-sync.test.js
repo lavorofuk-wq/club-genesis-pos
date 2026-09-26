@@ -48,6 +48,7 @@ test('active-day cast rename saves roster, lifecycle, work and order references 
   ctx.settingSaveStates={};
   ctx.settingSaveState=path=>ctx.settingSaveStates[path]||(ctx.settingSaveStates[path]={running:false,requestedVersion:0,savedVersion:0,waiters:[]});
   ctx.waitForSettingSaveQueue=async()=>{};
+  vm.runInContext(source('function settleSettingWaiters','async function drainSettingSaveQueue'),ctx);
   ctx.setSettingSaveStatus=()=>{};
   ctx.settingConflictError=()=>Object.assign(new Error('setting changed'),{userMessage:'設定競合'});
   ctx.guardedLightweightCastRosterSet=async()=>{throw new Error('unexpected lightweight path');};
