@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.151";
+const APP_VERSION="6.151.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -150,6 +150,7 @@ let checkoutError="";
 let checkoutSlowTimer=null;
 let checkinBusy=false;
 let tablePreparationBusy=false,tablePreparationPrompt=null,tablePreparationError="";
+let tableDeleteBusy=false;
 let bizDayBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
@@ -452,6 +453,20 @@ const lazyDataState={
 let initialPosSyncPending=null;
 let activeBizDayRecordRef=null;
 let activeBizDayRecordId=null;
+function clientUpdateRequired(){
+  return _verNum(window._posServerAppVersion||"0")>_verNum(APP_VERSION);
+}
+function showClientUpdateRequired(){
+  if(!clientUpdateRequired())return false;
+  const overlay=document.getElementById("version-overlay");if(overlay)overlay.style.display="flex";
+  sbs(false,"更新が必要です");
+  return true;
+}
+function rememberServerAppVersion(value){
+  if(typeof value==="string"&&_verNum(value)>_verNum(window._posServerAppVersion||"0"))window._posServerAppVersion=value;
+  window._posVersionCheckFailed=false;
+  if(window._fbFirstSync)showClientUpdateRequired();
+}
 function finishInitialPosSyncPath(path){
   if(!initialPosSyncPending)return;
   initialPosSyncPending.delete(path);
@@ -461,6 +476,8 @@ function finishInitialPosSyncPath(path){
   vw="home";
   if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");
   render();
+  showClientUpdateRequired();
+  if(window._posVersionCheckFailed)showFirebaseLock("バージョンを確認できませんでした。接続状態を確認し、再読み込みしてください。");
 }
 function handlePosSyncRender(settingsChanged=false){
   if(!window._fbFirstSync)return;
@@ -494,9 +511,7 @@ function subscribeActiveBizDayRecord(db,bizDayId){
 function applyPosCoreValue(db,path,value){
   let settingsChanged=false;
   if(path==="appVersion"){
-    if(window._fbFirstSync&&value&&value!==APP_VERSION&&_verNum(value)>_verNum(APP_VERSION)){
-      const overlay=document.getElementById("version-overlay");if(overlay)overlay.style.display="flex";
-    }
+    rememberServerAppVersion(value);
   }else if(path==="castLifecycleLogs"){
     if(isSettingSaveDirty("casts"))settingSaveState("casts").lastRemoteLifecycle=cloneData(value||{});
     else{
@@ -516,12 +531,14 @@ function applyPosCoreValue(db,path,value){
       if(!S.menus.karaoke)S.menus.karaoke=[];
     })||settingsChanged;
   }else if(path==="tables"){
-    if(value)settingsChanged=acceptRemoteSettingValue("tables",value,next=>{S.tables=next;})||settingsChanged;
+    settingsChanged=acceptRemoteSettingValue("tables",value,next=>{S.tables=next||[];})||settingsChanged;
   }else if(path==="sessions"){
     S.sessions=mergeRemoteSessionCollection(stripLegacyActiveDiscounts(value||{}));
     markSessionGuards(S.sessions);
+    if(vw==="settings"&&stab==="tables")settingsChanged=true;
   }else if(path==="tablePreparations"){
     S.tablePreparations=value||{};
+    if(vw==="settings"&&stab==="tables")settingsChanged=true;
   }else if(path==="history"){
     S.history=value?(Array.isArray(value)?value:Object.values(value)).sort((a,b)=>b.startTime-a.startTime):[];
   }else if(path==="shifts"){
@@ -550,13 +567,14 @@ function applyPosCoreValue(db,path,value){
     })||settingsChanged;
   }
   finishInitialPosSyncPath(path);
-  if(!hasPendingSettingSaves()&&!tableChangeBusy&&window._fbFirstSync)sbs(true,"同期済み ✓");
+  if(!hasPendingSettingSaves()&&!tableChangeBusy&&window._fbFirstSync&&!clientUpdateRequired())sbs(true,"同期済み ✓");
   handlePosSyncRender(settingsChanged);
 }
 function subscribePosCoreData(db){
   initialPosSyncPending=new Set([...POS_CORE_SYNC_PATHS,"$activeBizDayRecord"]);
   POS_CORE_SYNC_PATHS.forEach(path=>{
     db.ref(FB_ROOT+"/"+path).on("value",snap=>applyPosCoreValue(db,path,snap.val()),()=>{
+      if(path==="appVersion")window._posVersionCheckFailed=true;
       finishInitialPosSyncPath(path);
       sbs(false,"接続エラー");
     });
@@ -766,6 +784,7 @@ function initFB(){
   sbs(false,"接続中…");
   // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
+rememberServerAppVersion(snap.val());
 if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION,{allowBeforeFirstSync:true,silent:true}).catch(()=>{});
   });
   // Service Workerの更新を即座にチェック
@@ -842,6 +861,14 @@ function showFirebaseLock(msg){
 }
 function reloadForFirebaseResume(){location.reload();}
 function requireFirebaseReady(options={}){
+  if(clientUpdateRequired()){
+    if(!options.silent)showClientUpdateRequired();
+    return false;
+  }
+  if(window._posVersionCheckFailed){
+    if(!options.silent)showFirebaseLock("バージョンを確認できませんでした。接続状態を確認し、再読み込みしてください。");
+    return false;
+  }
   if(options.allowBeforeFirstSync&&window._db&&window._fbConnected!==false&&!window._posNeedsReloadAfterDisconnect)return true;
   if(!window._db){
     if(!options.silent)showFirebaseLock("Firebaseが初期化されていません。保存系操作はできません。");
@@ -1022,6 +1049,24 @@ async function readRemoteRelative(path){
 function settingConflictError(){
   return Object.assign(new Error("setting changed"),{_txConflict:true,userMessage:"他端末で設定が変更されています。入力内容は保持しています。最新状態へ更新してから再実行してください。"});
 }
+function tableRemovalBlockedError(){
+  return Object.assign(new Error("table removal blocked"),{userMessage:"使用中・会計終了済のテーブルは削除できません。会計とテーブル準備を完了してから再実行してください。"});
+}
+async function tableSettingsProof(previous,next){
+  const desired=next||[];
+  if(!Array.isArray(desired)||desired.length>MAX_TABLE_COUNT||desired.some(t=>!t||typeof t.id!=="string"||!t.id||/[.#$\[\]\/]/.test(t.id))||new Set(desired.map(t=>t.id)).size!==desired.length){
+    throw Object.assign(new Error("invalid tables"),{userMessage:"テーブル設定のIDまたは件数が正しくありません。最新状態を確認してください。"});
+  }
+  const previousIndices={};
+  await Promise.all(Object.entries(previous||{}).filter(([,t])=>t).map(async([oldIndex,table])=>{
+    const index=desired.findIndex(t=>t.id===table.id);
+    if(index>=0){previousIndices[oldIndex]={index:String(index)};return;}
+    const [session,preparation]=await Promise.all(["sessions","tablePreparations"].map(path=>window._db.ref(FB_ROOT+"/"+path+"/"+table.id).once("value")));
+    if(session.val()||preparation.val())throw tableRemovalBlockedError();
+    previousIndices[oldIndex]={removed:true};
+  }));
+  return previousIndices;
+}
 async function guardedLightweightSettingSet(path,value,expectedHash){
   if(!requireFirebaseReady())throw new Error("Firebase is not ready for setting write");
   const revisionPath="_settingsRevisions/"+path;
@@ -1033,10 +1078,11 @@ async function guardedLightweightSettingSet(path,value,expectedHash){
   if(expectedHash!==undefined&&stableJson(remoteValue)!==expectedHash)throw settingConflictError();
   const revision=Math.max(0,Number(revisionSnap.val())||0)+1;
   const nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+  const previousIndices=path==="tables"?await tableSettingsProof(remoteValue,value):null;
   await guardedRootUpdate({
     [path]:cloneData(value),
     [revisionPath]:revision,
-    ["_settingsWriteMeta/"+path]:{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()}
+    ["_settingsWriteMeta/"+path]:{revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now(),...(previousIndices?{previousIndices}:{})}
   });
   return{revision,nonce,value:cloneData(value)};
 }
@@ -1074,7 +1120,7 @@ async function drainSettingSaveQueue(path){
   state.running=true;
   while(state.savedVersion<state.requestedVersion){
     const targetVersion=state.requestedVersion;
-    const desired=cloneData(state.latest);
+    const desired=path==="tables"&&(!state.latest||!state.latest.length)?null:cloneData(state.latest);
     const desiredHash=stableJson(desired);
     setSettingSaveStatus(path,"saving","");
     try{
@@ -5159,12 +5205,14 @@ html+='</div>';}
 html+='<div class="glass" style="border-radius:8px;padding:16px;"><div class="st">テーブル一覧</div>';
 const tableLimitReached=S.tables.length>=MAX_TABLE_COUNT;
 html+='<div style="font-size:12px;color:#666;margin-bottom:10px;">'+S.tables.length+' / '+MAX_TABLE_COUNT+' 卓</div>';
+html+='<fieldset '+(tableDeleteBusy?'disabled':'')+' style="border:0;padding:0;margin:0;min-width:0;">';
 S.tables.forEach(t=>{
   const iu=!!S.sessions[t.id];
+  const pending=tablePreparationPending(t.id),blocked=iu||pending;
   html+='<div class="ir" style="gap:8px;flex-wrap:wrap;">';
   html+='<input class="ip" value="'+t.label+'" data-tid="'+t.id+'" onchange="utl(this.dataset.tid,this.value)" style="flex:1;min-width:100px;font-size:13px;"/>';
   html+='<button class="btn" data-tid="'+t.id+'" onclick="ttv(this.dataset.tid)" style="padding:5px 12px;border-radius:4px;font-size:12px;font-weight:600;background:'+(t.vip?"rgba(124,77,255,.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(t.vip?"rgba(124,77,255,.5)":"rgba(255,255,255,.1)")+';color:'+(t.vip?"#a78bfa":"#666")+'">'+(t.vip?"★ VIP":"VIP")+'</button>';
-  html+='<button class="btn" '+(iu?"disabled":"")+' '+(iu?"":"data-tid=\""+t.id+"\" onclick=\"dta(this.dataset.tid)\"")+' style="padding:4px 10px;border-radius:4px;font-size:12px;background:'+(iu?"rgba(255,255,255,.03)":"rgba(255,80,80,.1)")+';border:1px solid '+(iu?"rgba(255,255,255,.06)":"rgba(255,80,80,.2)")+';color:'+(iu?"#444":"#ff6b6b")+';cursor:'+(iu?"not-allowed":"pointer")+'">'+(iu?"使用中":"削除")+'</button>';
+  html+='<button class="btn" '+(blocked?"disabled":"")+' '+(blocked?"":"data-tid=\""+t.id+"\" onclick=\"dta(this.dataset.tid)\"")+' style="padding:4px 10px;border-radius:4px;font-size:12px;background:'+(blocked?"rgba(255,255,255,.03)":"rgba(255,80,80,.1)")+';border:1px solid '+(blocked?"rgba(255,255,255,.06)":"rgba(255,80,80,.2)")+';color:'+(blocked?"#444":"#ff6b6b")+';cursor:'+(blocked?"not-allowed":"pointer")+'">'+(pending?"会計終了済":iu?"使用中":"削除")+'</button>';
   html+='</div>';
 });
 html+='<div style="margin-top:16px;padding-top:14px;border-top:1px solid rgba(255,255,255,.06);">';
@@ -5173,7 +5221,7 @@ html+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">';
 html+='<input class="ip" placeholder="テーブル名" value="'+ntl+'" oninput="ntl=this.value" style="flex:1;min-width:100px;"/>';
 html+='<button class="btn" onclick="ntv=!ntv;render()" style="padding:8px 14px;border-radius:4px;font-size:13px;font-weight:600;background:'+(ntv?"rgba(124,77,255,.2)":"rgba(255,255,255,.05)")+';border:1px solid '+(ntv?"rgba(124,77,255,.5)":"rgba(255,255,255,.1)")+';color:'+(ntv?"#a78bfa":"#666")+'">'+(ntv?"★ VIP":"VIP")+'</button>';
 html+='<button class="btn gbg" '+(tableLimitReached?'disabled':'onclick="ata()"')+' style="padding:8px 16px;border-radius:4px;font-weight:600;font-size:14px;white-space:nowrap;">'+(tableLimitReached?'上限':'＋ 追加')+'</button>';
-html+='</div></div></div>';
+html+='</div></div></fieldset></div>';
   }else if(stab==="special"){
 // 特殊メニュー：注文画面の特殊ボタンに表示される「オプション」カテゴリの編集
 html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:12px;">';
@@ -5868,10 +5916,37 @@ function ami(k,hm){
   S.menus[k]=[...S.menus[k],item];
   save("menus",S.menus);nmi[k]={label:"",price:"",minutes:""};render();
 }
-function utl(id,v){if(v.trim()){S.tables=S.tables.map(t=>t.id===id?{...t,label:v.trim()}:t);save("tables",S.tables);}}
-function ttv(id){S.tables=S.tables.map(t=>t.id===id?{...t,vip:!t.vip}:t);save("tables",S.tables);render();}
-function dta(id){if(S.sessions[id])return;S.tables=S.tables.filter(t=>t.id!==id);save("tables",S.tables);render();}
-function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
+function utl(id,v){if(tableDeleteBusy)return;if(v.trim()){S.tables=S.tables.map(t=>t.id===id?{...t,label:v.trim()}:t);save("tables",S.tables);}}
+function ttv(id){if(tableDeleteBusy)return;S.tables=S.tables.map(t=>t.id===id?{...t,vip:!t.vip}:t);save("tables",S.tables);render();}
+async function dta(id){
+  if(tableDeleteBusy||!requireFirebaseReady())return;
+  if(S.sessions[id]||tablePreparationPending(id)){alert(tableRemovalBlockedError().userMessage);return;}
+  tableDeleteBusy=true;render();
+  let submitted=false;
+  try{
+    await waitForSettingSaveQueue("tables");
+    if(S.sessions[id]||tablePreparationPending(id))throw tableRemovalBlockedError();
+    if(!S.tables.some(t=>t.id===id))return;
+    const next=S.tables.filter(t=>t.id!==id);
+    submitted=true;
+    await queueSettingSave("tables",next);
+    S.tables=next;
+    sbs(true,"同期済み ✓");
+  }catch(error){
+    if(submitted){
+      const state=settingSaveState("tables");
+      // Failed deletion is discarded so a later rename cannot silently retry it.
+      state.requestedVersion=state.savedVersion;
+      try{
+        const remote=await readRemoteRelative("tables");
+        S.tables=remote||[];state.confirmedHash=stableJson(remote);updateRemoteHash("tables",remote);
+      }catch(readError){}
+      state.latest=cloneData(S.tables);state.status="saved";state.message="";
+    }
+    sbs(false,"削除エラー");alert(error.userMessage||"テーブルを削除できませんでした。他端末の状態と接続状態を確認してください。");
+  }finally{tableDeleteBusy=false;render();}
+}
+function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
 function om(name){if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}

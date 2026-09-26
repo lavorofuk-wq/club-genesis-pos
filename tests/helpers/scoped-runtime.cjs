@@ -54,7 +54,8 @@ function contextFor(db,state=fixture()){
     sbs:()=>{},render:()=>{},refreshFloorModal:()=>{},rModal:()=>{},closeM:()=>{},alert:()=>{},
     waitForSessionSaveQueue:async()=>{},sessionSaveStates:{},at:'t1',md:'tc',tableChangeBusy:false,
     isPendingAssignment:()=>false,chargeSaveBusy:false,entryTimeBusy:false,checkinBusy:false,checkoutBusy:false,
-    tablePreparationBusy:false,tablePreparationPrompt:null,tablePreparationError:''
+    tablePreparationBusy:false,tablePreparationPrompt:null,tablePreparationError:'',
+    clientUpdateRequired:()=>false
   };
   vm.createContext(context);
   for(const [from,to] of [

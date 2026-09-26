@@ -11,6 +11,45 @@ function applyScopedRules(document){
     const capability=`${before}.child('_capabilities/scopedAtomicValidationVersion')`;
     const enabled=`${capability}.exists() && ${capability}.val() >= 614400`;
     const disabled=`!(${enabled})`;
+    const tableWriteVersion=615101;
+    const tableSlots=Array.from({length:30},(_,i)=>String(i));
+    const tableWriteAllowed=next=>and([
+      `${next}.child('_settingsWriteMeta/tables/version').val() >= ${tableWriteVersion}`,
+      `${next}.child('_settingsWriteMeta/tables/nonce').isString()`,
+      `${next}.child('_settingsWriteMeta/tables/nonce').val() != ${before}.child('_settingsWriteMeta/tables/nonce').val()`,
+      `${next}.child('_settingsRevisions/tables').val() == ${rev(`${before}.child('_settingsRevisions/tables')`)} + 1`,
+      `${next}.child('_settingsWriteMeta/tables/revision').val() == ${next}.child('_settingsRevisions/tables').val()`
+    ]);
+    // Validate removed array entries through a complete index proof, including deleting the last table.
+    rules.tables={...(rules.tables||{}),'.validate':tableWriteAllowed('newData.parent()'),$index:{'.validate':and([
+      or(tableSlots.map(index=>`$index == '${index}'`)),`newData.child('id').isString()`
+    ])}};
+    const allTablesRemoved=or([`!data.child('tables').exists()`,`newData.child('tables').exists()`,tableWriteAllowed('newData')]);
+    if(!rules['.validate']?.includes('_settingsWriteMeta/tables'))rules['.validate']=rules['.validate']?and([rules['.validate'],allTablesRemoved]):allTablesRemoved;
+    const proofRoot='newData.parent().parent().parent().parent()';
+    const previousTable=`${before}.child('tables').child($oldIndex)`;
+    const previousId=`${previousTable}.child('id').val()`;
+    const sameTableWrite=`newData.parent().parent().child('nonce').val() == ${before}.child('_settingsWriteMeta/tables/nonce').val()`;
+    rules._settingsWriteMeta={...(rules._settingsWriteMeta||{}),tables:{
+      '.validate':or([`newData.child('nonce').val() == data.child('nonce').val()`,and([
+        tableWriteAllowed('newData.parent().parent()'),
+        ...tableSlots.map(index=>`newData.child('previousIndices/${index}').exists() == ${before}.child('tables/${index}').exists()`)
+      ])]),
+      previousIndices:{$oldIndex:{'.validate':or([sameTableWrite,and([
+        or(tableSlots.map(index=>`$oldIndex == '${index}'`)),`${previousTable}.exists()`,`${previousTable}.child('id').isString()`,
+        or([
+          and([`newData.child('index').isString()`,`${proofRoot}.child('tables').child(newData.child('index').val()).child('id').val() == ${previousId}`]),
+          and([`newData.child('removed').val() == true`,
+            ...[before,proofRoot].flatMap(base=>['sessions','tablePreparations'].map(collection=>`!${base}.child('${collection}').child(${previousId}).exists()`))
+          ])
+        ])
+      ])])}}
+    }};
+    const configuredTable=next=>or([
+      `!${next}.child('_settingsWriteMeta/tables/version').exists()`,
+      `${next}.child('_settingsWriteMeta/tables/version').val() < ${tableWriteVersion}`,
+      or(tableSlots.map(index=>`${next}.child('tables/${index}/id').val() == $tableId`))
+    ]);
     const liveTransition=`newData.parent().parent().child('activeBizDay').val() != ${before}.child('activeBizDay').val()`;
     const unchangedOp=`newData.parent().parent().parent().child('nonce').val() == ${before}.child('_scopedOperation/nonce').val()`;
     const after='newData.parent().parent().parent().parent()';
@@ -68,6 +107,7 @@ function applyScopedRules(document){
     rules.tablePreparations={$tableId:{'.validate':and([
       `newData.hasChildren(['tableId','sessionId','completedAt'])`,
       `newData.child('tableId').val() == $tableId`,`newData.child('sessionId').isString()`,`newData.child('completedAt').isNumber()`,
+      configuredTable('newData.parent().parent()'),
       `!newData.parent().parent().child('sessions').child($tableId).exists()`,
       `newData.child('_rev').val() == ${rev("data.child('_rev')")} + 1`,
       `newData.child('_nodeWriteNonce').val() == newData.parent().parent().child('_scopedOperation/nonce').val()`,
@@ -101,6 +141,7 @@ function applyScopedRules(document){
     const session=rules.sessions.$tableId;
     session['.validate']=and([
       or([disabled,`newData.child('_nodeWriteVersion').val() >= 614400`,liveTransition]),
+      configuredTable('newData.parent().parent()'),
       `!newData.parent().parent().child('tablePreparations').child($tableId).exists()`
     ]);
     const dayCheck=and([

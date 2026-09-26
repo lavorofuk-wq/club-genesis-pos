@@ -291,10 +291,23 @@ textarea.ip:focus{
   background:rgb(15 23 42 / .42)!important;
 }
 
-#version-overlay,
 #offline-overlay{
   background:rgb(15 23 42 / .72)!important;
 }
+
+#version-overlay{
+  background:#ffffff!important;
+  padding:24px;
+  overflow-y:auto;
+}
+#version-overlay>div{
+  color:var(--gms-text)!important;
+  max-width:100%;
+  text-align:center;
+  overflow-wrap:anywhere;
+  letter-spacing:0!important;
+}
+#version-overlay>div:first-child{color:var(--gms-primary-dark)!important;}
 
 #loading{
   background:var(--gms-bg)!important;

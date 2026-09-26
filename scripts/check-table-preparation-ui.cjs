@@ -41,7 +41,8 @@ async function main(){
         S.activeBizDay='2026-09-27';S.tablePreparations={};S.history=[];S.shifts={};S.assignments={};
         S.sessions={t1:{tableId:'t1',sessionId:'qa-visit',startTime:start,setEndTime:start+3600000,guests:2,_rev:1,items:[{id:'set',label:'セット料金',isSet:true,price:25000,qty:2,minutes:60}]}};
         window.FB_ROOT='pos-dev';scopedAtomicValidationVersion=614400;tableChangeAtomicValidationVersion=614300;
-        const database=structuredClone({sessions:S.sessions,tablePreparations:{},history:{},shifts:{},assignments:{},activeBizDay:S.activeBizDay});
+        const database=structuredClone({tables:S.tables,sessions:S.sessions,tablePreparations:{},history:{},shifts:{},assignments:{},activeBizDay:S.activeBizDay});
+        updateRemoteHash('tables',database.tables);
         window.__qaDatabase=database;window.__qaWrites=[];window.__qaFail=false;
         const parts=p=>p.replace(/^pos-dev\//,'').split('/').filter(Boolean);
         const get=p=>parts(p).reduce((node,key)=>node?.[key],database);
@@ -63,7 +64,7 @@ async function main(){
             Object.entries(updates).forEach(([p,value])=>{if(p.startsWith('pos-dev/'))put(p,value);});
           }
         })};
-        requireFirebaseReady=()=>true;
+        window._fbFirstSync=true;window._fbConnected=true;
         for(const id of ['loading','auth-gate','version-overlay','offline-overlay']){const node=document.getElementById(id);if(node)node.style.display='none';}
         document.getElementById('app').style.display='block';
         vw='floor';render();
@@ -75,6 +76,10 @@ async function main(){
       assert.equal(await page.evaluate(()=>S.history[0].total),65000);
       assert.equal(await page.evaluate(()=>window.__qaWrites.length),1);
       await page.screenshot({path:path.join(output,name+'-floor.png'),fullPage:true});
+      await page.evaluate(()=>{stab='tables';sv('settings');});
+      assert.equal(await page.getByRole('button',{name:'会計終了済',exact:true}).isDisabled(),true);
+      await page.screenshot({path:path.join(output,name+'-settings-pending.png'),fullPage:true});
+      await page.evaluate(()=>sv('floor'));
       await page.locator('.floor-table-card[data-tid="t1"]').click();
       assert.equal(await page.getByRole('dialog').getByRole('heading').innerText(),'テーブル準備は完了していますか？');
       await page.screenshot({path:path.join(output,name+'-confirmation.png'),fullPage:true});
@@ -102,8 +107,27 @@ async function main(){
       assert.ok((await page.locator('#dz-tbl-t1').innerText()).includes('空席'));
       assert.equal(await page.evaluate(()=>window.__qaWrites.length),2);
       assert.equal(await page.evaluate(()=>S.history[0].total),65000);
+      await page.evaluate(()=>{stab='tables';sv('settings');window.__qaFail=true;});
+      await page.locator('button[data-tid="t1"][onclick^="dta"]').click();
+      await page.waitForFunction(()=>!tableDeleteBusy);
+      assert.equal(await page.evaluate(()=>S.tables.some(t=>t.id==='t1')),true);
+      await page.evaluate(()=>{window.__qaFail=false;});
+      await page.locator('button[data-tid="t1"][onclick^="dta"]').click();
+      await page.waitForFunction(()=>!tableDeleteBusy&&!S.tables.some(t=>t.id==='t1'));
+      assert.equal(await page.evaluate(()=>S.history[0].total),65000);
+      await page.screenshot({path:path.join(output,name+'-settings-deleted.png'),fullPage:true});
+      await page.evaluate(()=>{
+        window._fbFirstSync=false;initialPosSyncPending=new Set(['appVersion','sessions']);
+        applyPosCoreValue(window._db,'appVersion','99.0');
+        finishInitialPosSyncPath('sessions');
+      });
+      assert.equal(await page.locator('#version-overlay').isVisible(),true);
+      assert.equal(await page.locator('#version-overlay').evaluate(node=>getComputedStyle(node).backgroundColor),'rgb(255, 255, 255)');
+      assert.equal(await page.locator('#version-overlay').evaluate(node=>node.scrollWidth>node.clientWidth+1),false);
+      assert.equal(await page.evaluate(()=>requireFirebaseReady({silent:true})),false);
+      await page.screenshot({path:path.join(output,name+'-version-required.png'),fullPage:true});
       assert.deepEqual(errors,[]);
-      console.log(name+': checkout -> paid in both tabs -> No -> failed Yes -> successful Yes -> vacant in both tabs: passed');
+      console.log(name+': checkout, floor/list readiness, protected settings, failed/successful deletion, initial version lock: passed');
       await context.close();
     }
   }finally{
