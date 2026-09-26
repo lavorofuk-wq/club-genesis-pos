@@ -62,6 +62,7 @@ test('both initial renders attach the same warning class and countdown updater',
     floorGridLayout:()=>({fit:false,cols:'1fr',gap:'12px'})
   };
   vm.createContext(ctx);
+  vm.runInContext(source('function tablePreparationPending','async function guardedCloseSession'),ctx);
   vm.runInContext(source('function rFloor(){','function castChip('),ctx);
   for(const remaining of [1200000,600000,599999,0,-60000]){
     ctx.S.sessions.t1={startTime:1,setEndTime:ctx.now+remaining,guests:1,items:[]};

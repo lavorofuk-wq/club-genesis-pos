@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.150.12";
+const APP_VERSION="6.151";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -133,7 +133,7 @@ function applyPosCastPolicy(casts){
   });
   return kept;
 }
-let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},history:[],shifts:{},assignments:{},bizDays:{},bizDaySummaries:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
+let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},tablePreparations:{},history:[],shifts:{},assignments:{},bizDays:{},bizDaySummaries:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
@@ -149,6 +149,7 @@ let checkoutProgress=null;
 let checkoutError="";
 let checkoutSlowTimer=null;
 let checkinBusy=false;
+let tablePreparationBusy=false,tablePreparationPrompt=null,tablePreparationError="";
 let bizDayBusy=false;
 let editPayHid=null; // 履歴支払変更対象ID
 let estCustomMin=0; // 概算カスタム延長分
@@ -439,7 +440,7 @@ function togglePriceHide(){
 }
 
 // ===== FIREBASE =====
-const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
+const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","tablePreparations","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
 const BIZ_DAYS_VIEWS=new Set(["shifts","backupDetail"]);
 const HISTORY_PAGE_SIZE=24;
 const BACKUP_VIEWS=new Set(["admin","backupDetail"]);
@@ -519,6 +520,8 @@ function applyPosCoreValue(db,path,value){
   }else if(path==="sessions"){
     S.sessions=mergeRemoteSessionCollection(stripLegacyActiveDiscounts(value||{}));
     markSessionGuards(S.sessions);
+  }else if(path==="tablePreparations"){
+    S.tablePreparations=value||{};
   }else if(path==="history"){
     S.history=value?(Array.isArray(value)?value:Object.values(value)).sort((a,b)=>b.startTime-a.startTime):[];
   }else if(path==="shifts"){
@@ -1165,7 +1168,7 @@ function requireScopedAtomic(){
 }
 function scopedRecordInfo(path){
   const relative=stripRootPath(path),parts=relative.split("/");
-  return parts.length===2&&["sessions","shifts","assignments","history","bizDays"].includes(parts[0])
+  return parts.length===2&&["sessions","shifts","assignments","history","bizDays","tablePreparations"].includes(parts[0])
     ?{collection:parts[0],id:parts[1],relative}:null;
 }
 function scopedChangedCounters(updates,expectedRecords={}){
@@ -1255,6 +1258,7 @@ async function guardedScopedCommit(root,updates,options={}){
   Object.keys(updates).forEach(path=>{
     const info=scopedRecordInfo(path);
     if(info?.collection==="sessions")syncRemoteSession(info.id,prepared[path]||null);
+    if(info?.collection==="tablePreparations")setPathValue(S,info.relative,prepared[path]||null);
   });
   syncVersionedRecordsFromPrepared(prepared);
   return applyRootUpdates(root,prepared);
@@ -1443,6 +1447,10 @@ async function readRemoteSession(tableId){
 }
 async function guardedSessionNodeTransaction(tableId,session,options={}){
   if(!requireFirebaseReady(options))throw new Error("Firebase is not ready for session write");
+  if(options.expectEmpty||options.expectCreate){
+    const snap=await window._db.ref(FB_ROOT+"/tablePreparations/"+tableId).get();
+    if(snap.val())throw tablePreparationRequiredError();
+  }
   ensureSessionId(session);
   let conflict=null;
   const writeNonce=Date.now()+"_"+Math.random().toString(36).slice(2);
@@ -1492,6 +1500,7 @@ async function guardedSessionNodeUpdate(tableId,session,updates,options={}){
 // ===== SESSIONS =====
 async function startSession(){
   if(checkinBusy||!at)return;
+  if(tablePreparationPending(at)){openTablePreparation(at);return;}
   const{guests,setMenu,honShimeis,freedrink,single}=ci;
   if(!setMenu)return;
   const douhanCastIds=gmsUniqueStrings(ci.douhanCastIds||[]);
@@ -2049,11 +2058,62 @@ function addHonShimeiToSession(cid){
   s.honShimeis=[...(s.honShimeis||[]),cid];
   save("sessions/"+at,S.sessions[at]);renderOrderPartial();
 }
+function tablePreparationPending(tableId){return !!S.tablePreparations?.[tableId];}
+function tablePreparationRequiredError(){
+  return Object.assign(new Error("table preparation required"),{userMessage:"テーブル準備が完了していません。フロアまたはリストで準備完了を確認してください。"});
+}
+function tablePreparationStatusHtml(){
+  return '<div class="table-preparation-status" role="status">会計終了済</div>';
+}
+function openTablePreparation(tableId){
+  if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;
+  const record=S.tablePreparations?.[tableId];if(!record)return;
+  const floorModal=document.getElementById("floor-order-modal");if(floorModal)floorModal.style.display="none";
+  tablePreparationPrompt={tableId,record:cloneData(record)};
+  tablePreparationError="";at=null;md="tablePreparation";rModal();
+}
+async function guardedCompleteTablePreparation(tableId,expected){
+  const path="tablePreparations/"+tableId;
+  const root=await readScopedPaths(["activeBizDay",path,"sessions/"+tableId]);
+  if(!getPathValue(root,path)||!sameFirebaseValue(getPathValue(root,path),expected)||root.sessions?.[tableId]){
+    throw Object.assign(new Error("table preparation changed"),{userMessage:"テーブルの状態が他端末で変更されています。最新状態を確認し、テーブルを選択し直してください。"});
+  }
+  return guardedScopedCommit(root,{[FB_ROOT+"/"+path]:null},{
+    expectedRecords:{[path]:expected},recordPaths:["sessions/"+tableId]
+  });
+}
+async function answerTablePreparation(ready){
+  if(tablePreparationBusy||!tablePreparationPrompt)return;
+  if(!ready){
+    tablePreparationPrompt=null;tablePreparationError="";md=null;at=null;vw="floor";render();
+    alert("完了後にチェックイン可能です。");
+    return;
+  }
+  const prompt=tablePreparationPrompt;
+  tablePreparationBusy=true;tablePreparationError="";rModal();
+  try{
+    await guardedCompleteTablePreparation(prompt.tableId,prompt.record);
+    tablePreparationPrompt=null;md=null;at=null;vw="floor";sbs(true,"同期済み ✓");
+  }catch(error){
+    tablePreparationError=error.userMessage||"準備完了を保存できませんでした。通信状態を確認してから再試行してください。";
+    sbs(false,"保存エラー");
+  }finally{
+    tablePreparationBusy=false;render();rModal();
+  }
+}
+function tablePreparationModalHtml(){
+  return '<div class="mo"><div class="mb" role="dialog" aria-modal="true" aria-labelledby="preparation-question" style="max-width:420px;">'
+    +'<h3 id="preparation-question" style="font-size:18px;line-height:1.6;margin-bottom:20px;">テーブル準備は完了していますか？</h3>'
+    +(tablePreparationError?'<div role="alert" style="color:#ff6b6b;font-size:13px;line-height:1.6;margin-bottom:16px;">'+gmsEscapeHtml(tablePreparationError)+'</div>':"")
+    +'<div style="display:flex;gap:12px;"><button class="btn gbg" onclick="answerTablePreparation(true)" '+(tablePreparationBusy?'disabled':"")+' style="flex:1;min-height:48px;border-radius:6px;font-size:16px;">'+(tablePreparationBusy?"保存中...":"はい")+'</button>'
+    +'<button class="btn" onclick="answerTablePreparation(false)" '+(tablePreparationBusy?'disabled':"")+' style="flex:1;min-height:48px;border:1px solid #888;border-radius:6px;font-size:16px;">いいえ</button></div></div></div>';
+}
 async function guardedCloseSession(tableId,expected,historyRecord=null){
   requireScopedAtomic();
   const expectedActiveBizDay=S.activeBizDay||null;
   const tableCounter="_tableAssignmentRevisions/"+tableId;
-  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,tableCounter]);
+  const preparationPath="tablePreparations/"+tableId;
+  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,tableCounter,...(historyRecord?[preparationPath]:[])]);
   const session=root.sessions?.[tableId];
   if(!session||!sameSession(session,expected))throw Object.assign(new Error("session changed"),{userMessage:"対象テーブルの注文が変更されています。最新状態を確認してから再実行してください。"});
   const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(tableId).get();
@@ -2075,10 +2135,13 @@ async function guardedCloseSession(tableId,expected,historyRecord=null){
     expectedRecords["shifts/"+id]=shift;
   });
   if(historyRecord){
+    if(getPathValue(root,preparationPath))throw tablePreparationRequiredError();
     const path="history/"+historyRecord.id;
     await readScopedPaths([path],root);
     updates[FB_ROOT+"/"+path]=historyRecord;
     expectedRecords[path]=null;
+    updates[FB_ROOT+"/"+preparationPath]={tableId,sessionId:String(historyRecord.id),completedAt:now,businessDate:expectedActiveBizDay};
+    expectedRecords[preparationPath]=null;
   }
   return guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths});
 }
@@ -2216,13 +2279,14 @@ function tableChangeUpdates(oldId,newId,session,assignments){
 }
 async function guardedAtomicTableChange(oldId,newId,expected,trace=()=>{}){
   if(!requireFirebaseReady())throw new Error("Firebase is not ready for table change");
-  const paths=["sessions/"+oldId,"sessions/"+newId,"_tableAssignmentRevisions/"+oldId,"_tableAssignmentRevisions/"+newId,"activeBizDay"];
+  const paths=["sessions/"+oldId,"sessions/"+newId,"tablePreparations/"+newId,"_tableAssignmentRevisions/"+oldId,"_tableAssignmentRevisions/"+newId,"activeBizDay"];
   const root={};
   const snapshots=await Promise.all(paths.map(path=>window._db.ref(FB_ROOT+"/"+path).get()));
   paths.forEach((path,i)=>setPathValue(root,path,snapshots[i].val()));
   const remote=root.sessions?.[oldId];
   if(!remote||!sameSession(remote,expected))throw Object.assign(new Error("source session changed"),{userMessage:"移動元の注文が他端末で変更されています。最新状態を確認してから再実行してください。"});
   if(root.sessions?.[newId])throw Object.assign(new Error("target occupied"),{userMessage:"移動先テーブルは他端末で使用中になりました。"});
+  if(root.tablePreparations?.[newId])throw tablePreparationRequiredError();
   // 追加番号を先に取得し、その後で対象卓の付け回しを取得する。途中の追加はルールが拒否する。
   const snap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(oldId).get();
   root.assignments=snap.val()||{};
@@ -2401,7 +2465,8 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
-  if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;
+  if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;
+  if(v==="tableDetail"&&tablePreparationPending(extra)){openTablePreparation(extra);return;}
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
@@ -2413,7 +2478,7 @@ function sv(v,extra){
   startLazyViewDataLoad(v,true);
   render();
 }
-function tc2(id){if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
+function tc2(id){if(tablePreparationPending(id)){openTablePreparation(id);}else if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
@@ -3761,8 +3826,9 @@ function rFloor(){
   let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
   html+='<div class="floor-grid '+(layout.fit?"floor-grid-fit":"")+'" style="display:grid;grid-template-columns:'+cols+';gap:'+layout.gap+';align-items:start'+gridFitStyle+'">';
   S.tables.forEach(t=>{
+const lblFs=layout.fit?layout.labelFs+"px":DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
 try{
-const s=S.sessions[t.id];const rv=rem(s?.setEndTime);
+const s=S.sessions[t.id];const pending=tablePreparationPending(t.id);const rv=rem(s?.setEndTime);
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
 const hn=(s?.items||[]).filter(i=>i&&i.isHonShimei).map(itemCastName).filter(Boolean);
 const bn=(s?.items||[]).filter(i=>i&&i.isBanaiShimei).map(itemCastName).filter(Boolean);
@@ -3774,7 +3840,6 @@ const nomFs=DEV==="mobile"
   :DEV==="tablet"
   ?(maxSide>=8?'7px':maxSide>=7?'8px':maxSide>=6?'9px':maxSide>=5?'10px':'12px')
   :(maxSide>=7?'10px':maxSide>=6?'12px':'14px');
-const lblFs=layout.fit?layout.labelFs+"px":DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
 const timeFs=layout.fit?layout.timeFs+"px":DEV==="mobile"?"10px":"11px";
 const timerFs=layout.fit?layout.timerFs+"px":DEV==="mobile"?"15px":DEV==="tablet"?"17px":"20px";
 let inn=s?
@@ -3794,12 +3859,12 @@ let inn=s?
     +'</div>'
     +'</div>'
     :"")
-:'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
+:pending?tablePreparationStatusHtml():'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
 const loBadgeFs=(parseFloat(lblFs)*2)+"px";
 const loSt=S.loMode&&s?(S.loStatus[t.id]==="done"?"done":"pending"):null;
 const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#ff4444;line-height:1;">LO未</span>'
   :loSt==="done"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#38bdf8;line-height:1;">LO完</span>':"";
-html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
+html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(pending?"table-preparation-pending ":"")+(isV(t.id)?"tv":"")+ '" data-tid="'+t.id+'" onclick="tc2(this.dataset.tid)" style="aspect-ratio:1/1;touch-action:manipulation;position:relative;">'
   +(loBadge?'<div style="position:absolute;top:4px;right:6px;pointer-events:none;">'+loBadge+'</div>':"")
   +'<div class="floor-table-heading" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;flex-wrap:wrap;">'
   +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
@@ -3813,7 +3878,7 @@ html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(isV(t.id)?"tv":"")+ 
     +'<div class="floor-table-heading" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
     +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
     +(isV(t.id)?'<span class="tag tv2">VIP</span>':"")
-    +'</div><div style="font-size:12px;color:#444;margin-top:10px;">空席</div></div>';
+    +'</div>'+(tablePreparationPending(t.id)?tablePreparationStatusHtml():'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>')+'</div>';
 }
   });
   html+='</div>';
@@ -3901,6 +3966,7 @@ html+=castChip(sh.castId,sh.castName,"break",null,el,(lastLog?lastLog.startTime:
   html+='<div class="list-table-grid" style="display:grid;grid-template-columns:'+tblCols+';gap:clamp(8px,1.4vw,12px);align-content:start;align-items:start;">';
   S.tables.forEach(t=>{
 const s=S.sessions[t.id];
+const pending=tablePreparationPending(t.id);
 const ac=assignmentsByTable[String(t.id)]||[];
 const rv=s?rem(s.setEndTime):null;
 const urg=rv!==null&&rv<600000&&rv>0;const exp=rv!==null&&rv<=0;
@@ -3918,8 +3984,8 @@ if(isActive&&s){
   // diff===0: 均衡は表示しない
 }
 // テーブルカード（ドロップゾーン）
-html+='<div id="dz-tbl-'+t.id+'" class="list-table-card '+(isActive?"list-table-active":"list-table-empty")+'" '
-  +'style="border-radius:10px;padding:10px;min-height:100px;transition:all .2s;cursor:'+(isActive?"pointer":"default")+';'
+html+='<div id="dz-tbl-'+t.id+'" class="list-table-card '+(isActive?"list-table-active":"list-table-empty")+(pending?" table-preparation-pending":"")+'" '
+  +'style="border-radius:10px;padding:10px;min-height:100px;transition:all .2s;cursor:'+(isActive||pending?"pointer":"default")+';'
   +'background:'+(isActive?"rgba(255,255,255,.05)":"rgba(255,255,255,.02)")+';'
   +'border:1px solid '+(isActive?"rgba(212,160,23,.3)":"rgba(255,255,255,.06)")+';'
   +(isV(t.id)?"border-color:rgba(124,77,255,.3);":"")+'" '
@@ -3929,7 +3995,7 @@ html+='<div id="dz-tbl-'+t.id+'" class="list-table-card '+(isActive?"list-table-
 html+='<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px;">';
 html+='<div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1;">';
 html+='<div class="list-table-heading" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;">';
-html+='<span style="font-size:13px;font-weight:700;color:'+(isActive?"#e8dcc8":"#444")+';">'+t.label+'</span>';
+html+='<span style="font-size:13px;font-weight:700;color:'+(isActive||pending?"#e8dcc8":"#444")+';">'+t.label+'</span>';
 if(isActive&&s){
   const honCount=hn.length;
   const freeCount=Math.max(0,s.guests-honCount-bn.length);
@@ -3985,7 +4051,7 @@ if(isActive&&s){
     html+='<div style="font-size:10px;color:#333;margin-top:6px;text-align:center;padding:4px;border:1px dashed rgba(255,255,255,.08);border-radius:4px;">ドロップ</div>';
   }
 } else {
-  html+='<div style="font-size:11px;color:#333;margin-top:8px;">空席</div>';
+  html+=pending?tablePreparationStatusHtml():'<div style="font-size:11px;color:#333;margin-top:8px;">空席</div>';
 }
 html+='</div>';
   });
@@ -4428,7 +4494,11 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
 
 // ===== CHECKIN =====
 function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};etv=roundHHMM(5);}
-function openCheckinWizard(tableId){at=tableId;resetCheckinState();md="ci-guests";rModal();}
+function openCheckinWizard(tableId){
+  if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy||checkinBusy)return;
+  if(tablePreparationPending(tableId)){openTablePreparation(tableId);return;}
+  at=tableId;resetCheckinState();md="ci-guests";rModal();
+}
 function cancelCheckin(){if(checkinBusy)return;resetCheckinState();at=null;closeM();render();}
 function ciGo(step){md=step;rModal();}
 function ciSetGuests(n){const v=parseInt(n,10);if(v>0){ci.guests=v;ciGo("ci-set-type");}}
@@ -4933,10 +5003,11 @@ async function guardedRestoreHistoryToFloor(expected){
   const [historyKey,remoteHistory]=entries[0];
   if(!sameFirebaseValue(remoteHistory,expected))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で変更されています。最新状態を確認してください。"});
 
-  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,"history/"+historyKey,"_tableAssignmentRevisions/"+tableId]);
+  const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,"tablePreparations/"+tableId,"history/"+historyKey,"_tableAssignmentRevisions/"+tableId]);
   const expectedActiveBizDay=S.activeBizDay||null;
   if((root.activeBizDay||null)!==expectedActiveBizDay)throw Object.assign(new Error("business day changed"),{userMessage:"営業状態が他端末で変更されています。最新状態を確認してください。"});
   if(getPathValue(root,"sessions/"+tableId))throw Object.assign(new Error("table occupied"),{userMessage:"復活先のテーブルは現在使用中です。空席にしてから再実行してください。"});
+  if(root.tablePreparations?.[tableId])throw tablePreparationRequiredError();
   if(!sameFirebaseValue(getPathValue(root,"history/"+historyKey),expected))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で変更されています。最新状態を確認してください。"});
 
   const assignSnap=await window._db.ref(FB_ROOT+"/assignments").orderByChild("tableId").equalTo(tableId).get();
@@ -4980,6 +5051,7 @@ async function restoreHistoryToFloor(id){
   const record=(S.history||[]).find(h=>String(h.id)===String(id));
   if(!record){alert("復活対象の会計履歴が現在の営業データにありません。最新状態を確認してください。");return;}
   if(S.sessions&&S.sessions[record.tableId]){alert("復活先のテーブルは現在使用中です。空席にしてから再実行してください。");return;}
+  if(tablePreparationPending(record.tableId)){alert(tablePreparationRequiredError().userMessage);return;}
   if(!confirm("この会計履歴を削除して、テーブル「"+(record.tableLabel||record.tableId)+"」をフロアへ復活します。\n復活後に内容を修正して、もう一度会計してください。"))return;
   return withDataOperation("history:"+record.id,async()=>{
     try{
@@ -5803,7 +5875,7 @@ function ata(){if(!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert(
 
 // ===== MODAL =====
 function om(name){if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -7008,6 +7080,7 @@ h+='</div>';
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
+  if(md==="tablePreparation"){c.innerHTML=tablePreparationModalHtml();return;}
   if(chargeSaveBusy){c.innerHTML='<div class="mo"><div class="mb" role="status" aria-live="polite" style="max-width:400px;text-align:center;padding:36px 20px;"><span class="tc-save-spinner" aria-hidden="true"></span><div style="margin-top:16px;">明細を保存・同期中...</div></div></div>';return;}
   if(["anaListDate","anaListCast","anaListDetail"].includes(md)){c.innerHTML=listAnalysisModalHtml(md);return;}
   const s=at?S.sessions[at]:null;
@@ -8418,9 +8491,10 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const tl=S.tables.find(t=>t.id===at)?.label||"";
 let tbs="";
 S.tables.filter(t=>t.id!==at).forEach(t=>{
-  const inuse=tableChangeBusy||!!S.sessions[t.id];
+  const pending=tablePreparationPending(t.id);
+  const inuse=tableChangeBusy||!!S.sessions[t.id]||pending;
   tbs+='<button class="btn" '+(inuse?"disabled":"")+' data-tid="'+t.id+'" onclick="tableChange(this.dataset.tid)" style="padding:14px 10px;text-align:center;background:'+(inuse?"rgba(255,255,255,.02)":"rgba(0,200,255,.08)")+';border:1px solid '+(inuse?"rgba(255,255,255,.05)":"rgba(0,200,255,.25)")+';color:'+(inuse?"#444":"#38bdf8")+';border-radius:6px;font-size:14px;cursor:'+(inuse?"not-allowed":"pointer")+';touch-action:manipulation;">'
-    +t.label+(inuse?'<div style="font-size:10px;color:#555;margin-top:3px;">使用中</div>':'<div style="font-size:10px;margin-top:3px;opacity:.6;">移動</div>')+'</button>';
+    +t.label+(inuse?'<div style="font-size:10px;color:#555;margin-top:3px;">'+(pending?"会計終了済":"使用中")+'</div>':'<div style="font-size:10px;margin-top:3px;opacity:.6;">移動</div>')+'</button>';
 });
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:460px;">'
   +'<h3 style="margin-bottom:4px;font-size:16px;color:#38bdf8;">テーブルチェンジ</h3>'

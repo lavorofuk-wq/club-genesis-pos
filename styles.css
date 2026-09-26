@@ -8,6 +8,8 @@ body{font-family:'Noto Sans JP',sans-serif;background:#0a0a0f;color:#e8dcc8;min-
 .tc:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.4);}
 .te{background:rgba(30,30,40,.8);border:1px solid rgba(255,255,255,.06);}
 .ta{background:rgba(20,18,8,.9);border:1px solid #b8960c;}
+.table-preparation-status{font-size:13px;font-weight:700;line-height:1.6;color:#0369a1;margin-top:10px;overflow-wrap:anywhere;letter-spacing:0;}
+.tc.table-preparation-pending,.list-table-card.table-preparation-pending{border-color:#38bdf8!important;background:rgba(56,189,248,.09)!important;cursor:pointer;}
 .tv{border-color:#7c4dff!important;}
 .tag{display:inline-block;font-size:10px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:.05em;}
 .tv2{background:#7c4dff22;color:#a78bfa;border:1px solid #7c4dff55;}

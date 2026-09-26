@@ -19,7 +19,7 @@ function applyScopedRules(document){
     const newOp='newData.parent().parent().parent()';
     const membership=(collection,cast,base=before,post=after)=>`${post}.child('${collection}').child(${cast} + '').val() == ${rev(`${base}.child('${collection}').child(${cast} + '')`)} + 1`;
     const recordChecks=[
-      or(['sessions','shifts','assignments','history','bizDays'].map(key=>`$collection == '${key}'`)),
+      or(['sessions','shifts','assignments','history','bizDays','tablePreparations'].map(key=>`$collection == '${key}'`)),
       `newData.child('exists').val() == ${oldRecord}.exists()`,
       `newData.child('rev').val() == ${rev(`${oldRecord}.child('_rev')`)}`,
       `newData.child('startTime').val() == ${oldRecord}.child('startTime').val()`,
@@ -50,11 +50,30 @@ function applyScopedRules(document){
       ])])}}}
     };
     for(const key of ['_castAssignmentRevisions','_castShiftRevisions','_bizDayRevisions'])rules[key]={$id:{'.validate':`newData.isNumber() && (newData.val() == data.val() || newData.val() == ${rev('data')} + 1)`}};
+    const historyRoot='newData.parent().parent()';
+    const checkoutSession=`${before}.child('sessions').child(newData.child('tableId').val() + '')`;
+    const checkoutPreparation=`${historyRoot}.child('tablePreparations').child(newData.child('tableId').val() + '')`;
+    const checkoutPrepared=or([
+      `!newData.child('tableId').isString()`,`data.exists()`,`!${checkoutSession}.exists()`,
+      `${historyRoot}.child('sessions').child(newData.child('tableId').val() + '').exists()`,
+      `${checkoutSession}.child('startTime').val() != newData.child('startTime').val()`,
+      `${checkoutPreparation}.child('sessionId').val() == newData.child('id').val() + ''`
+    ]);
     rules.history={'.indexOn':['id'], $id:{'.validate':or([disabled,liveTransition,and([
+      checkoutPrepared,
       `newData.child('_nodeWriteVersion').val() >= 614400`,
       `newData.child('_rev').val() == ${rev("data.child('_rev')")} + 1`,
       `newData.child('_nodeWriteNonce').isString()`,`newData.child('_nodeWriteNonce').val() != data.child('_nodeWriteNonce').val()`
     ])])}};
+    rules.tablePreparations={$tableId:{'.validate':and([
+      `newData.hasChildren(['tableId','sessionId','completedAt'])`,
+      `newData.child('tableId').val() == $tableId`,`newData.child('sessionId').isString()`,`newData.child('completedAt').isNumber()`,
+      `!newData.parent().parent().child('sessions').child($tableId).exists()`,
+      `newData.child('_rev').val() == ${rev("data.child('_rev')")} + 1`,
+      `newData.child('_nodeWriteNonce').val() == newData.parent().parent().child('_scopedOperation/nonce').val()`,
+      `newData.parent().parent().child('_scopedOperation/records/tablePreparations').child($tableId).child('write').val() == true`,
+      `newData.parent().parent().child('history').child(newData.child('sessionId').val()).child('endTime').val() == newData.child('completedAt').val()`
+    ])}};
     rules.bizDaySummaries={$id:{'.validate':or([disabled,`newData.child('_dayRev').val() == ${rev("newData.parent().parent().child('bizDays').child($id).child('_rev')")}`])}};
     rules['.write']=rules['.write'].replace("newData.child('_writeGate/versionNum').val() >= 613300",`newData.child('_writeGate/versionNum').val() >= (${enabled} ? 614400 : 613300)`);
     for(const [collection,wildcard,endField,counter] of [['assignments','$assignmentId','endTime','_castAssignmentRevisions'],['shifts','$shiftId','clockOut','_castShiftRevisions']]){
@@ -80,7 +99,10 @@ function applyScopedRules(document){
       rules[collection]['.indexOn']=collection==='assignments'?['tableId','castId']:['castId'];
     }
     const session=rules.sessions.$tableId;
-    session['.validate']=or([disabled,`newData.child('_nodeWriteVersion').val() >= 614400`,liveTransition]);
+    session['.validate']=and([
+      or([disabled,`newData.child('_nodeWriteVersion').val() >= 614400`,liveTransition]),
+      `!newData.parent().parent().child('tablePreparations').child($tableId).exists()`
+    ]);
     const dayCheck=and([
       `newData.child('version').val() >= 614400`,
       `newData.child('expectedDayExists').val() == ${before}.child('bizDays').child(newData.child('dayId').val()).exists()`,

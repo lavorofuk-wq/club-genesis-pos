@@ -53,7 +53,8 @@ function contextFor(db,state=fixture()){
     bizDaySummary:(day,id)=>({id,date:day.date||id,_dayRev:Number(day._rev)||0,sales:(day.history||[]).reduce((n,h)=>n+(h.total||0),0)}),
     sbs:()=>{},render:()=>{},refreshFloorModal:()=>{},rModal:()=>{},closeM:()=>{},alert:()=>{},
     waitForSessionSaveQueue:async()=>{},sessionSaveStates:{},at:'t1',md:'tc',tableChangeBusy:false,
-    isPendingAssignment:()=>false,chargeSaveBusy:false
+    isPendingAssignment:()=>false,chargeSaveBusy:false,entryTimeBusy:false,checkinBusy:false,checkoutBusy:false,
+    tablePreparationBusy:false,tablePreparationPrompt:null,tablePreparationError:''
   };
   vm.createContext(context);
   for(const [from,to] of [
@@ -62,7 +63,7 @@ function contextFor(db,state=fixture()){
     ['const optimisticRootPaths','function bizDayOperation'],
     ['function bizDayOperation','// ===== SESSIONS ====='],
     ['function assignmentMatchesSession','async function guardedEntryTimeUpdate'],
-    ['async function guardedCloseSession','async function checkout'],
+    ['function tablePreparationPending','async function checkout'],
     ['function tableChangeAssignments','// ===== RENDER ENGINE ====='],
     ['function closedBizDayConflictMessage','async function confirmDeleteBizDay'],
     ['async function guardedRestoreBackupDays','async function restoreFromBackupDay'],
