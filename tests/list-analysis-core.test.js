@@ -163,7 +163,7 @@ test('different customers using the same table count separately and returning to
   assert.equal(value.unresolvedVisitAssignments,0);
 });
 
-test('unidentified visits retain time but do not invent counts, count averages, or a banai extension rate',()=>{
+test('unidentified seatings keep contact counts unknown while confirmed receipts provide an extension rate',()=>{
   const value=report([day({assignments:[
     assignment('unknown','banai',1,3,{sessionId:null,typeHistory:[
       {type:'free',startTime:at(1)},{type:'banai',startTime:at(2)}
@@ -185,7 +185,8 @@ test('unidentified visits retain time but do not invent counts, count averages, 
   assert.equal(value.types.free.averageMs,2*HOUR);
   assert.equal(value.types.hon.averageCount,0);
   assert.equal(value.extensionTables,1);
-  assert.equal(value.extensionRate,null);
+  assert.equal(value.extensionEligibleTables,1);
+  assert.equal(value.extensionRate,100);
 });
 
 test('ambiguous checkout history does not guess the closest visit',()=>{
@@ -563,7 +564,7 @@ test('missing, mismatched and ambiguous checkouts or missing items never imply a
     assert.equal(value.extensionEligibleTables,1);
     assert.equal(value.extensionTables,1);
     assert.equal(value.unresolvedExtensionAssignments,1);
-    assert.equal(value.extensionRate,null);
+    assert.equal(value.extensionRate,100);
   }
 });
 
@@ -596,15 +597,90 @@ test('whole-period extension rate uses eligible visit totals and excludes open d
   assert.deepEqual(value.days.map(d=>d.extensionEligibleTables),[2,1]);
 });
 
-test('an extension without a matching banai seating keeps sales and count but has no guessed rate',()=>{
+test('an extension without a matching banai seating provides both a confirmed numerator and denominator',()=>{
   const value=report([day({assignments:[assignment('known','banai',1,2)],history:[
     {id:'known',tableId:'T1',startTime:at(1),items:[extension('e1')]},
     {id:'no-assignment',tableId:'T1',startTime:at(3),items:[extension('e2')]}
   ]})],{extensionSales:()=>4000});
-  assert.equal(value.extensionEligibleTables,1);
+  assert.equal(value.extensionEligibleTables,2);
   assert.equal(value.extensionCount,2);
   assert.equal(value.extensionTables,2);
   assert.equal(value.extensionSales,8000);
-  assert.equal(value.unresolvedExtensionVisits,1);
-  assert.equal(value.extensionRate,null);
+  assert.equal(value.extensionRate,100);
+});
+
+
+test('all-period rates remain available for each cast despite old unmatched seatings and missing recent seatings',()=>{
+  const old=day({id:'2026-08-01',date:'2026-08-01',endedAt:at(-48),shifts:[],history:[],
+    assignments:['a','b'].map(castId=>assignment('old-'+castId,'banai',-50,-49,{castId,sessionId:at(-50)}))});
+  const current=day({assignments:[],history:[
+    {id:'one',tableId:'T1',startTime:at(1),items:[
+      {isBanaiShimei:true,castId:'a'},{isBanaiShimei:true,castId:'b'},extension('a-only')
+    ]},
+    {id:'two',tableId:'T1',startTime:at(3),items:[
+      {isBanaiShimei:true,castId:'a'},{isBanaiShimei:true,castId:'b'},extension('both',{banaiExtCastIds:['a','b']})
+    ]},
+    {id:'hon',tableId:'T2',startTime:at(5),items:[
+      {isHonShimei:true,castId:'other'},{isBanaiShimei:true,castId:'a'},extension('excluded',{banaiExtCastIds:['a','b']})
+    ]}
+  ]});
+  const before=JSON.stringify([old,current]);
+  for(const [castId,extended,rate] of [['a',2,100],['b',1,50]]){
+    const result=buildReport({days:[old,current],castId});
+    assert.equal(result.unresolvedExtensionAssignments,1);
+    assert.equal(result.extensionEligibleTables,2);
+    assert.equal(result.extensionTables,extended);
+    assert.equal(result.extensionRate,rate);
+    assert.equal(buildReport({days:[current],castId}).extensionRate,rate);
+  }
+  assert.equal(JSON.stringify([old,current]),before);
+});
+
+test('receipt nominations, extension parents and matched return seatings share one visit denominator',()=>{
+  const first={id:'one',tableId:'T1',startTime:at(1),endTime:at(4),items:[
+    {isBanaiShimei:true,castId:'a'},{isBanaiShimei:true,castId:'a'},extension('e1'),extension('e2')
+  ]};
+  const value=report([day({assignments:[assignment('first','banai',1,2),assignment('return','banai',3,4)],history:[
+    first,{...first},{id:'nomination-only',tableId:'T1',startTime:at(5),items:[{isBanaiShimei:true,castId:'a'}]}
+  ]})]);
+  assert.equal(value.types.banai.count,1);
+  assert.equal(value.extensionEligibleTables,2);
+  assert.equal(value.extensionCount,2);
+  assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionRate,50);
+});
+
+test('receipt evidence respects cast IDs, legacy extension targets, period bounds and closed days',()=>{
+  const record=(id,start,items)=>({id,tableId:'T1',startTime:at(start),items});
+  const first=day({assignments:[],history:[
+    record('before',-1,[{isBanaiShimei:true,castId:7}]),
+    record('legacy',1,[extension('e',{banaiExtCastIds:undefined,banaiExtCastId:7})]),
+    record('nomination',3,[{isBanaiShimei:true,castId:'7'}]),
+    record('other-cast',4,[{isBanaiShimei:true,castId:'a'}]),
+    record('end-exclusive',6,[extension('e',{banaiExtCastIds:['7']})])
+  ]});
+  const open={...first,id:'open',endedAt:null};
+  const value=report([first,open],{castId:'7',from:at(0),to:at(6)});
+  assert.equal(value.extensionEligibleTables,2);
+  assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionRate,50);
+  assert.equal(report([first],{castId:7,from:at(2),to:at(6)}).extensionRate,0);
+  assert.equal(report([first],{castId:'missing'}).extensionRate,null);
+});
+
+test('unknown or malformed orders and extension children do not become confirmed nomination visits',()=>{
+  const records=[
+    {id:'confirmed',tableId:'T1',startTime:at(1),items:[{isBanaiShimei:true,castId:'a'},extension('good')]},
+    {id:'ordinary',tableId:'T1',startTime:at(2),items:[{isExtension:true,chargeRole:'extension',castId:'a'}]},
+    {id:'child',tableId:'T1',startTime:at(3),items:[extension('sc',{chargeRole:'single'}),extension('room',{chargeRole:'room'})]},
+    ...['broken',['broken'],{bad:42},[extension('bad'),'broken'],[{isBanaiShimei:true,castId:'a'},[{}]]].map((items,index)=>({id:'bad'+index,tableId:'T2',startTime:at(4+index/10),items}))
+  ];
+  const value=report([day({history:records})]);
+  assert.equal(value.extensionEligibleTables,1);
+  assert.equal(value.extensionTables,1);
+  assert.equal(value.extensionRate,100);
+  const unknownOnly=report([day({assignments:[assignment('orphan','banai',1,2)]})]);
+  assert.equal(unknownOnly.extensionEligibleTables,0);
+  assert.equal(unknownOnly.unresolvedExtensionAssignments,1);
+  assert.equal(unknownOnly.extensionRate,null);
 });

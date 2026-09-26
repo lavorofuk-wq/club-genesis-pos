@@ -104,8 +104,12 @@
       /^sc(?:_|$)/i.test(id)||/^room(?:_|$)/i.test(id)||label.includes('シングルチャージ')||label.includes('室料'))return false;
     return true;
   }
+  function hasRecordedItems(items){
+    return !!items&&typeof items==='object'&&Object.values(items).every(item=>
+      item==null||(typeof item==='object'&&!Array.isArray(item)));
+  }
   function newDay(date){
-    return {date,attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,unresolvedExtensionVisits:0,
+    return {date,attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,
       freeAverage:emptyFreeAverage(),
       missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[],
       _work:[],_waiting:[],_occupied:[],_breaks:[],_typeIntervals:{hon:[],banai:[],free:[]},
@@ -116,7 +120,7 @@
   // Only completed business days participate in this report.
   // Attendance and averages use business dates; transaction sales use visit startTime.
   function buildReport(options={}){
-    const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,unresolvedExtensionVisits:0,
+    const result={attendanceDays:0,workMs:0,waitingMs:0,types:emptyTypes(),extensionCount:0,extensionTables:0,extensionSales:0,extensionEligibleTables:0,unresolvedExtensionAssignments:0,
       freeAverage:emptyFreeAverage(),
       banaiRate:null,extensionRate:null,days:[],missingWaitingDays:0,legacyTypeAssignments:0,unresolvedVisitAssignments:0,unresolvedVisitTypes:[]};
     const cid=identity(options.castId),from=timestamp(options.from)??-Infinity,to=timestamp(options.to)??Infinity;
@@ -185,9 +189,7 @@
             // another cast had a hon nomination. Classify only matched checkouts.
             const items=session?.items,hasHon=rows(items).some(item=>item.isHonShimei);
             if(!hasHon){
-              const knownItems=items&&typeof items==='object'&&Object.values(items).every(item=>
-                item==null||(typeof item==='object'&&!Array.isArray(item)));
-              if(!knownItems)unresolvedExtension=true;
+              if(!hasRecordedItems(items))unresolvedExtension=true;
               else row._extensionEligibleVisits.add(visit);
             }
           }
@@ -205,8 +207,11 @@
         if(start==null||start<from||start>=to)return;
         const items=rows(record.items);
         // Any cast's hon nomination makes the whole visit ineligible for banai extensions.
-        if(items.some(item=>item.isHonShimei))return;
+        if(items.some(item=>item.isHonShimei)||!hasRecordedItems(record.items))return;
         const visit=JSON.stringify([dayId,identity(record.tableId),recordKey(record,index)]);
+        // Nomination orders are saved even when no seating record exists.
+        // Merge their explicit evidence with matched seatings using the same visit key.
+        if(items.some(item=>item.isBanaiShimei&&identity(item.castId)===cid))row._extensionEligibleVisits.add(visit);
         let hasTarget=false;
         items.forEach((item,itemIndex)=>{
           if(!extensionTargets(item).includes(cid))return;
@@ -214,6 +219,7 @@
           if(!isExtensionParent(item))return;
           const event=JSON.stringify([visit,identity(item.groupId||item.id)||'row:'+itemIndex]);
           row._extensionEvents.add(event);row._extensionVisits.add(visit);
+          row._extensionEligibleVisits.add(visit);
         });
         if(hasTarget&&typeof options.extensionSales==='function'){
           const amount=Number(options.extensionSales(record,cid));
@@ -246,13 +252,12 @@
         row.freeAverage.averageMs=row.freeAverage.ms/row.freeAverage.count;
       row.extensionCount=row._extensionEvents.size;row.extensionTables=row._extensionVisits.size;
       row.extensionEligibleTables=row._extensionEligibleVisits.size;
-      row.unresolvedExtensionVisits=[...row._extensionVisits].filter(visit=>!row._extensionEligibleVisits.has(visit)).length;
-      const hasActivity=row.workMs||row.waitingMs||row.extensionCount||row.extensionSales||row.legacyTypeAssignments||
+      const hasActivity=row.workMs||row.waitingMs||row.extensionCount||row.extensionSales||row.extensionEligibleTables||row.legacyTypeAssignments||
         row.unresolvedVisitAssignments||TYPES.some(type=>row.types[type].count||row.types[type].ms);
       if(!hasActivity)return;
       Object.keys(row).filter(key=>key.startsWith('_')).forEach(key=>delete row[key]);
       result.days.push(row);
-      ['attendanceDays','workMs','waitingMs','extensionCount','extensionTables','extensionSales','extensionEligibleTables','unresolvedExtensionAssignments','unresolvedExtensionVisits','missingWaitingDays','legacyTypeAssignments','unresolvedVisitAssignments']
+      ['attendanceDays','workMs','waitingMs','extensionCount','extensionTables','extensionSales','extensionEligibleTables','unresolvedExtensionAssignments','missingWaitingDays','legacyTypeAssignments','unresolvedVisitAssignments']
         .forEach(key=>{result[key]+=row[key];});
       TYPES.forEach(type=>{result.types[type].count+=row.types[type].count;result.types[type].ms+=row.types[type].ms;});
       result.freeAverage.count+=row.freeAverage.count;result.freeAverage.ms+=row.freeAverage.ms;
@@ -266,7 +271,8 @@
         result.types[type].averageMs=result.types[type].ms/result.attendanceDays;
       }
     });
-    if(result.extensionEligibleTables&&!result.unresolvedExtensionAssignments&&!result.unresolvedExtensionVisits)
+    // Old, unverifiable seatings do not invalidate otherwise confirmed visits.
+    if(result.extensionEligibleTables)
       result.extensionRate=result.extensionTables/result.extensionEligibleTables*100;
     if(result.types.free.count&&!result.unresolvedVisitTypes.some(type=>type==='free'||type==='banai'))
       result.banaiRate=result.types.banai.count/result.types.free.count*100;
