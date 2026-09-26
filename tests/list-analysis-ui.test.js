@@ -287,7 +287,7 @@ test('closing a business day includes its saved snapshot and sales ignore all cu
   assert.deepEqual(salesCalls,[{items:saved.history[0].items,cid:'a',subtotal:16000}]);
   assert.equal(JSON.stringify(ctx.S),before);
   const html=ctx.listAnalysisReportHtml(report);
-  assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 2 卓/);assert.match(html,/50\.0%/);
+  assert.match(html,/フリーテーブルの場内延長 1 卓 ÷ フリーテーブルの場内指名 2 卓/);assert.match(html,/50\.0%/);
   assert.match(html,/営業終了済みのデータのみ対象/);
   assert.match(html,/会計後の別のお客様は別の来店として数えます/);
   assert.doesNotMatch(html,/営業中のデータ|100%を超える/);
@@ -326,8 +326,8 @@ test('modal and print use only non-hon visits in the extension denominator while
     assert.match(html,/場内指名<\/th><td><b>3<\/b> 回/);
     assert.match(html,/場内率<\/span><strong>300\.0%<\/strong><small>場内指名 3 卓 ÷ フリー 1 卓/);
     assert.match(html,/場内指名に対する延長割合<\/span><strong>100\.0%<\/strong>/);
-    assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 1 卓/);
-    assert.doesNotMatch(html,/延長 1 卓 ÷ フリー卓の場内指名 3 卓/);
+    assert.match(html,/フリーテーブルの場内延長 1 卓 ÷ フリーテーブルの場内指名 1 卓/);
+    assert.doesNotMatch(html,/フリーテーブルの場内延長 1 卓 ÷ フリーテーブルの場内指名 3 卓/);
   }
   assert.match(ctx.listAnalysisReportHtml(report),/本指名のある来店は、延長の回数・売上・割合の分子と分母すべてから除外します/);
 });
@@ -342,7 +342,7 @@ test('unmatched banai receipt makes extension rate unavailable and only the scre
   const screen=ctx.listAnalysisModalHtml('anaListDetail'),printed=ctx.listAnalysisPrintHtml(report,'https://example.test/list-analysis.css');
   for(const html of [screen,printed]){
     assert.match(html,/場内指名に対する延長割合<\/span><strong>—<\/strong>/);
-    assert.match(html,/延長 1 卓 ÷ フリー卓の場内指名 1 卓/);
+    assert.match(html,/フリーテーブルの場内延長 1 卓 ÷ フリーテーブルの場内指名 1 卓/);
     assert.doesNotMatch(html,/NaN|undefined|Infinity/);
   }
   assert.match(screen,/会計・注文履歴から本指名の有無を確認できない場内指名の付け回しが 1 件あるため/);
