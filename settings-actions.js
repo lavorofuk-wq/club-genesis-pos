@@ -27,6 +27,7 @@ function settingsRestoreDraft(){return getSettingsEditor().restore();}
 function settingsDiscardDraft(){return getSettingsEditor().discardDraft();}
 function settingsLoadCurrent(){return getSettingsEditor().loadCurrent();}
 function settingsRetryConflict(){return getSettingsEditor().retryConflict();}
+function settingsRestartForCurrentDay(){return getSettingsEditor().restartForCurrentDay();}
 function settingsClearResolvedErrors(){
   if(settingsEditorInstance?.hasDraft())return;
   Object.values(settingSaveStates).forEach(state=>{if(!state.running&&state.requestedVersion===state.savedVersion&&state.status==="error")setSettingSaveStatus(state.path,"saved","");});
@@ -98,12 +99,17 @@ function settingsConfirmRoster(root){
   S.castLifecycleLogs=cloneData(root.castLifecycleLogs)||{};
   updateRemoteHash("castLifecycleLogs",S.castLifecycleLogs);
   settingSaveState("casts").confirmedLifecycleHash=settingValueHash(S.castLifecycleLogs);
+  settingSaveState("casts").lastRemoteLifecycle=undefined;
 }
 async function commitSettingsCast(draft){
   const d=cloneData(draft),id=String(d.id||""),action=d.action;
   if(!id||/[.#$\[\]\/]/.test(id)||!["add","edit","depart"].includes(action))throw window.PosSettingsStore.invalid("キャストの編集内容を確認してください。");
   let root=await settingsReadRoster(d);
-  if((root.activeBizDay||null)!==(d.businessDate||null))throw Object.assign(new Error("business day changed"),{code:"SETTINGS_VALIDATION",userMessage:"営業日が変わりました。この下書きを閉じ、現在の営業日で操作し直してください。"});
+  const currentBusinessDate=root.activeBizDay||null,currentBizDate=currentBusinessDate||getBizDate();
+  if(currentBusinessDate!==(d.businessDate||null)||d.bizDate!==currentBizDate)throw Object.assign(new Error("business day changed"),{
+    code:"SETTINGS_BUSINESS_DAY_CHANGED",currentBusinessDate,currentBizDate,
+    userMessage:"営業日が変わりました。入力内容を保持して現在の営業日の下書きを作り直し、内容を確認して保存してください。"
+  });
   const current=normalizeCasts(root.casts).find(c=>String(c.id)===id)||null;
   const name=String(d.values?.name??d.values?.label??"").trim();
   if(action!=="depart"&&!name)throw window.PosSettingsStore.invalid("キャスト名を入力してください。","name");
@@ -117,7 +123,7 @@ async function commitSettingsCast(draft){
     throw window.PosSettingsStore.conflict(current);
   }
   if(action!=="add"&&!current)throw window.PosSettingsStore.conflict(null);
-  const biz=d.bizDate||root.activeBizDay||currentCastBizDate();
+  const biz=currentBizDate;
   if(action!=="depart"&&normalizeCasts(root.casts).some(c=>String(c.id)!==id&&c.active!==false&&(c.castType!=="trial"||c.trialBizDay===biz)&&String(c.name||"").trim()===name)){
     throw window.PosSettingsStore.invalid("在籍中または当日体入に同じ名前のキャストがいます。","name");
   }
@@ -126,16 +132,18 @@ async function commitSettingsCast(draft){
     // This existing operation also renames references on the current business day atomically.
     const state=settingSaveState("casts");
     state.running=false;state.requestedVersion=state.savedVersion;state.status="saved";
-    return guardedCastNameChange(id,name);
+    await guardedCastNameChange(id,name,{expectedActiveBizDay:d.businessDate||null,expectedCast:current});
+    try{settingsConfirmRoster(await settingsReadRoster(d));}catch(_readError){}
+    return true;
   }
   settingsOperationState("casts","saving");
   const next=normalizeCasts(root.casts),lifecycle=cloneData(root.castLifecycleLogs)||{};
   if(action==="add"){
-    const ts=Number(id);
-    if(!Number.isSafeInteger(ts)||ts<=0)throw window.PosSettingsStore.invalid("キャストIDを確認できません。新しく登録してください。");
+    const castId=Number(id),ts=Date.now();
+    if(!Number.isSafeInteger(castId)||castId<=0)throw window.PosSettingsStore.invalid("キャストIDを確認できません。新しく登録してください。");
     const sortIndex=next.reduce((maximum,c)=>Math.max(maximum,Number(c.sortIndex)||0),-1)+1;
     const trial=d.castType==="trial";
-    const cast={id:ts,name,castType:trial?"trial":"regular",active:true,registeredAt:ts,sortIndex,
+    const cast={id:castId,name,castType:trial?"trial":"regular",active:true,registeredAt:ts,sortIndex,
       ...(trial?{trialRegisteredAt:ts,trialBizDay:biz}:{enteredAt:ts,enteredBizDay:biz})};
     next.push(cast);
     upsertLifecycleIn(lifecycle,biz,trial?"trialCasts":"enteredCasts",castSnapshot(cast,trial?{trialBizDay:biz,trialRegisteredAt:ts,trialEndedAt:null}:{enteredAt:ts}),"castId");
@@ -176,6 +184,11 @@ async function commitSettingsDraft(draft){
     settingsOperationState(path,"saved");
     return result;
   }catch(error){
+    if(path==="casts"){
+      // Refresh only after the write has settled; buffered Firebase events may
+      // contain an optimistic value from our rejected attempt. Keep the draft.
+      try{settingsConfirmRoster(await settingsReadRoster(draft));}catch(_readError){}
+    }
     error=settingSaveError(error);
     if((error._txConflict||error.settingKind==="conflict")&&!error.code)error.code="SETTINGS_CONFLICT";
     if(error.code==="SETTINGS_CONFLICT"&&!Object.prototype.hasOwnProperty.call(error,"current")){

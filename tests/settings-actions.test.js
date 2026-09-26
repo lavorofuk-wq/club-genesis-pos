@@ -27,6 +27,7 @@ function runtime(state=data(),beforeWrite,providedDatabase){
     ['function settingConflictError','function castIdQueryValues'],
     ['function castNameItemValue','function hasVisibleCastName']
   ])vm.runInContext(source(from,to),ctx);
+  ctx.S.menus=ctx.normalizeMenus(ctx.S.menus);
   for(const key of ['menus','tables','casts','castLifecycleLogs'])ctx.updateRemoteHash(key,state[key]??null);
   vm.runInContext(actions,ctx);
   return{ctx,db,state,warnings};
@@ -132,7 +133,7 @@ test('cast rename keeps current-day references atomic and preserves unrelated hi
 
 test('changed business day refuses stale cast draft without a write',async()=>{
   const state=data(),{ctx,db}=runtime(state);const draft=castDraft(state);draft.businessDate='2026-09-07';
-  await assert.rejects(ctx.commitSettingsDraft(draft),error=>error.code==='SETTINGS_VALIDATION'&&/営業日/.test(error.userMessage));
+  await assert.rejects(ctx.commitSettingsDraft(draft),error=>error.code==='SETTINGS_BUSINESS_DAY_CHANGED'&&/営業日/.test(error.userMessage));
   assert.equal(db.writes.length,0);assert.equal(ctx.S.casts.length,1);assert.equal(ctx.settingsSaving(),false);
 });
 
@@ -181,6 +182,7 @@ test('settings actions preserve data under real Firebase rules and concurrent wr
     await assert.rejects(ctx.commitSettingsDraft(draft),error=>error.code==='SETTINGS_CONFLICT');
     const current=await saved();assert.equal(current._settingsRevisions[kind==='menu'?'menus':'tables'],1);
     assert.equal(kind==='menu'?current.menus.sets[0].price:current.tables[0].label,kind==='menu'?9000:'Other device');
+    assert.equal(kind==='menu'?ctx.S.menus.sets[0].price:ctx.S.tables[0].label,kind==='menu'?9000:'Other device','losing device must use the winning confirmed setting');
   });
   await t.test('table deletion racing check-in cannot remove the occupied table',async()=>{
     const state=data();await em.reset(state);let raced=false;
@@ -243,4 +245,88 @@ test('settings actions preserve data under real Firebase rules and concurrent wr
     const current=await saved();assert.equal(current.activeBizDay,'2026-09-09');assert.equal(current.casts.length,1);
     assert.equal(current.castLifecycleLogs,undefined);
   });
+});
+
+for(const kind of ['menu','table'])test(kind+' conflict applies a confirmed update buffered during the save without replacing the draft',async()=>{
+  const state=data(),{ctx,db}=runtime(state),draft=kind==='menu'?menuDraft(state):tableDraft(state);
+  const original=clone(draft),path=kind==='menu'?'menus':'tables',ref=db.ref.bind(db);let injected=false;
+  db.ref=key=>{const target=ref(key);if(key==='pos-dev/_settingsRevisions/'+path){
+    const get=target.get.bind(target);target.get=async()=>{
+      if(!injected){injected=true;
+        if(kind==='menu')state.menus.sets[0].price=3000;else state.tables[0].label='Other device';
+        state._settingsRevisions[path]++;
+        assert.equal(ctx.acceptRemoteSettingValue(path,clone(state[path]),value=>{ctx.S[path]=value;}),false);
+      }
+      return get();
+    };
+  }return target;};
+  await assert.rejects(ctx.commitSettingsDraft(draft),error=>error.code==='SETTINGS_CONFLICT');
+  assert.equal(kind==='menu'?ctx.S.menus.sets[0].price:ctx.S.tables[0].label,kind==='menu'?3000:'Other device');
+  assert.deepEqual(draft,original);assert.equal(db.writes.length,0);
+  assert.equal(ctx.settingSaveState(path).status,'error');assert.equal(ctx.settingSaveState(path).lastRemoteValue,undefined);
+});
+
+test('failed cast save refreshes confirmed roster and lifecycle received while the write was pending',async()=>{
+  const state=data();let ctx;
+  const result=runtime(state,()=>{
+    state.casts[0].name='Remote name';state.castLifecycleLogs[date]={enteredCasts:[{castId:String(cast.id),castName:'Remote name'}]};
+    assert.equal(ctx.acceptRemoteSettingValue('casts',clone(state.casts),value=>{ctx.S.casts=value;}),false);
+    ctx.settingSaveState('casts').lastRemoteLifecycle=clone(state.castLifecycleLogs);
+    throw Object.assign(new Error('Permission denied'),{code:'PERMISSION_DENIED'});
+  });ctx=result.ctx;
+  await assert.rejects(ctx.commitSettingsDraft(castDraft(state,'add')));
+  assert.equal(ctx.S.casts.length,1);assert.equal(ctx.S.casts[0].name,'Remote name');
+  assert.equal(ctx.S.castLifecycleLogs[date].enteredCasts[0].castName,'Remote name');
+  assert.equal(ctx.settingSaveState('casts').lastRemoteLifecycle,undefined);assert.equal(result.db.writes.length,0);
+});
+
+test('an inactive business day rollover rejects restored regular and trial drafts without registration',async()=>{
+  for(const castType of ['regular','trial']){
+    const state=data({activeBizDay:null}),{ctx,db}=runtime(state);
+    ctx.getBizDate=()=>date;
+    const draft={...castDraft(state),castType,businessDate:null,bizDate:'2026-09-07'};
+    await assert.rejects(ctx.commitSettingsDraft(draft),error=>error.code==='SETTINGS_BUSINESS_DAY_CHANGED'&&error.currentBusinessDate===null&&error.currentBizDate===date);
+    assert.equal(db.writes.length,0);assert.equal(ctx.S.casts.length,1);assert.deepEqual(snapshot(ctx.S.castLifecycleLogs),{});
+  }
+});
+
+test('regular and trial registration use save time while retaining a stable retry ID',async()=>{
+  for(const castType of ['regular','trial']){
+    const state=data(),{ctx,db}=runtime(state),draft={...castDraft(state),castType};
+    const saveTime=Number(draft.id)+7200000;
+    ctx.Date=class extends Date{static now(){return saveTime;}};
+    await ctx.commitSettingsDraft(draft);
+    const added=ctx.S.casts.find(row=>String(row.id)===draft.id);
+    assert.equal(added.registeredAt,saveTime);
+    assert.equal(added[castType==='trial'?'trialRegisteredAt':'enteredAt'],saveTime);
+    const event=ctx.S.castLifecycleLogs[date][castType==='trial'?'trialCasts':'enteredCasts'][0];
+    assert.equal(event[castType==='trial'?'trialRegisteredAt':'enteredAt'],saveTime);
+    await ctx.commitSettingsDraft(draft);
+    assert.equal(db.writes.length,1,'a retry must recognize the ID rather than change the registration time');
+    assert.equal(ctx.S.casts.filter(row=>String(row.id)===draft.id).length,1);
+  }
+});
+
+test('rename passes the draft business-day scope into the guarded operation',async()=>{
+  const state=data(),{ctx}=runtime(state);let received;
+  ctx.guardedCastNameChange=async(...args)=>{received=args;return true;};
+  await ctx.commitSettingsDraft(castDraft(state,'edit'));
+  assert.deepEqual(snapshot(received),[String(cast.id),'Renamed',{expectedActiveBizDay:date,expectedCast:clone(state.casts[0])}]);
+});
+
+test('rename confirmation refreshes roster changes received during acknowledgement',async()=>{
+  const state=data(),{ctx,db}=runtime(state),ref=db.ref.bind(db);let changed=false;
+  db.ref=key=>{const target=ref(key),update=target.update?.bind(target);if(update)target.update=async values=>{
+    await update(values);if(changed)return;changed=true;
+    state.casts.push({...clone(cast),id:1789127987000,name:'Later cast',sortIndex:1});
+    state.castLifecycleLogs[date]={enteredCasts:[{castId:'1789127987000',castName:'Later cast'}]};
+    state._settingsRevisions.castRoster++;
+    assert.equal(ctx.acceptRemoteSettingValue('casts',clone(state.casts),value=>{ctx.S.casts=value;}),false);
+    ctx.settingSaveState('casts').lastRemoteLifecycle=clone(state.castLifecycleLogs);
+  };return target;};
+  await ctx.commitSettingsDraft(castDraft(state,'edit'));
+  assert.equal(ctx.S.casts[0].name,'Renamed');assert.equal(ctx.S.casts[1]?.name,'Later cast');
+  assert.equal(ctx.S.castLifecycleLogs[date].enteredCasts[0].castName,'Later cast');
+  assert.equal(ctx.settingSaveState('casts').lastRemoteValue,undefined);
+  assert.equal(ctx.settingSaveState('casts').lastRemoteLifecycle,undefined);
 });

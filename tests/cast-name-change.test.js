@@ -52,7 +52,7 @@ assert(renameAfterOrder.history[0].items.every(item=>item.castName==="ルナ"),"
 assert.deepStrictEqual(plain(renameAfterOrder.changed),{sessions:["t1"],shifts:["sh1"],assignments:["as1"],history:[0]},"変更対象だけを保存する");
 
 const renameSource=app.slice(app.indexOf("async function guardedCastNameChange"),app.indexOf("function hasVisibleCastName"));
-assert.match(renameSource,/guardedCheckedNodeUpdate\(updates,null,\{expectedRecords,expectedActiveBizDay:businessDate\}\)/,"同日の参照レコードと名簿を競合検知付きで保存する");
+assert.match(renameSource,/guardedCheckedNodeUpdate\(updates,checkRecords,\{expectedRecords,expectedActiveBizDay:businessDate,deferLocalApply:true\}\)/,"同日の参照レコードと名簿を競合検知付きで保存する");
 assert.match(renameSource,/async function ucn[\s\S]*await guardedCastNameChange\(id,n\)/,"設定画面の名前変更が整合保存経路を使う");
 assert.doesNotMatch(renameSource,/save\("casts"/,"名前だけを単独保存する旧経路へ戻さない");
 

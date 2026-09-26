@@ -281,3 +281,48 @@ test("session storage failure explains reload risk without blocking save or losi
   assert.equal(await f.editor.submit(),true);
   assert.equal(f.calls[0].values.price,1800);
 });
+
+test("a business-day error recreates the cast draft with its input intact and requires explicit save",async()=>{
+  const f=fixture({commit:async draft=>{
+    f.calls.push(draft);
+    if(f.calls.length===1)throw Object.assign(new Error("営業日が変わりました"),{code:"SETTINGS_BUSINESS_DAY_CHANGED",currentBusinessDate:null,currentBizDate:"2026-09-28"});
+  }});
+  f.state.activeBizDay=null;
+  f.editor.open({kind:"cast",action:"add",castType:"trial"});f.editor.update("name","翌日の体入");
+  assert.equal(await f.editor.submit(),false);
+  const old=f.calls[0];
+  assert.match(f.editor.renderModal(),/settingsRestartForCurrentDay/);
+  assert.equal(await f.editor.submit(),false);assert.equal(f.calls.length,1);
+  assert.equal(f.editor.restartForCurrentDay(),true);
+  assert.equal(f.calls.length,1,"recreating a draft never saves implicitly");
+  assert.match(f.editor.renderModal(),/翌日の体入/);
+  assert.match(f.editor.renderModal(),/2026-09-28/);
+  f.editor.close();const restored=create(f.adapter);assert.equal(restored.restore(),true);
+  assert.equal(await restored.submit(),true);
+  assert.equal(f.calls[1].values.name,"翌日の体入");assert.equal(f.calls[1].businessDate,null);
+  assert.equal(f.calls[1].bizDate,"2026-09-28");assert.notEqual(f.calls[1].id,old.id);
+});
+
+test("business-day recreation retains the comparison base of an existing cast",async()=>{
+  const f=fixture({commit:async()=>{throw Object.assign(new Error("営業日変更"),{code:"SETTINGS_BUSINESS_DAY_CHANGED",currentBusinessDate:"2026-09-28",currentBizDate:"2026-09-28"});}});
+  f.editor.open({kind:"cast",id:"123",action:"edit"});f.editor.update("name","入力した名前");await f.editor.submit();
+  f.state.casts[0].name="他端末の名前";
+  assert.equal(f.editor.restartForCurrentDay(),true);
+  const saved=JSON.parse([...f.session.map.values()][0]).draft;
+  assert.equal(saved.base.name,"花","day recreation must not silently approve another device's rename");
+  assert.equal(saved.values.name,"入力した名前");assert.equal(saved.id,"123");assert.equal(saved.businessDate,"2026-09-28");
+});
+
+test("legacy timed menus can keep missing minutes while new or previously timed menus cannot omit them",async()=>{
+  for(const category of ["normalSets","sets","extensions","vip","karaoke"]){
+    const f=fixture();f.state.menus[category]=[{id:"legacy",label:"既存",price:2000}];
+    f.editor.open({kind:"menu",category,id:"legacy",action:"edit"});f.editor.update("label","編集後");f.editor.update("price","2500");
+    assert.match(f.editor.renderModal(),/時間は未設定/);
+    assert.equal(await f.editor.submit(),true);assert.equal(Object.hasOwn(f.calls[0].values,"minutes"),false);
+    assert.equal(f.calls[0].values.price,2500);
+    const draft={kind:"menu",category,action:"add",base:null,values:{label:"新規",price:"1000",minutes:""}};
+    assert.ok(validate(draft).errors.minutes);
+    draft.action="edit";draft.base={minutes:60};assert.ok(validate(draft).errors.minutes);
+    draft.base={};draft.values.minutes="45";assert.equal(validate(draft).values.minutes,45);
+  }
+});

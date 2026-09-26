@@ -41,7 +41,10 @@
         if(d.category==='options'&&(id!=='sc'||!['edit','add'].includes(d.action)))throw invalid('この固定料金は変更できません。');
         const price=integer(values.price,'price','料金',0);
         if(desired.type==='percent')desired.value=price;else desired.price=price;
-        if(timed.has(d.category))desired.minutes=integer(values.minutes,'minutes','時間',1);
+        if(timed.has(d.category)){
+          const preserveMissing=d.action==='edit'&&current&&current.minutes==null&&d.base?.minutes==null&&String(values.minutes??'').trim()==='';
+          if(!preserveMissing)desired.minutes=integer(values.minutes,'minutes','時間',1);
+        }
       }else desired.vip=values.vip===true;
     }else if(path==='menus'&&d.category==='options')throw invalid('この固定料金は削除できません。');
     if(d.action==='add'){
@@ -88,7 +91,13 @@
           adapter.onState?.(path,'saved');
           return true;
         }
-      }catch(error){adapter.onState?.(path,'error',error);throw error;}
+      }catch(error){
+        // A listener update received while saving may be optimistic. Re-read after
+        // the failed write settles instead of applying its buffered desired value.
+        // The draft is separate: confirmed prices can advance without losing input.
+        try{adapter.apply(path,(await adapter.readSnapshot(path)).value);}catch(_readError){}
+        adapter.onState?.(path,'error',error);throw error;
+      }
       finally{busy=false;}
     }
     return{commit,isBusy:()=>busy};

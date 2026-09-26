@@ -28,6 +28,7 @@
     if(TIMED.has(draft.category))values.minutes=String(item.minutes??"");
     return values;
   }
+  function hasLegacyMissingMinutes(draft){return draft.kind==="menu"&&TIMED.has(draft.category)&&draft.action==="edit"&&draft.base&&draft.base.minutes==null;}
   function validate(draft){
     const errors={},values=clone(draft.values)||{};
     if(!validDescriptor(draft))return{errors:{form:"編集対象が正しくありません。下書きを破棄して開き直してください。"},values};
@@ -41,7 +42,8 @@
       else values.price=Number(price);
       if(TIMED.has(draft.category)){
         const minutes=String(values.minutes??"").trim();
-        if(!/^\d+$/.test(minutes)||!Number.isSafeInteger(Number(minutes))||Number(minutes)<=0)errors.minutes="分数は1以上の整数で入力してください。";
+        if(minutes===""&&hasLegacyMissingMinutes(draft))delete values.minutes;
+        else if(!/^\d+$/.test(minutes)||!Number.isSafeInteger(Number(minutes))||Number(minutes)<=0)errors.minutes="分数は1以上の整数で入力してください。";
         else values.minutes=Number(minutes);
       }
     }
@@ -49,7 +51,7 @@
     return{errors,values};
   }
   function create(adapter){
-    let draft=null,opened=false,busy=false,errors={},message="",conflict=null,scope=null,returnFocus=null,focusField=null,saveFailed=false,storageWarning="";
+    let draft=null,opened=false,busy=false,errors={},message="",conflict=null,scope=null,returnFocus=null,focusField=null,saveFailed=false,storageWarning="",businessDayChange=null;
     const doc=adapter.document||(typeof document!=="undefined"?document:null);
     const notify=()=>adapter.onChange?.();
     function key(){const identity=adapter.getStorageKey?.();return identity?"genesis.settings.draft.v1:"+String(identity):null;}
@@ -98,7 +100,7 @@
       const prior=draft&&scope===key()?draft:readDraft();
       if(prior){
         const same=["kind","category","action"].every(field=>String(prior[field]||"")===String(spec[field]||""))&&(spec.action==="add"&&!spec.id||String(prior.id)===String(spec.id))&&(spec.kind!=="cast"||spec.action!=="add"||prior.castType===(spec.castType||"regular"));
-        if(same){draft=prior;scope=key();errors={};message="";conflict=null;saveFailed=false;activate();return true;}
+        if(same){draft=prior;scope=key();errors={};message="";conflict=null;businessDayChange=null;saveFailed=false;activate();return true;}
         if(adapter.confirm&&!adapter.confirm("保存していない下書きがあります。破棄して別の項目を編集しますか？"))return false;
       }
       const base=spec.action==="add"?null:clone(findTarget(spec));
@@ -106,7 +108,7 @@
       let id=spec.id==null?"":String(spec.id);
       if(spec.action==="add"&&!id)id=spec.kind==="cast"?String(Date.now()):(spec.category||spec.kind)+"_"+Date.now()+"_"+Math.random().toString(36).slice(2,8);
       draft={kind:spec.kind,category:spec.category||"",id,action:spec.action,base,castType:spec.castType||base?.castType||"regular",businessDate:adapter.getState().activeBizDay||null,bizDate:adapter.getBizDate?.()||null,values:{}};
-      draft.values=valuesFor(draft,base);scope=key();errors={};message="";conflict=null;saveFailed=false;persist();activate();return true;
+      draft.values=valuesFor(draft,base);scope=key();errors={};message="";conflict=null;businessDayChange=null;saveFailed=false;persist();activate();return true;
     }
     function update(field,value){
       if(!opened||busy||!draft||!safeScope())return false;
@@ -117,7 +119,7 @@
     function restore(){
       if(busy)return false;
       const saved=draft&&scope===key()?draft:readDraft();if(!saved)return false;
-      draft=saved;scope=key();errors={};message="";conflict=null;saveFailed=false;activate();return true;
+      draft=saved;scope=key();errors={};message="";conflict=null;businessDayChange=null;saveFailed=false;activate();return true;
     }
     function finishClose(){
       opened=false;doc?.removeEventListener?.("keydown",onKey,true);adapter.onClose?.();
@@ -132,12 +134,12 @@
     function discardDraft(){
       if(busy)return false;
       if(adapter.confirm&&!adapter.confirm("保存していない入力内容を破棄しますか？"))return false;
-      scope=key();removeStored();draft=null;errors={};message="";conflict=null;saveFailed=false;
+      scope=key();removeStored();draft=null;errors={};message="";conflict=null;businessDayChange=null;saveFailed=false;
       if(opened)finishClose();else adapter.onClose?.();return true;
     }
     async function submit(){
       if(!opened||!draft||busy||!safeScope())return false;
-      if(conflict){message="最新内容を確認し、下の操作を選んでください。";notify();return false;}
+      if(conflict||businessDayChange){message=businessDayChange?"現在の営業日の下書きを作り直してから保存してください。":"最新内容を確認し、下の操作を選んでください。";notify();return false;}
       const checked=validate(draft);errors=checked.errors;
       if(draft.kind==="table"&&draft.action==="delete"){
         const blocked=adapter.tableBlocked?.(draft.id);if(blocked)errors.form=blocked+"のテーブルは削除できません。";
@@ -148,18 +150,27 @@
       try{
         const result=await adapter.commit({...clone(draft),values:checked.values});
         if(result===false)throw new Error("保存できませんでした。入力内容を確認して再試行してください。");
-        removeStored();draft=null;errors={};message="";conflict=null;saveFailed=false;busy=false;finishClose();return true;
+        removeStored();draft=null;errors={};message="";conflict=null;businessDayChange=null;saveFailed=false;busy=false;finishClose();return true;
       }catch(error){
         busy=false;saveFailed=true;message=error.userMessage||error.message||"保存できませんでした。入力内容は保持されています。";
         if(error.field&&Object.prototype.hasOwnProperty.call(draft.values,error.field)){errors[error.field]=message;focusField=error.field;}
         if(error.code==="SETTINGS_CONFLICT")conflict={current:clone(error.current)};
+        if(error.code==="SETTINGS_BUSINESS_DAY_CHANGED")businessDayChange={businessDate:error.currentBusinessDate||null,bizDate:error.currentBizDate};
         persist();notify();return false;
       }
+    }
+    function restartForCurrentDay(){
+      if(busy||!opened||!draft||draft.kind!=="cast"||!businessDayChange||!safeScope())return false;
+      draft.businessDate=businessDayChange.businessDate;draft.bizDate=businessDayChange.bizDate;
+      // Keep the existing comparison base so a concurrent rename still requires explicit conflict review.
+      if(draft.action==="add")draft.id=String(Math.max(Date.now(),Number(draft.id)+1));
+      businessDayChange=null;conflict=null;errors={};saveFailed=false;
+      message=draft.bizDate+" の下書きを作り直しました。入力内容を確認して保存してください。";persist();notify();return true;
     }
     function loadCurrent(){
       if(busy||!draft||!conflict||!safeScope())return false;
       if(!conflict.current){message="この項目は削除されています。下書きを破棄して一覧を確認してください。";notify();return false;}
-      draft.base=clone(conflict.current);draft.values=valuesFor(draft,conflict.current);conflict=null;saveFailed=false;message="最新内容を読み込みました。必要な変更を入力してください。";errors={};persist();notify();return true;
+      draft.base=clone(conflict.current);draft.values=valuesFor(draft,conflict.current);conflict=null;businessDayChange=null;saveFailed=false;message="最新内容を読み込みました。必要な変更を入力してください。";errors={};persist();notify();return true;
     }
     function retryConflict(){
       if(busy||!draft||!conflict||!safeScope())return Promise.resolve(false);
@@ -227,9 +238,11 @@
       else if(draft.kind==="cast")html+=field("name","キャスト名");
       else if(draft.kind==="table")html+=field("label","テーブル名")+'<label class="se-checkbox"><input type="checkbox" data-settings-field="vip"'+(draft.values.vip?' checked':'')+' onchange="settingsField(\'vip\',this.checked)"><span>VIPテーブル</span></label>';
       else html+=field("label","メニュー名")+field("price",draft.base?.type==="percent"?"割合（%）":"金額（円）","number")+(TIMED.has(draft.category)?field("minutes","時間（分）","number"):"");
+      if(hasLegacyMissingMinutes(draft))html+='<p class="se-note">時間は未設定です。空欄のままなら名前・金額だけを変更します。</p>';
       html+='</fieldset>'+(errors.form?'<p class="se-message se-error" role="alert">'+esc(errors.form)+'</p>':"")+(message?'<p class="se-message '+(saveFailed&&!conflict?'se-error':'')+'" role="alert">'+esc(message)+'</p>':"")+conflictMarkup();
+      if(businessDayChange)html+='<button type="button" class="se-button se-primary" onclick="settingsRestartForCurrentDay()">入力を保持して現在の営業日でやり直す</button>';
       html+=(storageWarning?'<p class="se-message" role="status">'+esc(storageWarning)+'</p>':"");
-      html+='<div class="se-discard-action"><button type="button" class="se-button se-danger" onclick="settingsDiscardDraft()"'+(busy?' disabled':'')+'>変更を破棄</button></div><div class="se-dialog-footer"><button type="button" class="se-button" onclick="settingsClose()"'+(busy?' disabled':'')+'>閉じる</button><button type="submit" class="se-button '+(destructive?'se-danger-fill':'se-primary')+'"'+(busy||conflict?' disabled':'')+'>'+(busy?'保存中…':destructive?action+'する':saveFailed?'保存を再試行':'保存する')+'</button></div><p class="se-footer-note" role="status">'+(busy?'保存完了までお待ちください。':'閉じても下書きはこのタブに保持されます。')+'</p></form></section></div>';
+      html+='<div class="se-discard-action"><button type="button" class="se-button se-danger" onclick="settingsDiscardDraft()"'+(busy?' disabled':'')+'>変更を破棄</button></div><div class="se-dialog-footer"><button type="button" class="se-button" onclick="settingsClose()"'+(busy?' disabled':'')+'>閉じる</button><button type="submit" class="se-button '+(destructive?'se-danger-fill':'se-primary')+'"'+(busy||conflict||businessDayChange?' disabled':'')+'>'+(busy?'保存中…':destructive?action+'する':saveFailed?'保存を再試行':'保存する')+'</button></div><p class="se-footer-note" role="status">'+(busy?'保存完了までお待ちください。':'閉じても下書きはこのタブに保持されます。')+'</p></form></section></div>';
       return html;
     }
     function mountModal(){
@@ -239,7 +252,7 @@
       if(!target.matches?.(":disabled"))target.focus();else dialog.focus();focusField=null;
     }
     function hasDraft(){return !!(draft&&scope===key()||readDraft());}
-    return{renderList,open,renderModal,mountModal,update,submit,close,restore,discardDraft,loadCurrent,retryConflict,isBusy:()=>busy,hasDraft};
+    return{renderList,open,renderModal,mountModal,update,submit,close,restore,discardDraft,loadCurrent,retryConflict,restartForCurrentDay,isBusy:()=>busy,hasDraft};
   }
   return{create,validate,escapeHtml:esc};
 });

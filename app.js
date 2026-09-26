@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.152";
+const APP_VERSION="6.152.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -1335,12 +1335,14 @@ async function guardedScopedCommit(root,updates,options={}){
     if(isFirebasePermissionDenied(error))throw Object.assign(new Error("scoped conflict"),{userMessage:"対象データが他端末で変更されたか、保存ルールが更新されています。最新状態を確認してから再実行してください。"});
     throw error;
   }
-  Object.keys(updates).forEach(path=>{
-    const info=scopedRecordInfo(path);
-    if(info?.collection==="sessions")syncRemoteSession(info.id,prepared[path]||null);
-    if(info?.collection==="tablePreparations")setPathValue(S,info.relative,prepared[path]||null);
-  });
-  syncVersionedRecordsFromPrepared(prepared);
+  if(!options.deferLocalApply){
+    Object.keys(updates).forEach(path=>{
+      const info=scopedRecordInfo(path);
+      if(info?.collection==="sessions")syncRemoteSession(info.id,prepared[path]||null);
+      if(info?.collection==="tablePreparations")setPathValue(S,info.relative,prepared[path]||null);
+    });
+    syncVersionedRecordsFromPrepared(prepared);
+  }
   return applyRootUpdates(root,prepared);
 }
 async function guardedCheckedNodeUpdate(updates,checker,options={}){
@@ -1997,8 +1999,8 @@ function confQty(){
 }
 function openCastDrinkQty(cid,price,drinkLabel){
   const c=S.casts.find(c=>String(c.id)===String(cid));
-  const amount=Math.max(0,Number(price)||0);
-  if(!c||amount<=0)return;
+  const amount=Number(price);
+  if(!c||price==null||String(price).trim()===""||!["number","string"].includes(typeof price)||!Number.isFinite(amount)||amount<0)return;
   qv=1;
   qm={
     id:"cd",label:String(drinkLabel||"キャストDrink")+" ("+c.name+")",itemLabel:"キャストDrink ("+c.name+")",price:amount,category:"castDrink",
@@ -4614,9 +4616,32 @@ function saveNoteInline(val){const s=S.sessions[at];if(!s)return;s.note=val;save
 // order画面は一度だけHTML構造を組み立てる
 // タイマーや注文リストは差分更新（renderOrderPartial）で更新
 // アイテム分類ヘルパー
-function isSetCatItem(i){return !!(i.isSet||i.isHonShimei||i.isBanaiShimei||i.isExtension||i.isRoomCharge||i.isVipCharge||i.isKaraokeCharge||i.label==="同伴料"||(i.label||"").includes("シングルチャージ"));}
-function isGuestCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;const id=String(i?.id||"");if(id.startsWith("gcu_"))return true;if(isFreeDrinkItem(i))return true;return (S.menus.drinks||[]).some(d=>id===String(d.id)||id.startsWith(String(d.id)+"_"));}
-function isCastCatItem(i){if(isSetCatItem(i)||i.isDiscount)return false;if(i.id&&i.id.startsWith("gcu_"))return false;if(i.id&&i.id.startsWith("cd_"))return true;if(i.id&&i.id.startsWith("cu_"))return true;if(i.id&&i.id.startsWith("cci_"))return true;return [...(S.menus.champagne||[]),...(S.menus.keepBottles||[])].some(d=>i.id===d.id||i.id.startsWith(d.id+"_"));}
+function isSetCatItem(i){
+  if(!i||i.isDiscount)return false;
+  if(i.isSet||i.isHonShimei||i.isBanaiShimei||i.isExtension||i.isRoomCharge||i.isVipCharge||i.isKaraokeCharge)return true;
+  if(["set","honShimei","banaiShimei","extension","banaiExtension","vipRoom","karaokeRoom","dohan","singleCharge"].includes(i.category)||i.backType==="dohan"||["single","extension","room"].includes(i.chargeRole))return true;
+  // Explicit order metadata takes priority over a product name that resembles a charge.
+  if(["guest","cast"].includes(i.orderSection)||["guestDrink","freeDrink","castDrink","champagneWine","keepBottle"].includes(i.category)||["castDrink","champagneWine","keepBottle"].includes(i.backType))return false;
+  return i.label==="同伴料"||String(i.label||"").includes("シングルチャージ");
+}
+function isGuestCatItem(i){return orderItemSection(i)==="guest";}
+function isCastCatItem(i){return orderItemSection(i)==="cast";}
+function orderItemSection(i){
+  if(!i||i.isDiscount)return"";
+  if(isSetCatItem(i))return"set";
+  if(["castDrink","champagneWine","keepBottle"].includes(i.category)||["castDrink","champagneWine","keepBottle"].includes(i.backType))return"cast";
+  if(["guestDrink","freeDrink"].includes(i.category))return"guest";
+  if(i.orderSection==="guest"||i.orderSection==="cast")return i.orderSection;
+  const id=String(i.id||"");
+  if(id.startsWith("gcu_")||isFreeDrinkItem(i))return"guest";
+  if(/^(?:cd|cu|cci|castDrinks|castCustomItems|champagne|keepBottles|wine|whisky|shochu|brandy)_/.test(id))return"cast";
+  const inMenu=key=>(S.menus?.[key]||[]).some(menu=>id===String(menu.id)||id.startsWith(String(menu.id)+"_"));
+  if(inMenu("champagne")||inMenu("keepBottles"))return"cast";
+  if(inMenu("drinks"))return"guest";
+  if(i.castId!=null&&String(i.castId)!==""||Array.isArray(i.backTargetCastIds)&&i.backTargetCastIds.length)return"cast";
+  // Legacy rows without surviving category metadata remain visible in GUEST.
+  return"guest";
+}
 function remItemDetail(id){const s=S.sessions[at];const item=(s?.items||[]).find(i=>i.id===id);chargeSessionIdentity=cloneData(s);window._delItemId=id;window._delItemLabel=item?item.label:'このアイテム';window._delPrevMd=md;om('confirm-del');}
 function isBanaiExtensionBackItem(i){
   if(!i||isSetCatItem(i)||i.isDiscount)return false;
@@ -4685,7 +4710,7 @@ function odq(id){
   const source=menuSources.find(entry=>entry.items.some(item=>item.id===id));
   const d=source?.items.find(item=>item.id===id);
   if(d){
-    qm={id:d.id,label:d.label,price:d.price,category:source.category};
+    qm={id:d.id,label:d.label,price:d.price,category:source.category,...(source.category===""?{itemData:{orderSection:"guest"}}:{})};
     const paidBottle=(source.category==="champagneWine"||source.category==="keepBottle")&&Number(d.price)>0;
     const eligibleIds=paidBottle?gmsBottleBackEligibleCastIds(S.sessions[at]?.items||[]):[];
     const eligibleCasts=paidBottle?gmsBottleBackTargetCasts(S.sessions[at]?.items||[]):[];
@@ -5576,53 +5601,80 @@ async function remoteHistoryEntry(record){
   if(entries.length!==1)throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が変更されています。最新状態を読み込み直してください。"});
   return{key:entries[0][0],record:entries[0][1]};
 }
-async function guardedCastNameChange(castId,name){
+async function guardedCastNameChange(castId,name,options={}){
   if(!requireFirebaseReady())throw new Error("Firebase is not ready for cast rename");
   await waitForSettingSaveQueue("casts");
-  const id=String(castId),businessDate=S.activeBizDay?String(S.activeBizDay):"";
-  const expectedCasts=cloneData(S.casts),expectedLifecycle=cloneData(S.castLifecycleLogs||{});
-  const plan=castNameChangePlan(S,id,name,businessDate);
+  const businessDate=options.expectedActiveBizDay===undefined?S.activeBizDay||null:options.expectedActiveBizDay;
+  const id=String(castId);
+  const affectedTables=businessDate?Object.entries(S.sessions||{}).filter(([,session])=>castNameRecordValue(session,id,name).changed).map(([key])=>key):[];
+  await Promise.all(affectedTables.map(async tableId=>{
+    await waitForSessionSaveQueue(tableId);
+    if(sessionSaveStates[tableId]?.status==="error")throw Object.assign(new Error("unsaved orders"),{userMessage:"未保存のオーダーがあります。保存エラーを解消してからキャスト名を変更してください。"});
+  }));
+  // Desired values and concurrency expectations must come from the same immutable snapshot.
+  const snapshot=cloneData({activeBizDay:S.activeBizDay||null,casts:S.casts||[],castLifecycleLogs:S.castLifecycleLogs||{},sessions:S.sessions||{},shifts:S.shifts||{},assignments:S.assignments||{},history:S.history||[]});
+  if(snapshot.activeBizDay!==businessDate)throw Object.assign(new Error("business day changed"),{code:"SETTINGS_VALIDATION",userMessage:"営業日が変わりました。現在の営業日を確認してから操作し直してください。"});
+  const casts=normalizeCasts(snapshot.casts),target=casts.find(cast=>String(cast.id)===id)||null;
+  if(!target||(options.expectedCast!==undefined&&!sameFirebaseValue(target,options.expectedCast)))throw settingConflictError();
+  name=String(name||"").trim();
+  if(!name)throw Object.assign(new Error("invalid cast name"),{code:"SETTINGS_VALIDATION",field:"name",userMessage:"キャスト名を入力してください。"});
+  const castBusinessDate=businessDate||currentCastBizDate();
+  if(casts.some(cast=>String(cast.id)!==id&&cast.active!==false&&(cast.castType!=="trial"||cast.trialBizDay===castBusinessDate)&&String(cast.name||"").trim()===name)){
+    throw Object.assign(new Error("duplicate cast name"),{code:"SETTINGS_VALIDATION",field:"name",userMessage:"在籍中または当日体入に同じ名前のキャストがいます。"});
+  }
+  const plan=castNameChangePlan(snapshot,id,name,businessDate);
   const state=settingSaveState("casts");
   const version=++state.requestedVersion;
   state.latest=cloneData(plan.casts);
   state.running=true;setSettingSaveStatus("casts","saving","");
   try{
-    const recordChangeCount=Object.values(plan.changed).reduce((sum,keys)=>sum+keys.length,0);
-    if(!recordChangeCount){
-      await guardedLightweightCastRosterSet(plan.casts,plan.lifecycle,state.confirmedHash??window._remoteValueHashes?.casts,state.confirmedLifecycleHash??window._remoteValueHashes?.castLifecycleLogs);
-    }else{
-      const [castsSnap,lifecycleSnap,revisionSnap]=await Promise.all([
-        window._db.ref(FB_ROOT+"/casts").get(),window._db.ref(FB_ROOT+"/castLifecycleLogs").get(),window._db.ref(FB_ROOT+"/_settingsRevisions/castRoster").get()
-      ]);
-      if(!sameFirebaseValue(castsSnap.val(),expectedCasts)||!sameFirebaseValue(lifecycleSnap.val()||{},expectedLifecycle))throw settingConflictError();
-      const updates={},expectedRecords={};
-      plan.changed.sessions.forEach(key=>{const path="sessions/"+key;updates[FB_ROOT+"/"+path]=plan.sessions[key];expectedRecords[path]=cloneData(S.sessions[key]);});
-      plan.changed.shifts.forEach(key=>{const path="shifts/"+key;updates[FB_ROOT+"/"+path]=plan.shifts[key];expectedRecords[path]=cloneData(S.shifts[key]);});
-      plan.changed.assignments.forEach(key=>{const path="assignments/"+key;updates[FB_ROOT+"/"+path]=plan.assignments[key];expectedRecords[path]=cloneData(S.assignments[key]);});
-      const historyEntries=await Promise.all(plan.changed.history.map(async index=>{
-        const local=S.history[index],entry=await remoteHistoryEntry(local);
-        if(!sameFirebaseValue(entry.record,local))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で更新されています。最新状態を確認してください。"});
-        const desired=castNameRecordValue(entry.record,id,name).value,path="history/"+entry.key;
-        return{id:String(local.id),path,desired,expected:entry.record};
-      }));
-      historyEntries.forEach(entry=>{updates[FB_ROOT+"/"+entry.path]=entry.desired;expectedRecords[entry.path]=entry.expected;});
-      const revision=(Number(revisionSnap.val())||0)+1,nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
-      updates[FB_ROOT+"/casts"]=plan.casts;
-      updates[FB_ROOT+"/castLifecycleLogs"]=plan.lifecycle;
-      updates[FB_ROOT+"/_settingsRevisions/castRoster"]=revision;
-      updates[FB_ROOT+"/_settingsWriteMeta/castRoster"]={revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()};
-      const result=await guardedCheckedNodeUpdate(updates,null,{expectedRecords,expectedActiveBizDay:businessDate});
+    // Read the revision before values so an intervening roster change cannot be overwritten.
+    const revisionSnap=await window._db.ref(FB_ROOT+"/_settingsRevisions/castRoster").get();
+    const [castsSnap,lifecycleSnap]=await Promise.all([
+      window._db.ref(FB_ROOT+"/casts").get(),window._db.ref(FB_ROOT+"/castLifecycleLogs").get()
+    ]);
+    if(!sameFirebaseValue(castsSnap.val(),snapshot.casts)||!sameFirebaseValue(lifecycleSnap.val()||{},snapshot.castLifecycleLogs))throw settingConflictError();
+    const updates={},expectedRecords={};
+    ["sessions","shifts","assignments"].forEach(collection=>plan.changed[collection].forEach(key=>{
+      const path=collection+"/"+key;
+      updates[FB_ROOT+"/"+path]=plan[collection][key];
+      expectedRecords[path]=cloneData(snapshot[collection][key]);
+    }));
+    const historyEntries=await Promise.all(plan.changed.history.map(async index=>{
+      const local=snapshot.history[index],entry=await remoteHistoryEntry(local);
+      if(!sameFirebaseValue(entry.record,local))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で更新されています。最新状態を確認してください。"});
+      const path="history/"+entry.key;
+      return{id:String(local.id),path,desired:plan.history[index],expected:local};
+    }));
+    historyEntries.forEach(entry=>{updates[FB_ROOT+"/"+entry.path]=entry.desired;expectedRecords[entry.path]=entry.expected;});
+    const revision=(Number(revisionSnap.val())||0)+1,nonce=Date.now()+"_"+Math.random().toString(36).slice(2);
+    updates[FB_ROOT+"/casts"]=plan.casts;
+    updates[FB_ROOT+"/castLifecycleLogs"]=plan.lifecycle;
+    updates[FB_ROOT+"/_settingsRevisions/castRoster"]=revision;
+    updates[FB_ROOT+"/_settingsWriteMeta/castRoster"]={revision,version:_verNum(APP_VERSION),nonce,updatedAt:Date.now()};
+    // Even a roster-only rename must keep the business-day proof until the server commits.
+    const checkRecords=root=>{
+      if(Object.entries(expectedRecords).some(([path,expected])=>!sameFirebaseValue(getPathValue(root,path),expected))){
+        throw Object.assign(new Error("record changed"),{_txConflict:true,userMessage:"対象の注文や出退勤データが未保存、または他端末で更新されています。最新状態を確認してから再実行してください。"});
+      }
+      return{ok:true};
+    };
+    const result=await guardedCheckedNodeUpdate(updates,checkRecords,{expectedRecords,expectedActiveBizDay:businessDate,deferLocalApply:true});
+    S.casts=plan.casts;S.castLifecycleLogs=plan.lifecycle;
+    if(businessDate&&(S.activeBizDay||null)===businessDate){
       ["sessions","shifts","assignments"].forEach(collection=>plan.changed[collection].forEach(key=>{
-        const saved=getPathValue(result,collection+"/"+key);
-        if(saved)plan[collection][key]=saved;
+        const saved=getPathValue(result,collection+"/"+key),current=S[collection]?.[key];
+        // A later onvalue or local order edit owns the current row; never replace it with our older ACK.
+        if(saved&&(sameFirebaseValue(current,snapshot[collection][key])||sameFirebaseValue(current,saved))){
+          if(collection==="sessions")syncRemoteSession(key,saved);
+          else S[collection][key]=cloneData(saved);
+        }
       }));
       historyEntries.forEach(entry=>{
         const saved=getPathValue(result,entry.path);
-        if(saved)plan.history=plan.history.map(row=>String(row.id)===entry.id?saved:row);
+        if(saved)S.history=(S.history||[]).map(row=>String(row.id)===entry.id&&sameFirebaseValue(row,entry.expected)?cloneData(saved):row);
       });
     }
-    S.casts=plan.casts;S.castLifecycleLogs=plan.lifecycle;
-    if(businessDate){S.sessions=plan.sessions;S.shifts=plan.shifts;S.assignments=plan.assignments;S.history=plan.history;markSessionGuards(S.sessions);}
     state.confirmedHash=settingValueHash(plan.casts);state.confirmedLifecycleHash=settingValueHash(plan.lifecycle);state.savedVersion=version;state.running=false;
     updateRemoteHash("casts",plan.casts);updateRemoteHash("castLifecycleLogs",plan.lifecycle);
     settleSettingWaiters(state,version,null);
@@ -8497,7 +8549,7 @@ return;
 }
 
 function scc(id){cdc=id;cds=1;rModal();}
-function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!p||p<=0)return;openCastDrinkQty(cdc,p,"その他 "+fmt(p)+"円");}
+function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!Number.isFinite(p)||p<0)return;openCastDrinkQty(cdc,p,"その他 "+fmt(p)+"円");}
 function addExt2(id){const e=S.menus.extensions.find(e=>e.id===id);if(e)return addExt(e,extSingleIncluded);}
 function tryExt(){
   banaiExtCastIds=[];

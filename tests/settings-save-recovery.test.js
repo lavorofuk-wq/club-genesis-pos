@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {contextFor}=require('./helpers/scoped-runtime.cjs');
 const app=fs.readFileSync(path.join(__dirname,'../app.js'),'utf8');
 const clone=value=>value==null?null:JSON.parse(JSON.stringify(value));
 const source=(from,to)=>app.slice(app.indexOf(from),app.indexOf(to,app.indexOf(from)+from.length));
@@ -26,20 +27,21 @@ function runtime(initial={},writeHook){
     const normalized=firebaseRoundTrip(value);
     if(normalized===null)delete parent[last];else parent[last]=normalized;
   };
-  const ctx={
-    window:{_remoteValueHashes:{}},document:{getElementById:()=>null},FB_ROOT:'pos-dev',APP_VERSION:'6.151.1',
-    MAX_TABLE_COUNT:30,sbs:()=>{},requireFirebaseReady:()=>true,_verNum:()=>615101,
-    normalizeCasts:casts=>clone(casts||[]),S:{casts:clone(initial.casts||[]),castLifecycleLogs:clone(initial.castLifecycleLogs||{}),activeBizDay:null},
-    readRemoteRelative:async key=>clone(read(key)),
-    guardedRootUpdate:async values=>{
-      if(writeHook)await writeHook(values,()=>Object.entries(values).forEach(([key,value])=>put(key,value)));
-      writes.push(clone(values));Object.entries(values).forEach(([key,value])=>put(key,value));
-    }
+  const commit=async values=>{
+    if(writeHook)await writeHook(values,()=>Object.entries(values).forEach(([key,value])=>put(key,value)));
+    writes.push(clone(values));Object.entries(values).forEach(([key,value])=>put(key,value));
   };
-  ctx.window._db={ref:key=>({once:async()=>({val:()=>clone(read(key.replace(/^pos-dev\//,'')))})})};
-  vm.createContext(ctx);
+  const db={ref:key=>({
+    get:async()=>({val:()=>clone(read(key.replace(/^pos-dev\//,'')))}),
+    once:async()=>({val:()=>clone(read(key.replace(/^pos-dev\//,'')))}),
+    update:async updates=>commit(Object.fromEntries(Object.entries(updates).filter(([path])=>path.startsWith('pos-dev/')).map(([path,value])=>[path.slice(8),value])))
+  })};
+  const ctx=contextFor(db,{...clone(initial),activeBizDay:null,sessions:{},shifts:{},assignments:{},history:{}});
+  Object.assign(ctx,{document:{getElementById:()=>null},MAX_TABLE_COUNT:30,
+    normalizeCasts:casts=>clone(casts||[]),readRemoteRelative:async key=>clone(read(key)),guardedRootUpdate:commit});
+  ctx.currentCastBizDate=()=>ctx.S.activeBizDay||'2026-09-27';
+  ctx.S.casts=clone(initial.casts||[]);ctx.S.castLifecycleLogs=clone(initial.castLifecycleLogs||{});
   for(const [from,to] of [
-    ['function canonicalJsonValue','const VERSIONED_RECORD_COLLECTIONS'],
     ['const LIGHTWEIGHT_SETTING_PATHS','const sessionSaveQueues'],
     ['function settingConflictError','function castIdQueryValues'],
     ['async function saveCastsAndLifecycle','function applyPosCastPolicy'],

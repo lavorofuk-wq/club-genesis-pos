@@ -6,6 +6,7 @@ const root=path.resolve(__dirname,'..'),output=path.resolve(process.argv[3]||pat
 async function fixture(page){
   await page.waitForFunction(()=>typeof getSettingsEditor==='function');
   await page.evaluate(()=>{
+    getBizDate=()=> '2026-09-27'; // Deterministic business-date rollover in every future run.
     S.activeBizDay=null;S.sessions={};S.tablePreparations={};S.shifts={};S.assignments={};S.history=[];
     S.casts=[{id:101,name:'確認キャスト',active:true,castType:'regular',registeredAt:1,sortIndex:0}];
     S.castLifecycleLogs={};S.tables=[{id:'t1',label:'テーブル 1',vip:false},{id:'t2',label:'テーブル 2',vip:false}];
@@ -72,6 +73,8 @@ async function main(){
       await page.evaluate(()=>{window.__qaDatabase.menus.sets[0].price=9100;window.__qaDatabase._settingsRevisions.menus++;});
       await submit().click();await page.getByRole('region',{name:'他端末との変更内容の比較'}).waitFor();
       assert.equal(await page.evaluate(()=>window.__qaWrites.length),1);
+      assert.equal(await page.evaluate(()=>S.menus.sets[0].price),9100,'a failed save must apply the other device confirmed price');
+      assert.equal(await field('price').inputValue(),'9500','the draft must remain separate from the confirmed price');
       assert.ok((await page.locator('.se-diff').innerText()).includes('9100'));assert.ok((await page.locator('.se-diff').innerText()).includes('9500'));
       await page.screenshot({path:path.join(output,name+'-conflict.png'),fullPage:true});
       await page.getByRole('button',{name:'入力内容で保存を再試行',exact:true}).click();await dialog().waitFor({state:'hidden'});
@@ -93,8 +96,29 @@ async function main(){
       await page.evaluate(()=>{window.__qaFail=false;});await submit().click();await dialog().waitFor({state:'hidden'});
       assert.equal(await page.evaluate(()=>S.casts.length),2);assert.equal(await page.evaluate(()=>S.casts[1].name),'追加キャスト');
       await page.screenshot({path:path.join(output,name+'-settings.png'),fullPage:true});
+      // A saved draft must not register a trial on the previous business date.
+      await page.getByRole('button',{name:'体入登録',exact:true}).click();await field('name').fill('日付変更テスト');
+      const beforeDayChangeWrites=await page.evaluate(()=>window.__qaWrites.length);
+      await page.evaluate(()=>{getBizDate=()=> '2026-09-28';});await submit().click();
+      await page.getByRole('button',{name:'入力を保持して現在の営業日でやり直す',exact:true}).waitFor();
+      assert.equal(await page.evaluate(()=>window.__qaWrites.length),beforeDayChangeWrites);
+      assert.equal(await page.evaluate(()=>S.casts.length),2);assert.equal(await submit().isDisabled(),true);
+      await page.getByRole('button',{name:'入力を保持して現在の営業日でやり直す',exact:true}).click();
+      assert.equal(await field('name').inputValue(),'日付変更テスト');
+      assert.equal(await page.evaluate(()=>window.__qaWrites.length),beforeDayChangeWrites,'recreating the draft must not save implicitly');
+      await submit().click();await dialog().waitFor({state:'hidden'});
+      assert.equal(await page.evaluate(()=>S.casts.find(c=>c.name==='日付変更テスト').trialBizDay),'2026-09-28');
+      // Keep legacy missing minutes when changing only the price.
+      await page.getByRole('button',{name:'メニュー料金',exact:true}).click();
+      await page.evaluate(()=>{delete S.menus.sets[0].minutes;delete window.__qaDatabase.menus.sets[0].minutes;render();});
+      await edit().click();assert.equal(await field('minutes').inputValue(),'');
+      assert.ok((await dialog().innerText()).includes('時間は未設定です'));
+      await field('price').fill('8600');await submit().click();await dialog().waitFor({state:'hidden'});
+      assert.equal(await page.evaluate(()=>S.menus.sets[0].price),8600);
+      assert.equal(await page.evaluate(()=>Object.hasOwn(S.menus.sets[0],'minutes')),false);
+
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'settings must fit viewport');
-      assert.deepEqual(errors,[]);console.log(name+': validation, pending/failed/successful save, conflict, draft reload, table edit, protected deletion, cast add passed');
+      assert.deepEqual(errors,[]);console.log(name+': validation, pending/failed/successful save, conflict, draft reload, table edit, protected deletion, cast add, day rollover restart, legacy missing minutes passed');
       await context.close();
     }
   }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
