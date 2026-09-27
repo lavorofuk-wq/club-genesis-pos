@@ -5,6 +5,9 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.153.1',title:'更新通知の表示を調整',changes:[
+      '更新内容と履歴の画面を、POSと同じ白背景・青いボタンに統一しました。'
+    ]},
     {version:'6.153',title:'更新内容のお知らせを追加',changes:[
       '新しいバージョンを読み込んだ後、初回に更新内容を表示します。',
       '確認済みのお知らせは同じブラウザ・アカウントでは繰り返し表示せず、バージョン表示から更新履歴を開けます。'
@@ -98,11 +101,11 @@
     function renderModal(){
       if(!opened)return '';
       const manual=opened.manual;
-      return '<div class="rn-overlay"><section id="release-notes-dialog" class="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" aria-describedby="release-notes-intro" tabindex="-1">'
-        +'<div class="rn-header"><div><p class="rn-eyebrow">CLUB GENESIS · Ver'+escape(opened.version)+'</p><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2></div><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
-        +'<div class="rn-content"><p id="release-notes-intro" class="rn-intro">'+(manual?'このバージョンまでの更新内容をご確認いただけます。':'新しいバージョンを読み込みました。主な変更点をご確認ください。')+'</p>'
+      return '<div class="rn-overlay"><section id="release-notes-dialog" class="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" tabindex="-1">'
+        +'<div class="rn-header"><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2><button type="button" class="btn rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
+        +'<div class="rn-content">'
         +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><p class="rn-version">Ver'+escape(entry.version)+'</p><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ul>'+entry.changes.map(change=>'<li>'+escape(change)+'</li>').join('')+'</ul></article>').join('')
-        +'</div><footer class="rn-footer"><p>更新履歴はバージョン表示からいつでも開けます。</p><button type="button" class="rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
+        +'</div><footer class="rn-footer">'+(manual?'':'<p>履歴は画面上部のバージョン番号から確認できます。</p>')+'<button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
     }
     function mountModal(){
       clearListeners();

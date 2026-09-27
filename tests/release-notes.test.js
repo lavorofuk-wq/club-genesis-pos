@@ -44,7 +44,7 @@ test('first launch opens only the current notes and does not mark them seen befo
 test('upgrading several versions shows every unacknowledged entry up to the current version',()=>{
   const f=fixture();seed(f,'6.152');f.notes.open();assert.deepEqual(versions(f.notes.renderModal()),['6.153','6.152.1']);
   const unknownVersion=(Number(history[0].version.split('.')[0])+1)+'.0';
-  f.notes.acknowledge();f.state.version=unknownVersion;f.notes.open();assert.deepEqual(versions(f.notes.renderModal()),[unknownVersion]);assert.match(f.notes.renderModal(),/新しいバージョンに更新されました/);
+  f.notes.acknowledge();seed(f,history[0].version);f.state.version=unknownVersion;f.notes.open();assert.deepEqual(versions(f.notes.renderModal()),[unknownVersion]);assert.match(f.notes.renderModal(),/新しいバージョンに更新されました/);
 });
 
 test('manual history is available after confirmation and excludes future release entries',()=>{
