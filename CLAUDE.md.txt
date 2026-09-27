@@ -43,3 +43,9 @@ pos/
 - 場内延長売上: 延長アイテム金額 ÷ 場内延長選択キャスト数（均等分配）
 - 本指名テーブルで場内指名が入っても売上分配は本指名キャストのみ
 - アイテムフラグ: isSet / isHonShimei / isBanaiShimei / isExtension / isBanaiExtension / isVipCharge / isDiscount
+
+# アップデート内容のお知らせ
+- バージョンを更新するときは、release-notes.js の history に同じバージョンの更新内容を追加する。利用者向けに機能・修正内容を日本語で書く。
+- APP_VERSION・index.html の表示と読込URL・sw.js の RELEASE_VERSION/CACHE/ASSETS を同じバージョンへ更新する。
+- 更新内容は認証・初回同期完了後、安全なホーム画面で初回表示する。確認済み状態は端末のlocalStorageに利用者・環境別で保存し、業務データへ書き込まない。
+- リリース前に node --test tests/release-notes.test.js tests/release-notes-integration.test.js と scripts/check-release-notes-ui.cjs による画面検証を行う。

@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.152.1";
+const APP_VERSION="6.153";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -457,7 +457,7 @@ let initialPosSyncPending=null;
 let activeBizDayRecordRef=null;
 let activeBizDayRecordId=null;
 function clientUpdateRequired(){
-  return _verNum(window._posServerAppVersion||"0")>_verNum(APP_VERSION);
+  return Math.max(_verNum(window._posServerAppVersion||"0"),_verNum(window._posServiceWorkerVersion||"0"))>_verNum(APP_VERSION);
 }
 function showClientUpdateRequired(){
   if(!clientUpdateRequired())return false;
@@ -796,7 +796,7 @@ if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VE
 navigator.serviceWorker.getRegistration().then(reg=>{if(reg)reg.update();}).catch(()=>{});
 // SW更新通知を受信したら再読み込みオーバーレイを表示
 navigator.serviceWorker.addEventListener('message',e=>{
-  if(e.data?.type==='SW_UPDATED'){const ov=document.getElementById('version-overlay');if(ov)ov.style.display='flex';}
+  handleServiceWorkerUpdate(e.data);
 });
   }
 
@@ -822,6 +822,7 @@ if(window._fbFirstSync&&!connected){
 }
 if(connected){if(!hasPendingSettingSaves())sbs(true,"同期済み ✓");}
 else{sbs(false,"⚠ オフライン");}
+if(connected)scheduleReleaseNotes();
   });
 
   subscribePosCoreData(db);
@@ -2519,6 +2520,7 @@ m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エ�
   }
   syncLegacyFloorCardSizes();
   if(!md)document.getElementById("md").innerHTML="";
+  if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();
 }
 let _renderPending=false;
 function scheduleRender(){
@@ -5881,7 +5883,7 @@ function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TA
 
 // ===== MODAL =====
 function om(name){if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="releaseNotes"){acknowledgeReleaseNotes();return;}if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -7087,6 +7089,7 @@ h+='</div>';
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
   if(!md){c.innerHTML="";return;}
+  if(md==="releaseNotes"){const notes=getReleaseNotes();c.innerHTML=notes?.renderModal()||"";notes?.mountModal();return;}
   if(md==="settingsEditor"){const editor=getSettingsEditor();c.innerHTML=editor.renderModal();editor.mountModal?.();return;}
   if(md==="tablePreparation"){c.innerHTML=tablePreparationModalHtml();return;}
   if(chargeSaveBusy){c.innerHTML='<div class="mo"><div class="mb" role="status" aria-live="polite" style="max-width:400px;text-align:center;padding:36px 20px;"><span class="tc-save-spinner" aria-hidden="true"></span><div style="margin-top:16px;">明細を保存・同期中...</div></div></div>';return;}
@@ -9175,6 +9178,66 @@ if(code==="gen"){
 }
   }
 }
+
+// ===== RELEASE NOTES =====
+let releaseNotesInstance=null,releaseNotesCheckPending=false;
+function releaseNotesScope(){
+  try{
+    const uid=window.firebase?.auth?.().currentUser?.uid;
+    return window._fbReady&&uid&&typeof FB_ROOT!=="undefined"?FB_ROOT+":"+uid:null;
+  }catch(error){return null;}
+}
+function releaseNotesOverlayVisible(id){
+  const node=document.getElementById(id);
+  return !!node&&node.style.display!=="none";
+}
+function releaseNotesInteractionAllowed(){
+  return md==="releaseNotes"&&!clientUpdateRequired()&&!window._posWriteLocked&&!window._posNeedsReloadAfterDisconnect
+    &&!["version-overlay","offline-overlay"].some(releaseNotesOverlayVisible);
+}
+function getReleaseNotes(){
+  if(!window.PosReleaseNotes)return null;
+  if(!releaseNotesInstance){
+    let storage;try{storage=window.localStorage;}catch(error){}
+    releaseNotesInstance=window.PosReleaseNotes.create({
+      getVersion:()=>APP_VERSION,getScope:releaseNotesScope,storage,document,
+      canInteract:releaseNotesInteractionAllowed,
+      onOpen:()=>{md="releaseNotes";rModal();},
+      onClose:()=>{if(md==="releaseNotes"){md=null;rModal();}}
+    });
+  }
+  return releaseNotesInstance;
+}
+function canShowReleaseNotes(manual=false){
+  if(!window.PosReleaseNotes||!releaseNotesScope()||!window._fbFirstSync||window._fbConnected!==true)return false;
+  if(clientUpdateRequired()||window._posVersionCheckFailed||window._posWriteLocked||window._posNeedsReloadAfterDisconnect)return false;
+  if(md||at||!manual&&vw!=="home"||document.visibilityState==="hidden")return false;
+  if(checkoutBusy||checkinBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy||tableDeleteBusy||bizDayBusy)return false;
+  if(dataOperationLocks.size||hasPendingSettingSaves()||settingsSaving())return false;
+  if(Object.values(sessionSaveStates).some(state=>state.status==="saving"||state.status==="error"))return false;
+  return !["loading","auth-gate","version-overlay","offline-overlay","floor-order-modal"].some(releaseNotesOverlayVisible);
+}
+function maybeShowReleaseNotes(){
+  if(!canShowReleaseNotes())return false;
+  const notes=getReleaseNotes();
+  return !!notes?.needsAttention()&&notes.open();
+}
+function scheduleReleaseNotes(){
+  if(releaseNotesCheckPending||!window.PosReleaseNotes)return;
+  releaseNotesCheckPending=true;
+  setTimeout(()=>{releaseNotesCheckPending=false;maybeShowReleaseNotes();},0);
+}
+function openReleaseNotes(){return canShowReleaseNotes(true)?getReleaseNotes()?.open({manual:true}):false;}
+function acknowledgeReleaseNotes(){return getReleaseNotes()?.acknowledge();}
+function handleServiceWorkerUpdate(data){
+  if(data?.type!=="SW_UPDATED"||typeof data.version!=="string"||!/^\d+\.\d+(?:\.\d+)?$/.test(data.version)||_verNum(data.version)<=_verNum(APP_VERSION))return false;
+  // Worker notifications do not establish that the database version read succeeded.
+  if(_verNum(data.version)>_verNum(window._posServiceWorkerVersion||"0"))window._posServiceWorkerVersion=data.version;
+  if(window._fbFirstSync)showClientUpdateRequired();
+  return true;
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState!=="hidden")scheduleReleaseNotes();});
+window.addEventListener("focus",scheduleReleaseNotes);
 
 // ===== BOOT =====
 function boot(){
