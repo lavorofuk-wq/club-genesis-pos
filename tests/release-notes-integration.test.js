@@ -29,11 +29,18 @@ function runtime(options={}){
     removeEventListener:(type,handler)=>{events[type]=(events[type]||[]).filter(value=>value!==handler);},
     querySelector:()=>null,querySelectorAll:()=>[]
   };
-  const button=action=>({id:action,dataset:{releaseNotesAction:action},isConnected:true,getAttribute:()=>null,focus(){document.activeElement=this;},closest(){return this;}});
-  const close=button('dismiss'),acknowledge=button('acknowledge');
+  const control=(dataset={},id='')=>({id,dataset,isConnected:true,attributes:{},getAttribute(key){return this.attributes[key]??null;},setAttribute(key,value){this.attributes[key]=value;},
+    focus(){document.activeElement=this;},closest(selector){return ['Action','View','Entry'].some(key=>this.dataset['releaseNotes'+key]!==undefined&&selector.includes('[data-release-notes-'+key.toLowerCase()+']'))?this:null;}});
+  const close=control({releaseNotesAction:'dismiss'}),acknowledge=control({releaseNotesAction:'acknowledge'});
+  const updates=control({releaseNotesView:'updates'}),history=control({releaseNotesView:'history'}),select=control({},'release-notes-select');
+  const list={innerHTML:''},content={innerHTML:'',scrollTop:0},controls=[close,updates,history,select,acknowledge];
   const dialog={
-    id:'release-notes-dialog',contains:value=>[dialog,close,acknowledge].includes(value),
-    querySelectorAll:()=>[close,acknowledge],querySelector:()=>acknowledge,focus:()=>{document.activeElement=dialog;},
+    id:'release-notes-dialog',contains:value=>value===dialog||controls.includes(value),
+    querySelectorAll:selector=>selector==='[data-release-notes-view]'?[updates,history]:selector==='[data-release-notes-entry]'?[]:controls,
+    querySelector:selector=>selector==='.rn-list'?list:selector==='.rn-content'?content:selector==='#release-notes-select'?select
+      :selector==='[data-release-notes-view="updates"]'?updates:selector==='[data-release-notes-view="history"]'?history
+      :selector==='[data-release-notes-action="dismiss"]'?close:selector==='[data-release-notes-action="acknowledge"]'?acknowledge:null,
+    focus:()=>{document.activeElement=dialog;},
     addEventListener:(type,handler)=>{dialogEvents[type]=handler;},
     removeEventListener:(type,handler)=>{if(dialogEvents[type]===handler)delete dialogEvents[type];}
   };
@@ -77,6 +84,7 @@ function runtime(options={}){
     return event;
   };
   return {ctx,window,auth,local,elements,timers,writes,connectionCallbacks,swCallbacks,dispatch,
+    controls:{updates,history,select},dialogEvent(type,target){dialogEvents[type]?.({target,preventDefault(){}});},
     flush(){let count=0;while(timers.length){assert.ok(count++<20,'timer loop');timers.shift()();}},
     focus(){for(const handler of windowEvents.focus||[])handler();}};
 }
@@ -242,4 +250,34 @@ test('service-worker activation publishes the same release as app and precaches 
     assert.ok(assets.includes('./'+name+'?v='+version));assert.ok(html.includes(name+'?v='+version));assert.ok(fs.existsSync(path.join(root,name)));
   }
   assert.ok(html.indexOf('release-notes.js')<html.indexOf('app.js'));
+});
+
+test('browsing upgrade entries and manual history never confirms an update until explicit acknowledgement',()=>{
+  const f=runtime(),key='genesis_release_notes_seen_v1:pos-dev:staff-a';
+  f.local.values.set(key,JSON.stringify({version:'6.153',seenAt:1}));
+  assert.equal(f.ctx.maybeShowReleaseNotes(),true);
+  const notes=f.ctx.getReleaseNotes(),versions=()=>[...notes.renderModal().matchAll(/class="rn-list-version">Ver([^<]+)/g)].map(match=>match[1]);
+  const unread=versions();assert.equal(unread[0],version);assert.ok(unread.length>1);assert.ok(!unread.includes('6.153'));
+  f.dialogEvent('click',f.controls.history);const all=versions();assert.ok(all.includes('6.153'));assert.ok(all.includes('6.152'));
+  f.controls.select.value=String(all.length-1);f.dialogEvent('change',f.controls.select);
+  assert.match(notes.renderModal(),/class="rn-version">Ver6\.152</);
+  assert.equal(f.local.writes.length,0);assert.equal(JSON.parse(f.local.getItem(key)).version,'6.153');
+  f.dialogEvent('click',f.controls.updates);assert.deepEqual(versions(),unread);
+  f.controls.select.value='1';f.dialogEvent('change',f.controls.select);
+  assert.equal(f.local.writes.length,0);
+  f.ctx.acknowledgeReleaseNotes();assert.equal(f.local.writes.length,1);assert.equal(JSON.parse(f.local.getItem(key)).version,version);
+  const reopened=runtime({storage:f.local});assert.equal(reopened.ctx.maybeShowReleaseNotes(),false);
+  assert.equal(reopened.ctx.openReleaseNotes(),true);assert.match(reopened.ctx.getReleaseNotes().renderModal(),/data-release-notes-view="history" aria-pressed="true"/);
+  assert.equal(f.local.writes.length,1);
+});
+
+test('mounted history controls defer to an update lock and cannot acknowledge across account changes',()=>{
+  const f=runtime();f.ctx.maybeShowReleaseNotes();const notes=f.ctx.getReleaseNotes();
+  f.dialogEvent('click',f.controls.history);const before=notes.renderModal();
+  f.ctx.handleServiceWorkerUpdate({type:'SW_UPDATED',version:newer});
+  f.dialogEvent('click',f.controls.updates);f.controls.select.value='1';f.dialogEvent('change',f.controls.select);
+  assert.equal(notes.renderModal(),before);assert.equal(f.ctx.acknowledgeReleaseNotes(),false);assert.equal(f.local.writes.length,0);
+  const other=runtime();other.ctx.maybeShowReleaseNotes();other.dialogEvent('click',other.controls.history);other.auth.currentUser={uid:'staff-b'};
+  other.ctx.acknowledgeReleaseNotes();assert.equal(other.local.writes.length,0);assert.equal(other.ctx.md,null);
+  assert.equal(other.ctx.maybeShowReleaseNotes(),true,'the new account still has an unseen update');
 });

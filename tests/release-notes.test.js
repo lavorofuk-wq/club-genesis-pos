@@ -8,15 +8,45 @@ function fixture(overrides={}){
   return{state,store,events,adapter,notes:create(adapter)};
 }
 function seed(f,version){f.store.setItem(storageKey(f.state.scope),JSON.stringify({version,seenAt:1}));}
-function versions(html){return [...html.matchAll(/class="rn-version">Ver([^<]+)/g)].map(match=>match[1]);}
+function versions(html){return [...html.matchAll(/class="rn-list-version">Ver([^<]+)/g)].map(match=>match[1]);}
 function dom(){
-  const listeners=new Map(),clicks=new Map(),doc={body:{style:{overflow:'auto'}},activeElement:null,dialog:null};
+  const listeners=new Map(),events=new Map(),doc={body:{style:{overflow:'auto'}},activeElement:null,dialog:null};
   doc.addEventListener=(type,listener)=>listeners.set(type,listener);doc.removeEventListener=(type,listener)=>{if(listeners.get(type)===listener)listeners.delete(type);};
-  const button=action=>({dataset:{releaseNotesAction:action},focus(){doc.activeElement=this;},getAttribute:()=>null,closest(){return this;}});
-  const close=button('dismiss'),confirm=button('acknowledge'),trigger={isConnected:true,focus(){doc.activeElement=this;}};
-  const dialog={contains:node=>[dialog,close,confirm].includes(node),querySelectorAll:()=>[close,confirm],querySelector:()=>confirm,focus(){doc.activeElement=dialog;},addEventListener:(type,listener)=>clicks.set(type,listener),removeEventListener:(type,listener)=>{if(clicks.get(type)===listener)clicks.delete(type);}};
-  doc.getElementById=()=>doc.dialog;doc.activeElement=trigger;
-  return{doc,dialog,close,confirm,trigger,listeners,clicks,key(key,shiftKey=false){const event={key,shiftKey,prevented:false,stopped:false,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}};listeners.get('keydown')?.(event);return event;}};
+  let entryButtons=[];
+  function matches(element,selector){
+    if(selector.startsWith('#'))return element.id===selector.slice(1);
+    const match=selector.match(/^\[([^=\]]+)(?:="([^"]*)")?\]$/);if(!match)return false;
+    const value=element.getAttribute(match[1]);return match[2]===undefined?value!==null:value===match[2];
+  }
+  function node(dataset={},id=''){
+    const attributes={},element={dataset,id,isConnected:true,hidden:false,hiddenParent:false,cssHidden:false,style:{},
+      focus(){doc.activeElement=this;if(dialog.contains(this))events.get('focusin')?.({target:this});},
+      getAttribute(name){if(name==='id')return this.id||null;if(name.startsWith('data-')){const key=name.slice(5).replace(/-([a-z])/g,(_,char)=>char.toUpperCase());return this.dataset[key]??null;}return attributes[name]??null;},
+      setAttribute:(name,value)=>{attributes[name]=String(value);},
+      getClientRects(){return this.cssHidden?[]:[{}];},
+      closest(selector){if(this.hiddenParent&&selector.includes('[hidden]'))return{};return selector.split(',').some(part=>matches(this,part.trim()))?this:null;}
+    };return element;
+  }
+  const close=node({releaseNotesAction:'dismiss'}),confirm=node({releaseNotesAction:'acknowledge'}),trigger=node({},'opener');
+  const updates=node({releaseNotesView:'updates'}),history=node({releaseNotesView:'history'}),select=node({},'release-notes-select');select.value='0';
+  const content=Object.assign(node({},'release-notes-content'),{innerHTML:'',scrollTop:0}),list={};content.setAttribute('tabindex','0');
+  Object.defineProperty(list,'innerHTML',{set(html){entryButtons.forEach(button=>button.isConnected=false);entryButtons=[...html.matchAll(/data-release-notes-entry="(\d+)"/g)].map(match=>node({releaseNotesEntry:match[1]}));}});
+  const all=()=>[close,updates,history,...entryButtons,select,content,confirm];
+  const dialog={
+    contains:element=>element===dialog||all().includes(element),
+    querySelectorAll(selector){if(selector.startsWith('button:not'))return all();return all().filter(element=>matches(element,selector));},
+    querySelector(selector){if(selector==='.rn-list')return list;if(selector==='.rn-content')return content;return all().find(element=>matches(element,selector))||null;},
+    focus(){doc.activeElement=dialog;},
+    addEventListener:(type,listener)=>events.set(type,listener),removeEventListener:(type,listener)=>{if(events.get(type)===listener)events.delete(type);}
+  };
+  doc.getElementById=id=>id==='release-notes-dialog'?doc.dialog:id===trigger.id?trigger:null;doc.activeElement=trigger;
+  const result={doc,dialog,close,confirm,trigger,updates,history,select,content,list,listeners,clicks:events,
+    mount(notes){doc.dialog=dialog;list.innerHTML=notes.renderModal();notes.mountModal();},
+    get entries(){return entryButtons;},
+    click(target){const event={target,preventDefault(){}};events.get('click')?.(event);},
+    change(value){select.value=value;events.get('change')?.({target:select});},
+    key(key,shiftKey=false){const event={key,shiftKey,prevented:false,stopped:false,preventDefault(){this.prevented=true;},stopPropagation(){this.stopped=true;}};listeners.get('keydown')?.(event);return event;}
+  };return result;
 }
 
 test('the active APP_VERSION has an explicit nonempty release entry',()=>{
@@ -112,4 +142,64 @@ test('a removed or superseded modal never traps keys or records confirmation',()
 test('browser UMD installation does not open a modal or create timers',()=>{
   const context={window:{}};vm.createContext(context);vm.runInContext(fs.readFileSync(require.resolve('../release-notes.js'),'utf8'),context);assert.equal(typeof context.window.PosReleaseNotes.create,'function');
   const f=fixture();assert.equal(f.notes.isOpen(),false);assert.equal(f.notes.renderModal(),'');assert.deepEqual(f.events,[]);
+});
+
+
+test('the two views keep the opening unread set and show exactly one selected article',()=>{
+  const f=fixture();seed(f,'6.152');const before=f.store.getItem(storageKey(f.state.scope));f.notes.open();
+  let html=f.notes.renderModal();assert.deepEqual(versions(html),['6.153','6.152.1']);assert.match(html,/data-release-notes-view="updates"[^>]*aria-pressed="true"/);
+  assert.equal((html.match(/<article /g)||[]).length,1);assert.match(html,/<p class="rn-version">Ver6\.153<\/p>/);
+  assert.equal(f.notes.selectEntry(1),true);html=f.notes.renderModal();assert.match(html,/<p class="rn-version">Ver6\.152\.1<\/p>/);assert.match(html,/data-release-notes-entry="1" aria-current="true"/);
+  assert.equal(f.notes.setView('history'),true);assert.deepEqual(versions(f.notes.renderModal()),['6.153','6.152.1','6.152']);f.notes.selectEntry(2);
+  assert.match(f.notes.renderModal(),/<p class="rn-version">Ver6\.152<\/p>/);f.notes.setView('updates');
+  assert.deepEqual(versions(f.notes.renderModal()),['6.153','6.152.1']);assert.match(f.notes.renderModal(),/<p class="rn-version">Ver6\.153<\/p>/);
+  assert.equal(f.store.getItem(storageKey(f.state.scope)),before,'selection is not confirmation');assert.equal(f.notes.needsAttention(),true);
+});
+
+test('a confirmed manual opening starts in history and its update view contains only the current release',()=>{
+  const f=fixture();f.state.version='6.154';seed(f,'6.154');f.notes.open({manual:true});
+  assert.match(f.notes.renderModal(),/data-release-notes-view="history"[^>]*aria-pressed="true"/);
+  assert.deepEqual(versions(f.notes.renderModal()),history.filter(entry=>compareVersions(entry.version,'6.154')!==1).map(entry=>entry.version));
+  f.notes.setView('updates');assert.deepEqual(versions(f.notes.renderModal()),['6.154']);assert.equal(f.notes.selectEntry(1),false);assert.equal(f.notes.needsAttention(),false);
+});
+
+test('confirming while an old entry is selected records the opened application version',()=>{
+  const f=fixture();f.notes.open({manual:true});f.notes.selectEntry(2);f.notes.acknowledge();
+  assert.equal(JSON.parse(f.store.getItem(storageKey(f.state.scope))).version,'6.153');assert.equal(f.notes.needsAttention(),false);
+});
+
+test('invalid view and selection inputs do not alter the current article',()=>{
+  const f=fixture();assert.equal(f.notes.setView('history'),false);assert.equal(f.notes.selectEntry(0),false);f.notes.open();const before=f.notes.renderModal();
+  for(const index of [-1,1,0.5,NaN,undefined,null,'','x','<img>'])assert.equal(f.notes.selectEntry(index),false);
+  for(const view of ['',null,'other'])assert.equal(f.notes.setView(view),false);assert.equal(f.notes.renderModal(),before);
+});
+
+test('delegated list, tab and mobile selection preserve focus and reset only detail scrolling',()=>{
+  const d=dom(),f=fixture({document:d.doc});f.notes.open({manual:true});d.mount(f.notes);const before=f.store.data.size;
+  const selected=d.entries[1];selected.focus();d.content.scrollTop=120;d.click(selected);
+  assert.equal(d.doc.activeElement,selected);assert.equal(selected.getAttribute('aria-current'),'true');assert.equal(d.content.scrollTop,0);assert.match(d.content.innerHTML,/<p class="rn-version">Ver6\.152\.1<\/p>/);
+  d.select.focus();d.content.scrollTop=80;d.change('2');assert.equal(d.doc.activeElement,d.select);assert.equal(d.content.scrollTop,0);assert.match(d.content.innerHTML,/<p class="rn-version">Ver6\.152<\/p>/);
+  d.updates.focus();d.click(d.updates);assert.equal(d.doc.activeElement,d.updates);assert.equal(d.updates.getAttribute('aria-pressed'),'true');assert.equal(d.entries.length,1);assert.equal(d.select.value,'0');
+  d.history.focus();d.click(d.history);assert.equal(d.doc.activeElement,d.history);assert.equal(d.entries.length,3);assert.equal(f.store.data.size,before);
+});
+
+test('a remount restores the current control and hidden ancestors are excluded from focus trapping',()=>{
+  const d=dom(),f=fixture({document:d.doc});f.notes.open({manual:true});d.mount(f.notes);d.history.focus();d.doc.activeElement=d.trigger;f.notes.mountModal();assert.equal(d.doc.activeElement,d.history);
+  d.close.hiddenParent=true;d.updates.cssHidden=true;d.confirm.focus();d.key('Tab');assert.equal(d.doc.activeElement,d.history);
+  d.close.hiddenParent=false;d.confirm.focus();d.key('Tab');assert.equal(d.doc.activeElement,d.close);
+});
+
+test('priority locks and a replaced dialog block every delegated view or selection operation',()=>{
+  const d=dom();let allowed=true;const f=fixture({document:d.doc,canInteract:()=>allowed});f.notes.open({manual:true});d.mount(f.notes);
+  const original=f.notes.renderModal();allowed=false;d.click(d.updates);d.click(d.entries[1]);d.change('2');assert.equal(f.notes.selectEntry(1),false);assert.equal(f.notes.setView('updates'),false);assert.equal(f.notes.renderModal(),original);
+  allowed=true;d.doc.dialog=null;d.click(d.updates);d.change('2');assert.equal(f.notes.renderModal(),original);assert.equal(f.store.data.size,0);
+});
+
+
+test('the scrollable detail is a named keyboard region and remains in the focus sequence',()=>{
+  const d=dom(),f=fixture({document:d.doc});f.notes.open();d.mount(f.notes);
+  assert.match(f.notes.renderModal(),/id="release-notes-content" class="rn-content" tabindex="0" role="region" aria-labelledby="release-note-heading"/);
+  d.content.focus();assert.equal(d.key('Tab').prevented,false,'native Tab may proceed from detail to confirmation');assert.equal(d.key('Tab',true).prevented,false,'native reverse Tab may return to the picker or list');
+  d.doc.activeElement=d.trigger;f.notes.mountModal();assert.equal(d.doc.activeElement,d.content,'a rerender retains focus on the reading region');
+  assert.equal(f.store.data.size,0,'reading does not acknowledge the release');
 });

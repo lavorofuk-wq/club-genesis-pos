@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.154',kind:'feature',title:'お知らせを一覧から選べるようにしました',changes:[
+      '「今回の更新」と「更新履歴」を切り替え、お知らせを一覧から選んで読めるようにしました。',
+      'スマートフォンでは選択欄からお知らせを切り替えられます。'
+    ]},
     {version:'6.153.3',kind:'ui',title:'お知らせ画面の装飾を整理',changes:[
       '英字見出しと大きなバージョン表示を省き、変更内容を中心に表示するようにしました。',
       '更新履歴のカード枠と項目番号を外し、区切り線と箇条書きに変更しました。'
@@ -52,7 +56,8 @@
   const fallback=current=>({version:current,title:'新しいバージョンに更新されました',changes:['最新のバージョンを読み込みました。操作を始める前にバージョンをご確認ください。']});
   function create(adapter){
     const doc=adapter.document||(typeof document!=='undefined'?document:null),memorySeen=new Map();
-    let opened=null,previousFocus=null,removeListeners=null,bodyOverflow=null;
+    const kindLabels={feature:'機能追加',fix:'不具合修正',ui:'表示改善'};
+    let opened=null,previousFocus=null,removeListeners=null,bodyOverflow=null,focusMemory='';
     function canInteract(){try{return adapter.canInteract?.()!==false;}catch(_error){return false;}}
     function lockScroll(){if(bodyOverflow===null&&doc?.body?.style){bodyOverflow=doc.body.style.overflow;doc.body.style.overflow='hidden';}}
     function unlockScroll(){if(bodyOverflow!==null&&doc?.body?.style)doc.body.style.overflow=bodyOverflow;bodyOverflow=null;}
@@ -80,6 +85,7 @@
       if(!entries.some(entry=>compareVersions(entry.version,current)===0))entries.unshift(currentEntry);
       return entries;
     }
+    function entries(){return opened?(opened.view==='history'?opened.history:opened.updates):[];}
     function clearListeners(){if(removeListeners)removeListeners();removeListeners=null;}
     function open(options={}){
       const manual=options.manual===true,current=currentVersion(),key=scope();
@@ -87,8 +93,10 @@
       clearListeners();
       const active=doc?.activeElement;
       if(!opened||!doc?.getElementById('release-notes-dialog')?.contains?.(active))previousFocus=active||null;
-      opened={scope:key,version:current,manual,entries:entriesFor(current,seen(key),manual)};
-      lockScroll();adapter.onOpen?.();return true;
+      const known=seen(key);
+      opened={scope:key,version:current,manual,view:manual?'history':'updates',selected:0,
+        updates:entriesFor(current,known,false),history:entriesFor(current,known,true)};
+      focusMemory='';lockScroll();adapter.onOpen?.();return true;
     }
     function recordSeen(snapshot){
       if(!snapshot.scope||snapshot.scope!==scope())return;
@@ -99,26 +107,74 @@
     }
     function acknowledge(){
       if(!opened||!canInteract())return false;
-      const snapshot=opened;recordSeen(snapshot);opened=null;clearListeners();
+      const snapshot=opened;recordSeen(snapshot);opened=null;clearListeners();focusMemory='';
       unlockScroll();adapter.onClose?.();
       const target=previousFocus?.isConnected===false?(previousFocus.id?doc?.getElementById(previousFocus.id):null):previousFocus;
       previousFocus=null;
       try{target?.focus?.({preventScroll:true});}catch(_error){}
       return true;
     }
+    function listMarkup(){return entries().map((entry,index)=>'<button type="button" class="rn-list-button" data-release-notes-entry="'+index+'" aria-current="'+(index===opened.selected)+'" aria-controls="release-notes-detail"><span class="rn-list-version">Ver'+escape(entry.version)+'</span><span class="rn-list-title">'+escape(entry.title)+'</span><span class="rn-list-kind">'+escape(kindLabels[entry.kind]||'更新')+'</span></button>').join('');}
+    function optionsMarkup(){return entries().map((entry,index)=>'<option value="'+index+'"'+(index===opened.selected?' selected':'')+'>Ver'+escape(entry.version)+'　'+escape(entry.title)+'</option>').join('');}
+    function detailMarkup(){
+      const entry=entries()[opened.selected];
+      return '<article id="release-notes-detail" class="rn-entry" aria-labelledby="release-note-heading"><div class="rn-entry-meta"><p class="rn-version">Ver'+escape(entry.version)+'</p><span class="rn-kind">'+escape(kindLabels[entry.kind]||'更新')+'</span></div><h3 id="release-note-heading">'+escape(entry.title)+'</h3><ul class="rn-changes">'+entry.changes.map(change=>'<li>'+escape(change)+'</li>').join('')+'</ul></article>';
+    }
     function renderModal(){
       if(!opened)return '';
-      const manual=opened.manual,kindLabels={feature:'機能追加',fix:'不具合修正',ui:'表示改善'};
       return '<div class="rn-overlay"><section id="release-notes-dialog" class="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" tabindex="-1">'
-        +'<div class="rn-header"><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
-        +'<div class="rn-content">'
-        +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><div class="rn-entry-meta"><p class="rn-version">Ver'+escape(entry.version)+'</p><span class="rn-kind">'+escape(kindLabels[entry.kind]||'更新')+'</span></div><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ul class="rn-changes">'+entry.changes.map(change=>'<li>'+escape(change)+'</li>').join('')+'</ul></article>').join('')
-        +'</div><footer class="rn-footer"><button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
+        +'<div class="rn-header"><h2 id="release-notes-title">お知らせ</h2><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
+        +'<div class="rn-toolbar" role="group" aria-label="お知らせの表示内容"><button type="button" class="rn-tab" data-release-notes-view="updates" title="今回の更新内容" aria-pressed="'+(opened.view==='updates')+'" aria-controls="release-notes-panel">今回の更新</button><button type="button" class="rn-tab" data-release-notes-view="history" aria-pressed="'+(opened.view==='history')+'" aria-controls="release-notes-panel">更新履歴</button></div>'
+        +'<div id="release-notes-panel" class="rn-layout"><nav class="rn-sidebar" aria-label="お知らせ一覧"><p class="rn-sidebar-label">お知らせ一覧</p><div class="rn-list">'+listMarkup()+'</div></nav>'
+        +'<div class="rn-mobile-picker"><label for="release-notes-select">お知らせを選択</label><select id="release-notes-select" aria-controls="release-notes-detail">'+optionsMarkup()+'</select></div>'
+        +'<div id="release-notes-content" class="rn-content" tabindex="0" role="region" aria-labelledby="release-note-heading">'+detailMarkup()+'</div></div>'
+        +'<footer class="rn-footer"><button type="button" class="rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
+    }
+    function visible(element){
+      if(!element||element.hidden||element.getAttribute?.('aria-hidden')==='true'||element.closest?.('[hidden], [aria-hidden="true"]'))return false;
+      const style=doc?.defaultView?.getComputedStyle?.(element);
+      if(style&&(style.display==='none'||style.visibility==='hidden'))return false;
+      return typeof element.getClientRects!=='function'||element.getClientRects().length>0;
+    }
+    function focusSelector(element){
+      if(element?.id==='release-notes-select')return '#release-notes-select';
+      if(element?.id==='release-notes-content')return '#release-notes-content';
+      const data=element?.dataset||{};
+      if(['updates','history'].includes(data.releaseNotesView))return '[data-release-notes-view="'+data.releaseNotesView+'"]';
+      if(/^\d+$/.test(data.releaseNotesEntry||''))return '[data-release-notes-entry="'+data.releaseNotesEntry+'"]';
+      if(['acknowledge','dismiss'].includes(data.releaseNotesAction))return '[data-release-notes-action="'+data.releaseNotesAction+'"]';
+      return '';
+    }
+    function refreshDialog(rebuildList){
+      const dialog=doc?.getElementById('release-notes-dialog');if(!opened||!dialog||!canInteract())return;
+      const active=doc.activeElement,hadFocus=dialog.contains(active),wanted=focusSelector(active);
+      dialog.querySelectorAll('[data-release-notes-view]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.releaseNotesView===opened.view)));
+      const list=dialog.querySelector('.rn-list'),select=dialog.querySelector('#release-notes-select');
+      if(rebuildList){if(list)list.innerHTML=listMarkup();if(select)select.innerHTML=optionsMarkup();}
+      dialog.querySelectorAll('[data-release-notes-entry]').forEach(button=>button.setAttribute('aria-current',String(Number(button.dataset.releaseNotesEntry)===opened.selected)));
+      if(select)select.value=String(opened.selected);
+      const content=dialog.querySelector('.rn-content');if(content){content.innerHTML=detailMarkup();content.scrollTop=0;}
+      if(hadFocus&&(!dialog.contains(active)||!visible(active))){
+        const restore=wanted?dialog.querySelector(wanted):null;
+        const target=visible(restore)?restore:dialog.querySelector('[data-release-notes-view="'+opened.view+'"]');
+        if(visible(target))target.focus({preventScroll:true});
+      }
+    }
+    function setView(view){
+      if(!opened||!canInteract()||!['updates','history'].includes(view))return false;
+      if(opened.view===view)return true;
+      opened.view=view;opened.selected=0;refreshDialog(true);return true;
+    }
+    function selectEntry(index){
+      if(!opened||!canInteract()||!['number','string'].includes(typeof index)||String(index).trim()==='')return false;
+      const next=Number(index);if(!Number.isInteger(next)||next<0||next>=entries().length)return false;
+      if(opened.selected===next)return true;
+      opened.selected=next;refreshDialog(false);return true;
     }
     function mountModal(){
       clearListeners();
       const dialog=doc?.getElementById('release-notes-dialog');if(!opened||!dialog)return false;
-      const focusable=()=>Array.from(dialog.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')).filter(el=>!el.hidden&&el.getAttribute?.('aria-hidden')!=='true');
+      const focusable=()=>Array.from(dialog.querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')).filter(visible);
       const live=()=>opened&&doc.getElementById('release-notes-dialog')===dialog&&canInteract();
       const keydown=event=>{
         if(!live())return;
@@ -132,17 +188,25 @@
       };
       const click=event=>{
         if(!live())return;
-        const button=event.target?.closest?.('[data-release-notes-action]');
+        const button=event.target?.closest?.('[data-release-notes-action], [data-release-notes-view], [data-release-notes-entry]');
         if(!button||!dialog.contains(button))return;
-        if(['acknowledge','dismiss'].includes(button.dataset.releaseNotesAction)){event.preventDefault();acknowledge();}
+        const data=button.dataset;
+        if(['acknowledge','dismiss'].includes(data.releaseNotesAction)){event.preventDefault();acknowledge();}
+        else if(data.releaseNotesView!==undefined){event.preventDefault();setView(data.releaseNotesView);}
+        else if(data.releaseNotesEntry!==undefined){event.preventDefault();selectEntry(data.releaseNotesEntry);}
       };
-      doc.addEventListener('keydown',keydown,true);dialog.addEventListener('click',click);
-      removeListeners=()=>{doc.removeEventListener('keydown',keydown,true);dialog.removeEventListener('click',click);};
+      const change=event=>{if(live()&&event.target?.id==='release-notes-select'&&dialog.contains(event.target))selectEntry(event.target.value);};
+      const focusin=event=>{if(live()){const selector=focusSelector(event.target);if(selector)focusMemory=selector;}};
+      doc.addEventListener('keydown',keydown,true);dialog.addEventListener('click',click);dialog.addEventListener('change',change);dialog.addEventListener('focusin',focusin);
+      removeListeners=()=>{doc.removeEventListener('keydown',keydown,true);dialog.removeEventListener('click',click);dialog.removeEventListener('change',change);dialog.removeEventListener('focusin',focusin);};
       const active=doc.activeElement;
-      if(canInteract()&&!dialog.contains(active))(dialog.querySelector('[data-release-notes-action="acknowledge"]')||dialog).focus();
+      if(canInteract()&&(!dialog.contains(active)||!visible(active))){
+        const remembered=focusMemory?dialog.querySelector(focusMemory):null;
+        (visible(remembered)?remembered:dialog.querySelector('[data-release-notes-action="acknowledge"]')||dialog).focus({preventScroll:true});
+      }
       return true;
     }
-    return{needsAttention,open,renderModal,mountModal,acknowledge,isOpen:()=>!!opened,dismiss:acknowledge};
+    return{needsAttention,open,renderModal,mountModal,setView,selectEntry,acknowledge,isOpen:()=>!!opened,dismiss:acknowledge};
   }
   return{history,compareVersions,storageKey,create};
 });
