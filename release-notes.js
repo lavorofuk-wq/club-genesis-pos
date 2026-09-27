@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.153.3',kind:'ui',title:'お知らせ画面の装飾を整理',changes:[
+      '英字見出しと大きなバージョン表示を省き、変更内容を中心に表示するようにしました。',
+      '更新履歴のカード枠と項目番号を外し、区切り線と箇条書きに変更しました。'
+    ]},
     {version:'6.153.2',kind:'ui',title:'アップデートのお知らせをリニューアル',changes:[
       'バージョンがひと目でわかる告知バナーを追加しました。',
       '変更内容に番号と種類を付け、過去の更新も読みやすくしました。'
@@ -106,11 +110,10 @@
       if(!opened)return '';
       const manual=opened.manual,kindLabels={feature:'機能追加',fix:'不具合修正',ui:'表示改善'};
       return '<div class="rn-overlay"><section id="release-notes-dialog" class="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" tabindex="-1">'
-        +'<div class="rn-header"><div class="rn-header-copy"><span class="rn-channel" lang="en">INFORMATION</span><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2></div><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
-        +'<div class="rn-content"><div class="rn-banner"><p class="rn-banner-label" lang="en">PATCH NOTES</p><p class="rn-banner-version"><span>Ver</span>'+escape(opened.version)+'</p><p class="rn-banner-note">'+(manual?'これまでのアップデート内容を確認できます。':'アップデートが完了しました。')+'</p></div>'
-        +'<div class="rn-feed"><div class="rn-feed-head"><span lang="en">UPDATE LOG</span><span>'+opened.entries.length+'件の更新</span></div>'
-        +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><div class="rn-entry-meta"><p class="rn-version">Ver'+escape(entry.version)+'</p><span class="rn-kind" data-kind="'+escape(entry.kind||'update')+'">'+escape(kindLabels[entry.kind]||'更新')+'</span></div><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ol class="rn-changes">'+entry.changes.map(change=>'<li><span>'+escape(change)+'</span></li>').join('')+'</ol></article>').join('')
-        +'</div></div><footer class="rn-footer">'+(manual?'':'<p>更新履歴は画面上部のバージョン番号から開けます。</p>')+'<button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました<span class="rn-confirm-arrow" aria-hidden="true">→</span></button></footer></section></div>';
+        +'<div class="rn-header"><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
+        +'<div class="rn-content">'
+        +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><div class="rn-entry-meta"><p class="rn-version">Ver'+escape(entry.version)+'</p><span class="rn-kind">'+escape(kindLabels[entry.kind]||'更新')+'</span></div><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ul class="rn-changes">'+entry.changes.map(change=>'<li>'+escape(change)+'</li>').join('')+'</ul></article>').join('')
+        +'</div><footer class="rn-footer"><button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
     }
     function mountModal(){
       clearListeners();
