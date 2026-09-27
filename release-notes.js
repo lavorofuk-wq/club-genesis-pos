@@ -5,14 +5,18 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
-    {version:'6.153.1',title:'更新通知の表示を調整',changes:[
+    {version:'6.153.2',kind:'ui',title:'アップデートのお知らせをリニューアル',changes:[
+      'バージョンがひと目でわかる告知バナーを追加しました。',
+      '変更内容に番号と種類を付け、過去の更新も読みやすくしました。'
+    ]},
+    {version:'6.153.1',kind:'ui',title:'更新通知の表示を調整',changes:[
       '更新内容と履歴の画面を、POSと同じ白背景・青いボタンに統一しました。'
     ]},
-    {version:'6.153',title:'更新内容のお知らせを追加',changes:[
+    {version:'6.153',kind:'feature',title:'更新内容のお知らせを追加',changes:[
       '新しいバージョンを読み込んだ後、初回に更新内容を表示します。',
       '確認済みのお知らせは同じブラウザ・アカウントでは繰り返し表示せず、バージョン表示から更新履歴を開けます。'
     ]},
-    {version:'6.152.1',title:'設定保存と既存伝票の互換性を修正',changes:[
+    {version:'6.152.1',kind:'fix',title:'設定保存と既存伝票の互換性を修正',changes:[
       '設定の保存に失敗したときは入力を保持し、他端末で確定した最新の設定を反映します。',
       '営業日が変わったキャスト登録の下書きは、そのまま保存せず現在の営業日で確認し直せます。',
       '時間が未設定の旧メニューは、時間を変えずに名前や料金を編集できます。',
@@ -20,7 +24,7 @@
       '0円のキャストDrinkを注文できるようにしました。',
       'キャスト改名と注文・出退勤などの同時更新で、未保存の注文が混入したり新しい内容が戻ったりする問題を修正しました。'
     ]},
-    {version:'6.152',title:'設定画面を編集モーダルに刷新',changes:[
+    {version:'6.152',kind:'feature',title:'設定画面を編集モーダルに刷新',changes:[
       '料金・テーブル・キャストは編集画面で内容を確認してから保存する方式になりました。',
       '編集中の下書きを確定済みの設定から分離し、保存失敗後も入力を残して再試行できます。',
       '他端末との変更の競合は差分を表示し、最新内容の読み込みや保存の再試行を選べます。',
@@ -100,12 +104,13 @@
     }
     function renderModal(){
       if(!opened)return '';
-      const manual=opened.manual;
+      const manual=opened.manual,kindLabels={feature:'機能追加',fix:'不具合修正',ui:'表示改善'};
       return '<div class="rn-overlay"><section id="release-notes-dialog" class="rn-dialog" role="dialog" aria-modal="true" aria-labelledby="release-notes-title" tabindex="-1">'
-        +'<div class="rn-header"><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2><button type="button" class="btn rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
-        +'<div class="rn-content">'
-        +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><p class="rn-version">Ver'+escape(entry.version)+'</p><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ul>'+entry.changes.map(change=>'<li>'+escape(change)+'</li>').join('')+'</ul></article>').join('')
-        +'</div><footer class="rn-footer">'+(manual?'':'<p>履歴は画面上部のバージョン番号から確認できます。</p>')+'<button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました</button></footer></section></div>';
+        +'<div class="rn-header"><div class="rn-header-copy"><span class="rn-channel" lang="en">INFORMATION</span><h2 id="release-notes-title">'+(manual?'更新履歴':'今回の更新内容')+'</h2></div><button type="button" class="rn-close" data-release-notes-action="dismiss" aria-label="閉じる（確認済みにする）">×</button></div>'
+        +'<div class="rn-content"><div class="rn-banner"><p class="rn-banner-label" lang="en">PATCH NOTES</p><p class="rn-banner-version"><span>Ver</span>'+escape(opened.version)+'</p><p class="rn-banner-note">'+(manual?'これまでのアップデート内容を確認できます。':'アップデートが完了しました。')+'</p></div>'
+        +'<div class="rn-feed"><div class="rn-feed-head"><span lang="en">UPDATE LOG</span><span>'+opened.entries.length+'件の更新</span></div>'
+        +opened.entries.map((entry,index)=>'<article class="rn-entry" aria-labelledby="release-note-'+index+'"><div class="rn-entry-meta"><p class="rn-version">Ver'+escape(entry.version)+'</p><span class="rn-kind" data-kind="'+escape(entry.kind||'update')+'">'+escape(kindLabels[entry.kind]||'更新')+'</span></div><h3 id="release-note-'+index+'">'+escape(entry.title)+'</h3><ol class="rn-changes">'+entry.changes.map(change=>'<li><span>'+escape(change)+'</span></li>').join('')+'</ol></article>').join('')
+        +'</div></div><footer class="rn-footer">'+(manual?'':'<p>更新履歴は画面上部のバージョン番号から開けます。</p>')+'<button type="button" class="btn gbg rn-confirm" data-release-notes-action="acknowledge">確認しました<span class="rn-confirm-arrow" aria-hidden="true">→</span></button></footer></section></div>';
     }
     function mountModal(){
       clearListeners();

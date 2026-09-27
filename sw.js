@@ -1,6 +1,6 @@
-const RELEASE_VERSION = '6.153.1';
-const CACHE = 'genesis-pos-v6.153.1-auth';
-const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.153.1', './boot-compat.js?v=6.153.1', './firebase-init.js?v=6.153.1', './gms-json-core.js?v=6.153.1', './sync-core.js?v=6.153.1', './charge-core.js?v=6.153.1', './analysis-data.js?v=6.153.1', './list-analysis-core.js?v=6.153.1', './list-analysis-ui.js?v=6.153.1', './settings-store.js?v=6.153.1', './settings-editor.js?v=6.153.1', './settings-actions.js?v=6.153.1', './settings-editor.css?v=6.153.1', './release-notes.js?v=6.153.1', './release-notes.css?v=6.153.1', './app.js?v=6.153.1', './manifest.json', './icon-192.png', './icon-512.png'];
+const RELEASE_VERSION = '6.153.2';
+const CACHE = 'genesis-pos-v6.153.2-auth';
+const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.153.2', './boot-compat.js?v=6.153.2', './firebase-init.js?v=6.153.2', './gms-json-core.js?v=6.153.2', './sync-core.js?v=6.153.2', './charge-core.js?v=6.153.2', './analysis-data.js?v=6.153.2', './list-analysis-core.js?v=6.153.2', './list-analysis-ui.js?v=6.153.2', './settings-store.js?v=6.153.2', './settings-editor.js?v=6.153.2', './settings-actions.js?v=6.153.2', './settings-editor.css?v=6.153.2', './release-notes.js?v=6.153.2', './release-notes.css?v=6.153.2', './app.js?v=6.153.2', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
