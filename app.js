@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.154";
+const APP_VERSION="6.155";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -221,7 +221,8 @@ function floorGridLayout(){
   const headerH=document.querySelector("header")?.getBoundingClientRect().height||72;
   const availableH=Math.max(260,window.innerHeight-headerH-padY-40);
   const gap=clampNum(window.innerWidth*0.016,8,14);
-  const minSide=DEV==="tablet"?72:78;
+  const hasPreparation=(S.tables||[]).some(table=>S.tablePreparations?.[table.id]);
+  const minSide=hasPreparation?132:DEV==="tablet"?72:78;
   const maxSide=220;
   let best=null;
   for(let cols=1;cols<=count;cols++){
@@ -236,6 +237,7 @@ function floorGridLayout(){
     }
   }
   if(!best){
+    if(hasPreparation)return{cols:"repeat(auto-fit,minmax(min(100%,132px),1fr))",gap:Math.round(gap)+"px",fit:false,side:132};
     const cols=count;
     const side=clampNum((contentW-gap*(cols-1))/cols,52,maxSide);
     best={cols,rows:1,side,totalH:side};
@@ -2145,8 +2147,25 @@ function tablePreparationPending(tableId){return !!S.tablePreparations?.[tableId
 function tablePreparationRequiredError(){
   return Object.assign(new Error("table preparation required"),{userMessage:"テーブル準備が完了していません。フロアまたはリストで準備完了を確認してください。"});
 }
-function tablePreparationStatusHtml(){
-  return '<div class="table-preparation-status" role="status">会計終了済</div>';
+function tablePreparationTimestamp(value){
+  const time=typeof value==="number"||typeof value==="string"?Number(value):0;
+  return time>0&&Number.isFinite(new Date(time).getTime())?time:0;
+}
+function tablePreparationTimes(record){
+  // Older markers have no snapshot; use only their exact matching receipt.
+  const source=record&&Object.prototype.hasOwnProperty.call(record,"startTime")&&Object.prototype.hasOwnProperty.call(record,"setEndTime")
+    ?record:(S.history||[]).find(h=>record&&String(h.id)===record.sessionId&&h.tableId===record.tableId&&h.endTime===record.completedAt);
+  const start=tablePreparationTimestamp(source?.startTime);
+  const end=tablePreparationTimestamp(source?.setEndTime);
+  return{start,end:end>start?end:0};
+}
+function tablePreparationStatusHtml(tableId){
+  const {start,end}=tablePreparationTimes(S.tablePreparations?.[tableId]);
+  const timeLabel=time=>time?new Date(time).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}):"--:--";
+  return '<div class="table-preparation-status" role="status">会計終了済</div>'
+    +'<div class="table-preparation-times"><div class="table-preparation-caption">セット開始 → セット終了</div>'
+    +'<div class="table-preparation-range"><span>'+timeLabel(start)+'</span> → <span>'+timeLabel(end)+'</span></div>'
+    +'<div class="table-preparation-overtime"><span>超過</span> <span'+(end?' data-preparation-end="'+end+'"':'')+'>'+(end?ts(Date.now()-end):"--:--:--")+'</span></div></div>';
 }
 function openTablePreparation(tableId){
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;
@@ -2223,7 +2242,9 @@ async function guardedCloseSession(tableId,expected,historyRecord=null){
     await readScopedPaths([path],root);
     updates[FB_ROOT+"/"+path]=historyRecord;
     expectedRecords[path]=null;
-    updates[FB_ROOT+"/"+preparationPath]={tableId,sessionId:String(historyRecord.id),completedAt:now,businessDate:expectedActiveBizDay};
+    // Explicit zero values preserve unknown times when Firebase removes null fields.
+    updates[FB_ROOT+"/"+preparationPath]={tableId,sessionId:String(historyRecord.id),completedAt:now,businessDate:expectedActiveBizDay,
+      startTime:tablePreparationTimestamp(historyRecord.startTime),setEndTime:tablePreparationTimestamp(historyRecord.setEndTime)};
     expectedRecords[preparationPath]=null;
   }
   return guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths});
@@ -3945,7 +3966,7 @@ let inn=s?
     +'</div>'
     +'</div>'
     :"")
-:pending?tablePreparationStatusHtml():'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
+:pending?tablePreparationStatusHtml(t.id):'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>';
 const loBadgeFs=(parseFloat(lblFs)*2)+"px";
 const loSt=S.loMode&&s?(S.loStatus[t.id]==="done"?"done":"pending"):null;
 const loBadge=loSt==="pending"?'<span style="font-size:'+loBadgeFs+';font-weight:900;color:#ff4444;line-height:1;">LO未</span>'
@@ -3964,7 +3985,7 @@ html+='<div class="tc floor-table-card '+(s?"ta":"te")+' '+(pending?"table-prepa
     +'<div class="floor-table-heading" style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
     +'<span style="font-size:'+lblFs+';font-weight:600;">'+t.label+'</span>'
     +(isV(t.id)?'<span class="tag tv2">VIP</span>':"")
-    +'</div>'+(tablePreparationPending(t.id)?tablePreparationStatusHtml():'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>')+'</div>';
+    +'</div>'+(tablePreparationPending(t.id)?tablePreparationStatusHtml(t.id):'<div style="font-size:12px;color:#444;margin-top:10px;">空席</div>')+'</div>';
 }
   });
   html+='</div>';
@@ -4137,7 +4158,7 @@ if(isActive&&s){
     html+='<div style="font-size:10px;color:#333;margin-top:6px;text-align:center;padding:4px;border:1px dashed rgba(255,255,255,.08);border-radius:4px;">ドロップ</div>';
   }
 } else {
-  html+=pending?tablePreparationStatusHtml():'<div style="font-size:11px;color:#333;margin-top:8px;">空席</div>';
+  html+=pending?tablePreparationStatusHtml(t.id):'<div style="font-size:11px;color:#333;margin-top:8px;">空席</div>';
 }
 html+='</div>';
   });
@@ -9103,6 +9124,10 @@ function tickTimers(){
   // 時計
   const clkEl=document.getElementById("clk");
   if(clkEl)clkEl.textContent=new Date(now).toLocaleTimeString("ja-JP");
+  document.querySelectorAll("[data-preparation-end]").forEach(el=>{
+    const end=Number(el.dataset.preparationEnd);
+    if(Number.isFinite(end)&&end>0)el.textContent=ts(now-end);
+  });
   // モーダル内タイマー
   if(md){
 document.querySelectorAll("[data-modal-timer]").forEach(el=>{

@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.155',kind:'feature',title:'会計終了済のセット時刻・超過時間',changes:[
+      'フロア・リストの会計終了済テーブルに、セット開始時刻と延長を含むセット終了時刻を表示します。',
+      'セット終了時刻からの超過時間を、テーブル準備が完了するまで更新します。'
+    ]},
     {version:'6.154',kind:'feature',title:'お知らせを一覧から選べるようにしました',changes:[
       '「今回の更新」と「更新履歴」を切り替え、お知らせを一覧から選んで読めるようにしました。',
       'スマートフォンでは選択欄からお知らせを切り替えられます。'

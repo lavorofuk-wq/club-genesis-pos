@@ -2,6 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const {app,clone,source,fixture,fakeDb,contextFor,emulator}=require('./helpers/scoped-runtime.cjs');
+process.env.TZ='Asia/Tokyo';
 
 function setup(beforeWrite){
   const state=fixture(),db=fakeDb(state,beforeWrite),ctx=contextFor(db,state),alerts=[];
@@ -14,13 +15,14 @@ function setup(beforeWrite){
     floorGridLayout:()=>({fit:false,cols:'1fr 1fr',gap:'12px'})
   });
   vm.runInContext(source('function rFloor(){','function castChip('),ctx);
+  vm.runInContext(source('function ts(ms){','function sessionGrossSubtotal'),ctx);
   vm.runInContext(source('function sv(v,extra)','function openFloorDetail'),ctx);
   vm.runInContext(source('function gmsEscapeHtml','function exportDayCSV'),ctx);
   ctx.openCheckinWizard=()=>{ctx.checkinOpened=true;};
   return{ctx,state,db,alerts};
 }
 function record(state,id=123){
-  return{id,tableId:'t1',startTime:100,endTime:500,total:7800,subtotal:6000,tax:1800,items:clone(state.sessions.t1.items)};
+  return{id,tableId:'t1',startTime:100,setEndTime:400,endTime:500,total:7800,subtotal:6000,tax:1800,items:clone(state.sessions.t1.items)};
 }
 async function close(env){
   await env.ctx.guardedCloseSession('t1',clone(env.state.sessions.t1),record(env.state));
@@ -34,6 +36,8 @@ test('checkout atomically records preparation, releases casts and preserves amou
   assert.equal(state.sessions.t1,undefined);
   assert.equal(state.tablePreparations.t1.sessionId,'123');
   assert.equal(state.tablePreparations.t1.completedAt,500);
+  assert.equal(state.tablePreparations.t1.startTime,100);
+  assert.equal(state.tablePreparations.t1.setEndTime,400);
   assert.equal(state.tablePreparations.t1._rev,1);
   assert.deepEqual(clone(ctx.S.tablePreparations),state.tablePreparations);
   assert.equal(state.history[123].total,7800);
@@ -82,6 +86,91 @@ test('No preserves preparation and history, displays the message, and returns fr
   assert.equal(env.ctx.md,null);
   assert.deepEqual(env.alerts,['完了後にチェックイン可能です。']);
   assert.equal(env.ctx.tablePreparationPending('t1'),true);
+});
+
+test('paid tables show their own saved set range and live overtime, including midnight',async()=>{
+  const {ctx,state}=setup();
+  const start=Date.parse('2026-09-30T23:30:00+09:00'),end=start+120*60000;
+  let clock=end+15*60000+12000;
+  ctx.Date=class extends Date{static now(){return clock;}};
+  const receipt={...record(state),startTime:start,setEndTime:end,endTime:end+5*60000};
+  await ctx.guardedCloseSession('t1',state.sessions.t1,receipt);
+  ctx.S.tablePreparations.t2={tableId:'t2',sessionId:'456',completedAt:end,startTime:start+30*60000,setEndTime:end+60*60000};
+  for(const html of [ctx.rFloor(),ctx.rList()]){
+    assert.match(html,/23:30<\/span> → <span>01:30/);
+    assert.match(html,/00:00<\/span> → <span>02:30/);
+    assert.match(html,/超過[\s\S]*00:15:12/);
+    assert.match(html,/data-preparation-end="\d+">00:00:00/);
+    assert.doesNotMatch(html,/data-countdown=/);
+  }
+  clock+=60000;
+  assert.match(ctx.tablePreparationStatusHtml('t1'),/00:16:12/);
+  const saved=clone(state.tablePreparations.t1);
+  ctx.S.history=[];ctx.S.activeBizDay='next-day';ctx.S.tablePreparations={t1:saved};
+  assert.match(ctx.tablePreparationStatusHtml('t1'),/23:30<\/span> → <span>01:30/);
+  assert.match(ctx.tablePreparationStatusHtml('t1'),/00:16:12/);
+  assert.equal(state.history[123].total,7800);
+});
+
+test('legacy timing uses only the matching receipt and never guesses unknown or invalid times',()=>{
+  const {ctx,state}=setup(),receipt=record(state);
+  const legacy={tableId:'t1',sessionId:'123',completedAt:500};
+  ctx.S.history=[receipt];
+  assert.deepEqual(clone(ctx.tablePreparationTimes(legacy)),{start:100,end:400});
+  for(const mismatch of [{sessionId:'other'},{tableId:'t2'},{completedAt:501}]){
+    assert.deepEqual(clone(ctx.tablePreparationTimes({...legacy,...mismatch})),{start:0,end:0});
+  }
+  for(const value of [null,undefined,'bad',Infinity,-1,true,{},''])assert.equal(ctx.tablePreparationTimestamp(value),0);
+  assert.equal(ctx.tablePreparationTimestamp('100'),100);
+  for(const setEndTime of [0,99,100,'bad']){
+    assert.deepEqual(clone(ctx.tablePreparationTimes({...legacy,startTime:100,setEndTime})),{start:100,end:0});
+  }
+  ctx.S.tablePreparations={t1:{...legacy,startTime:0,setEndTime:0}};
+  const html=ctx.tablePreparationStatusHtml('t1');
+  assert.match(html,/--:--<\/span> → <span>--:--/);
+  assert.match(html,/--:--:--/);
+  assert.doesNotMatch(html,/data-preparation-end/);
+  assert.deepEqual(ctx.S.history,[receipt]);
+});
+
+test('checkout keeps explicit unknown timestamps instead of substituting checkout time',async()=>{
+  const {ctx,state}=setup(),receipt=record(state);
+  delete receipt.startTime;delete receipt.setEndTime;
+  await ctx.guardedCloseSession('t1',state.sessions.t1,receipt);
+  assert.equal(state.tablePreparations.t1.startTime,0);
+  assert.equal(state.tablePreparations.t1.setEndTime,0);
+});
+
+test('paid overtime ticks across the set end and while the preparation prompt is open without writes',()=>{
+  const {ctx,db}=setup(),end=2000000;
+  const nodes=[{dataset:{preparationEnd:String(end)},textContent:''},{dataset:{preparationEnd:'bad'},textContent:'--:--:--'}];
+  let clock=end-1000;
+  ctx.Date=class extends Date{static now(){return clock;}};
+  ctx.document={getElementById:()=>null,querySelectorAll:selector=>selector==='[data-preparation-end]'?nodes:[]};
+  vm.runInContext(source('function tickTimers(){','setInterval(tickTimers'),ctx);
+  for(const modal of [null,'tablePreparation']){
+    ctx.md=modal;
+    for(const [elapsed,label] of [[-1000,'00:00:00'],[0,'00:00:00'],[125000,'00:02:05'],[90061000,'25:01:01']]){
+      clock=end+elapsed;ctx.tickTimers();
+      assert.equal(nodes[0].textContent,label);
+      assert.equal(nodes[1].textContent,'--:--:--');
+    }
+  }
+  assert.equal(db.writes.length,0);
+});
+
+test('crowded short screens retain readable paid tables instead of shrinking all 30 into one row',()=>{
+  const {ctx}=setup();
+  ctx.DEV='tablet';ctx.window.innerWidth=844;ctx.window.innerHeight=390;
+  ctx.document.querySelector=selector=>selector==='main'?{clientWidth:844}:{getBoundingClientRect:()=>({height:72})};
+  ctx.getComputedStyle=()=>({paddingLeft:'16',paddingRight:'16',paddingTop:'24',paddingBottom:'24'});
+  ctx.S.tables=Array.from({length:30},(_,i)=>({id:'t'+(i+1),label:'T'+(i+1)}));
+  ctx.S.tablePreparations={t1:{tableId:'t1',sessionId:'123',completedAt:500}};
+  vm.runInContext(source('function clampNum','// ===== UTILS ====='),ctx);
+  const layout=ctx.floorGridLayout();
+  assert.equal(layout.fit,false);
+  assert.equal(layout.side,132);
+  assert.match(layout.cols,/auto-fit/);
 });
 
 test('Yes clears only the matching preparation after acknowledgement; both tabs return to vacant',async()=>{
@@ -163,6 +252,8 @@ test('Firebase readiness rules reject stale writes atomically',{skip:process.env
       await ctx.guardedCloseSession('t1',state.sessions.t1,rec);
       const current=await em.request('pos-dev','GET',undefined,true);
       const marker=current.tablePreparations.t1;
+      assert.equal(marker.startTime,100);
+      assert.equal(marker.setEndTime,400);
       if(action==='ready'){
         await ctx.guardedCompleteTablePreparation('t1',marker);
         const after=await em.request('pos-dev','GET',undefined,true);
