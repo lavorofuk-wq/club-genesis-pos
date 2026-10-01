@@ -1,6 +1,7 @@
 // Database rules enforce the same roles. Keep every UI entry point consistent.
 function posCanView(view){return !window._posAccessInvalidated&&!!window.PosAccess&&window.PosAccess.canView(window._posRole,view);}
 function posIsOp(){return !window._posAccessInvalidated&&window._posRole==="op";}
+function posCanStartBusiness(){return !window._posAccessInvalidated&&!!window.PosAccess?.canStartBusiness(window._posRole);}
 function posDefaultView(){return S.activeBizDay?(posCanView("floor")?"floor":posCanView("list")?"list":"home"):"home";}
 function posDenyAccess(){if(typeof sbs==="function")sbs(false,"この機能の利用権限がありません");return false;}
 function posRequireView(view){return posCanView(view)||posDenyAccess();}
@@ -9,6 +10,7 @@ function posCanOpenModal(name){
   if(!name)return true;
   if(!window.PosAccess?.normalizeRole(window._posRole))return false;
   if(posIsOp())return true;
+  if(name==="startBizDay")return posCanStartBusiness();
   if(["releaseNotes","firebaseLock","sessionConflict"].includes(name))return true;
   if(name==="settingsEditor")return posCanView("settings");
   if(name==="shift")return posCanView("shifts");
@@ -21,8 +23,9 @@ function posLimitedHome(){
   const role=window._posRole,labels={floor:"フロア",list:"リスト",settings:"設定",shifts:"出勤"};
   const tabs=window.PosAccess?.tabs(role)||[];
   return '<section class="access-home"><h2>'+escape(window.PosAccess?.label(role)||"アクセス確認中")+'</h2><p>'
-    +(S.activeBizDay?'営業日：'+escape(S.activeBizDay):'現在営業していません。営業開始はOPアカウントで操作してください。')
-    +'</p><div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
+    +(S.activeBizDay?'営業日：'+escape(S.activeBizDay):posCanStartBusiness()?'現在営業していません。営業日を選択して開始してください。':'現在営業していません。営業開始はキャッシャーまたはOPアカウントで操作してください。')
+    +'</p>'+(!S.activeBizDay&&posCanStartBusiness()?'<button class="btn access-start-business" onclick="om(\'startBizDay\')">営業を開始する</button>':'')
+    +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
 }
 window.posClearPrivateState=function(){
   if(typeof S!=="undefined"){

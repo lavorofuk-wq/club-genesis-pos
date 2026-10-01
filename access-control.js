@@ -18,6 +18,7 @@
   function normalizeRole(value){return typeof value==="string"&&Object.prototype.hasOwnProperty.call(ROLE_TABS,value)?value:null;}
   function tabs(role){return normalizeRole(role)?ROLE_TABS[role].slice():[];}
   function label(role){return normalizeRole(role)?LABELS[role]:"権限未設定";}
+  function canStartBusiness(role){return role==="op"||role==="cashier";}
   function canView(role,view){
     if(!normalizeRole(role)||typeof view!=="string")return false;
     if(view==="home")return true;
@@ -34,7 +35,7 @@
     if(first==="access")return null;
     if(first==="backup"||first==="backup-dev")return{backup:true,node:parts[1]||""};
     if(first==="pos"||first==="pos-dev")parts.shift();
-    return{backup:false,node:parts[0]||""};
+    return{backup:false,node:parts[0]||"",parts};
   }
   function canReadPath(role,path){
     if(!normalizeRole(role))return false;
@@ -42,6 +43,10 @@
     if(!parsed)return false;
     if(role==="op")return true;
     if(parsed.backup||!parsed.node)return false;
+    if(role==="cashier"&&/^\d{4}-\d{2}-\d{2}$/.test(parsed.parts[1]||"")){
+      if(parsed.node==="bizDays"&&parsed.parts.length===3&&parsed.parts[2]==="id")return true;
+      if(parsed.node==="_bizDayRevisions"&&parsed.parts.length===2)return true;
+    }
     return SHARED_READ.has(parsed.node)||(role==="cashier"&&CASHIER_EXTRA.has(parsed.node));
   }
   function canWritePath(role,path){
@@ -50,7 +55,13 @@
     if(!parsed)return false;
     if(role==="op")return true;
     if(parsed.backup||!parsed.node)return false;
+    // These paths are writable only as one new-business-day start; server rules
+    // reject ending, reopening, overwriting, partial writes and arbitrary data.
+    if(role==="cashier"){
+      if(["activeBizDay","_bizDayOperation"].includes(parsed.node)&&parsed.parts.length===1)return true;
+      if(["bizDays","bizDaySummaries","_bizDayRevisions"].includes(parsed.node)&&parsed.parts.length===2&&/^\d{4}-\d{2}-\d{2}$/.test(parsed.parts[1]))return true;
+    }
     return(role==="cashier"?CASHIER_WRITE:LIST_WRITE).has(parsed.node);
   }
-  return Object.freeze({normalizeRole,tabs,canView,label,canReadPath,canWritePath});
+  return Object.freeze({normalizeRole,tabs,canView,label,canStartBusiness,canReadPath,canWritePath});
 });

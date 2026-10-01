@@ -28,6 +28,7 @@ test("business-day transitions use one narrow atomic multipath update",async()=>
     Date,Math,String,Object,Error
   };
   vm.createContext(context);
+  require('./helpers/access-runtime.cjs').installAccessRuntime(context);
   vm.runInContext(app.slice(start,end),context);
 
   const update=context.guardedAtomicBizDayUpdate;

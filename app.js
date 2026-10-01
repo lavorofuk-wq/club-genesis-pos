@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.156";
+const APP_VERSION="6.157";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -1463,14 +1463,18 @@ function bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,extra=
   };
 }
 async function guardedAtomicBizDayUpdate(type,dayId,expectedActiveBizDay,nextActiveBizDay,values,extraUpdates={},operationExtra={}){
+  const cashierStart=posCanStartBusiness()&&window._posRole==="cashier"&&type==="start";
+  if(!posIsOp()&&!cashierStart)throw Object.assign(new Error("BUSINESS_DAY_ACCESS_DENIED"),{userMessage:"この営業操作の利用権限がありません。"});
   requireScopedAtomic();
   if(bizDayAtomicValidationVersion<BIZ_DAY_ATOMIC_VALIDATION_VERSION)throw new Error("Business day rules are unavailable");
-  const expectedDay=cloneData(Object.prototype.hasOwnProperty.call(operationExtra,"expectedDay")?operationExtra.expectedDay:S.bizDays[dayId]||null);
+  const expectedDay=cashierStart?null:cloneData(Object.prototype.hasOwnProperty.call(operationExtra,"expectedDay")?operationExtra.expectedDay:S.bizDays[dayId]||null);
   const expectedCasts=Object.prototype.hasOwnProperty.call(values,"casts")?cloneData(S.casts):null;
   const expectedLifecycle=expectedCasts?cloneData(S.castLifecycleLogs):null;
   const path="bizDays/"+dayId,counterPath="_bizDayRevisions/"+dayId;
-  const root=await readScopedPaths(["activeBizDay",path,counterPath]);
-  if((root.activeBizDay||null)!==(expectedActiveBizDay||null)||!sameFirebaseValue(getPathValue(root,path),expectedDay))throw Object.assign(new Error("business day changed"),{userMessage:"営業日が他端末で変更されています。最新状態を確認してください。"});
+  // Cashiers never read archived day contents. The rules atomically require a
+  // previously absent day, an idle business state, and a complete start payload.
+  const root=await readScopedPaths(cashierStart?["activeBizDay",counterPath]:["activeBizDay",path,counterPath]);
+  if((root.activeBizDay||null)!==(expectedActiveBizDay||null)||(!cashierStart&&!sameFirebaseValue(getPathValue(root,path),expectedDay)))throw Object.assign(new Error("business day changed"),{userMessage:"営業日が他端末で変更されています。最新状態を確認してください。"});
   const extra={...operationExtra};delete extra.expectedDay;
   const revision=(Number(getPathValue(root,counterPath))||0)+1;
   const operation=bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,{...extra,version:SCOPED_ATOMIC_VALIDATION_VERSION,expectedDayRev:Number(getPathValue(root,path)?._rev)||0,expectedDayExists:!!getPathValue(root,path),expectedDayCounter:revision-1});
@@ -1971,19 +1975,22 @@ b.style.color=sel?'#1a1200':'#e8dcc8';
 // 営業日選択モーダル: 選択した日付だけFirebaseへ確認する
 let bizDateWarnRequest=0;
 async function updateBizDateWarn(val){
+  if(!posCanStartBusiness())return;
   window._selBizDate=val;
   const el=document.getElementById('biz-date-warn');
   if(!el)return;
   const request=++bizDateWarnRequest;
-  if(!val){el.style.display='none';return;}
-  if(S.bizDays[val]){el.textContent='この日付は記録済みです。開始すると上書きされます。';el.style.display='';return;}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(val||""))){el.style.display='none';return;}
+  const canOverwrite=posIsOp();
+  const warning=canOverwrite?'この日付は記録済みです。開始すると上書きされます。':'この日付は記録済みです。別の日付を選ぶか、OPに確認してください。';
+  if(S.bizDays[val]){el.textContent=warning;el.style.display='';return;}
   if(!window._db){el.style.display='none';return;}
   el.textContent='この日付の記録を確認中...';el.style.display='';
   try{
-    const day=await readRemoteRelative('bizDays/'+val);
+    const day=await readRemoteRelative('bizDays/'+val+(canOverwrite?'':'/id'));
     if(request!==bizDateWarnRequest||window._selBizDate!==val)return;
-    if(day){S.bizDays={...(S.bizDays||{}),[val]:day};updateRemoteHash('bizDays/'+val,day);}
-    el.textContent='この日付は記録済みです。開始すると上書きされます。';
+    if(day&&canOverwrite){S.bizDays={...(S.bizDays||{}),[val]:day};updateRemoteHash('bizDays/'+val,day);}
+    el.textContent=warning;
     el.style.display=day?'':'none';
   }catch(e){if(request===bizDateWarnRequest)el.style.display='none';}
 }
@@ -3829,6 +3836,7 @@ return;
   closeM();vw="floor";render();
 }
 async function startBizDay(dateStr){
+  if(!posCanStartBusiness()){posDenyAccess();return;}
   if(!requireFirebaseReady())return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(String(dateStr||""))){alert("営業日を選択してください。");return;}
   // 他端末が既に営業を開始していた場合はブロック
@@ -3838,9 +3846,11 @@ closeM();vw="floor";render();return;
   }
   const id=dateStr;
   let existingDay=null;
-  try{existingDay=await readRemoteRelative("bizDays/"+id);}catch(e){
+  const canOverwrite=posIsOp();
+  try{existingDay=await readRemoteRelative("bizDays/"+id+(canOverwrite?"":"/id"));}catch(e){
     sbs(false,"確認エラー");alert("営業日の既存データを確認できませんでした。接続状態を確認して再実行してください。");return;
   }
+  if(existingDay&&!canOverwrite){alert("「"+id+"」は記録済みです。別の日付を選ぶか、OPに確認してください。");return;}
   if(existingDay&&!confirm("「"+id+"」は記録済みです。既存の営業日データを上書きして開始しますか？"))return;
   const day={id,date:dateStr,startedAt:Date.now(),endedAt:null,history:[],shifts:{},assignments:{}};
   const summary=bizDaySummary(day,id);
@@ -3868,6 +3878,7 @@ closeM();vw="floor";render();return;
 }
 
 async function endBizDay(){
+  if(!posIsOp()){posDenyAccess();return;}
   const id=S.activeBizDay;if(!id)return;
   if(!requireFirebaseReady())return;
   const currentDay=S.bizDays[id];if(!currentDay)return;
@@ -8505,7 +8516,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<div class="st" style="margin-bottom:8px;">営業日</div>'
   +'<input type="date" class="ip" id="biz-date-input" value="'+selDate+'" style="font-size:16px;margin-bottom:8px;width:100%;max-width:200px;display:block;" oninput="updateBizDateWarn(this.value);document.getElementById(\'biz-range-note\').textContent=getBizDateRange(this.value)"/>'
   +'<div id="biz-range-note" style="font-size:12px;color:#888;margin-bottom:14px;">'+rangeStr+'</div>'
-  +'<div id="biz-date-warn" style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;display:'+(already?"":"none")+';">この日付は記録済みです。開始すると上書きされます。</div>'
+  +'<div id="biz-date-warn" style="padding:10px 14px;background:rgba(255,165,0,.08);border:1px solid rgba(255,165,0,.25);border-radius:6px;margin-bottom:14px;font-size:13px;color:#ffa500;display:'+(already?"":"none")+';">'+(posIsOp()?'この日付は記録済みです。開始すると上書きされます。':'この日付は記録済みです。別の日付を選ぶか、OPに確認してください。')+'</div>'
   +'<div style="display:flex;gap:8px;">'
   +'<button class="btn gbg" onclick="startBizDay(document.getElementById(\'biz-date-input\').value)" style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;touch-action:manipulation;">開始する</button>'
   +'<button class="btn" onclick="window._selBizDate=null;closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">キャンセル</button>'

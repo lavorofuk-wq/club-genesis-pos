@@ -80,8 +80,8 @@ async function main(){
         await page.evaluate(()=>sv('home'));
       }
       if(role!=='op'){
-        const denied=['mgmtMenu','startBizDay','endBizDay','viewHistDetail','deleteSession','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
-        if(role==='list')denied.push('settingsEditor','co','co2','opsMenu','ci-guests','est');
+        const denied=['mgmtMenu','endBizDay','viewHistDetail','deleteSession','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
+        if(role==='list')denied.push('startBizDay','settingsEditor','co','co2','opsMenu','ci-guests','est');
         for(const name of denied){
           await page.evaluate(name=>{at='t1';md=name;rModal();},name);
           assert.equal(await page.evaluate(()=>md),null,role+' direct modal denied: '+name);
@@ -130,8 +130,19 @@ async function main(){
       if(role==='op'){
         await page.locator('#account-access-btn').click();await page.locator('#account-access-title').waitFor({timeout:3000});
         assert.equal(await page.evaluate(()=>vw),'accounts','account manager is available before business starts');
+      }else if(role==='cashier'){
+        assert.match(await page.locator('#m').innerText(),/現在営業していません/);
+        const startButton=page.locator('#m button').filter({hasText:/営業.*開始/});
+        assert.equal(await startButton.count(),1,'cashier has one start entry point before business starts');
+        await startButton.click();assert.equal(await page.evaluate(()=>md),'startBizDay');
+        assert.equal(await page.locator('#biz-date-input').isVisible(),true);
+        assert.match(await page.locator('#md').innerText(),/営業を開始する/);
+        assert.equal(await page.locator('#m [onclick*="endBizDay"]').count(),0,'cashier still has no end control');
+        await page.screenshot({path:path.join(output,size+'-cashier-start.png'),fullPage:true});
+        await page.evaluate(()=>closeM());
+        await page.evaluate(()=>{md='endBizDay';rModal();});assert.equal(await page.evaluate(()=>md),null);
       }else{
-        assert.match(await page.locator('#m').innerText(),/営業開始はOPアカウント/);
+        assert.match(await page.locator('#m').innerText(),/営業開始はキャッシャーまたはOPアカウント/);
         assert.equal(await page.locator('#m [onclick*="startBizDay"]').count(),0);
       }
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,size+' '+role+' fits horizontal viewport');
