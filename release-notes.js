@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.155.2',kind:'ui',title:'業務画面の表示を統一',changes:[
+      '四角い枠、グレーの見出し、青い選択タブを基調とした業務画面に統一しました。',
+      'ホームの売上集計を罫線で区切り、画面見出しを日本語に揃えました。'
+    ]},
     {version:'6.155.1',kind:'ui',title:'画面デザインを整理',changes:[
       '配色・文字の強弱・区切り線を統一し、ホーム・フロア・ログイン・設定画面の装飾を整理しました。',
       '計算・会計・データ保存の処理は変更していません。'

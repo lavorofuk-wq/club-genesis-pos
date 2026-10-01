@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.155.1";
+const APP_VERSION="6.155.2";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -2731,13 +2731,13 @@ function rHome(){
   const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
   let html='<div class="pos-home" style="max-width:480px;margin:0 auto;padding-top:32px;">';
   html+='<div style="text-align:center;margin-bottom:40px;">';
-  html+='<div style="font-family:\'Cormorant Garamond\',serif;font-size:36px;font-weight:300;letter-spacing:.3em;color:#d4a017;">CLUB GENESIS</div>';
+  html+='<div class="pos-home-title">営業管理</div>';
   html+='</div>';
 
   if(active){
 // 営業中
 html+='<div class="glass" style="border-radius:12px;padding:20px;margin-bottom:20px;text-align:center;border-color:rgba(212,160,23,.3);">';
-html+='<div style="font-size:11px;color:#d4a017;letter-spacing:.15em;margin-bottom:6px;">OPEN</div>';
+html+='<div style="font-size:11px;color:#d4a017;letter-spacing:.15em;margin-bottom:6px;">営業中</div>';
 html+='<div style="font-size:28px;font-weight:700;color:#e8dcc8;margin-bottom:4px;">'+active.date+'</div>';
 html+='<div style="font-size:12px;color:#888;">開始: '+new Date(active.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>';
 html+='</div>';
@@ -3930,7 +3930,7 @@ function rFloor(){
     ?';justify-content:center;max-width:'+layout.maxWidth+';margin:0 auto;--floor-label-size:'+layout.labelFs+'px;--floor-timer-size:'+layout.timerFs+'px;--floor-nom-size:'+layout.nomFs+'px;--floor-nom-both-size:'+layout.nomBothFs+'px;'
     :"";
   const cols=layout.cols;
-  let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">FLOOR MAP</span></div>';
+  let html='<div style="margin-bottom:16px;"><span style="font-size:11px;color:#888;letter-spacing:.1em;">フロア状況</span></div>';
   html+='<div class="floor-grid '+(layout.fit?"floor-grid-fit":"")+'" style="display:grid;grid-template-columns:'+cols+';gap:'+layout.gap+';align-items:start'+gridFitStyle+'">';
   S.tables.forEach(t=>{
 const lblFs=layout.fit?layout.labelFs+"px":DEV==="mobile"?"11px":DEV==="tablet"?"13px":"14px";
@@ -4017,7 +4017,7 @@ function rList(){
 
   // ヘッダー
   html+='<div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">';
-  html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;flex:1;">LIST</span>';
+  html+='<span style="font-size:11px;color:#888;letter-spacing:.1em;flex:1;">付け回し管理</span>';
   html+='<span style="font-size:12px;padding:4px 10px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:20px;">待機 '+waiting.length+'</span>';
   html+='<span style="font-size:12px;padding:4px 10px;background:rgba(255,165,0,.1);border:1px solid rgba(255,165,0,.25);color:#ffa500;border-radius:20px;">休憩 '+brk.length+'</span>';
   html+='<button class="btn" onclick="sv(\'assignHistory\')" style="padding:7px 12px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;touch-action:manipulation;">履歴</button>';
