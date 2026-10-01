@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.157',kind:'feature',title:'キャッシャーの営業開始に対応',changes:[
+      'キャッシャーのホームに「営業を開始する」ボタンを追加しました。',
+      'キャッシャーは未登録の営業日を開始できます。営業終了と保存済み営業日の上書きは引き続きOP限定です。'
+    ]},
     {version:'6.156',kind:'feature',title:'アカウントごとのタブ利用権限',changes:[
       'キャッシャーはフロア・リスト・設定・出勤、リスト担当はリスト・出勤、OPは全機能を利用できます。',
       'OP専用の「アカウント権限」画面で、作成済みアカウントのUIDと役割を登録できます。',

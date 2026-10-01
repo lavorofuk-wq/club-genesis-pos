@@ -19,6 +19,26 @@ test("missing, malformed and inherited roles fail closed",()=>{
     for(const view of ["home","floor","list","shifts","settings","accounts"]){assert.equal(access.canView(role,view),false);}
     assert.equal(access.canReadPath(role,"sessions"),false);
     assert.equal(access.canWritePath(role,"shifts/s1"),false);
+    assert.equal(access.canStartBusiness(role),false);
+  }
+});
+
+test("business start is available to cashier and OP without granting end or archive access",()=>{
+  assert.equal(access.canStartBusiness("cashier"),true);
+  assert.equal(access.canStartBusiness("op"),true);
+  assert.equal(access.canStartBusiness("list"),false);
+  for(const prefix of ["","pos/","pos-dev/"]){
+    for(const path of ["bizDays/2026-10-02/id","_bizDayRevisions/2026-10-02"]){
+      assert.equal(access.canReadPath("cashier",prefix+path),true,prefix+path);
+      assert.equal(access.canReadPath("list",prefix+path),false,prefix+path);
+    }
+    for(const path of ["bizDays/2026-10-02","bizDays/2026-10-02/history","bizDays/2026-10-02/id/extra","bizDays/not-a-date/id","_bizDayRevisions","_bizDayRevisions/not-a-date","bizDaySummaries/2026-10-02"]){
+      assert.equal(access.canReadPath("cashier",prefix+path),false,prefix+path);
+    }
+    for(const path of ["activeBizDay","_bizDayOperation","bizDays/2026-10-02","bizDaySummaries/2026-10-02","_bizDayRevisions/2026-10-02"]){
+      assert.equal(access.canWritePath("cashier",prefix+path),true,prefix+path);
+      assert.equal(access.canWritePath("list",prefix+path),false,prefix+path);
+    }
   }
 });
 
@@ -55,7 +75,7 @@ test("operating data is readable without exposing archives or configuration to l
 
 test("write scopes protect account, business-day and settings administration",()=>{
   for(const role of ["cashier","list"]){
-    for(const path of ["activeBizDay","_capabilities","bizDays/day","gmsTargetCorrections/day","backup/bizDays","access/roles/other","access/authorizedUsers/other"]){
+    for(const path of ["_capabilities","bizDays/day","gmsTargetCorrections/day","backup/bizDays","access/roles/other","access/authorizedUsers/other"]){
       assert.equal(access.canWritePath(role,path),false,path);
     }
     for(const path of ["shifts/s1","assignments/a1","_scopedOperation","tablePreparations/t1"]){assert.equal(access.canWritePath(role,path),true,path);}
