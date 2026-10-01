@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.155";
+const APP_VERSION="6.155.3";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -2742,7 +2742,8 @@ html+='<div style="font-size:28px;font-weight:700;color:#e8dcc8;margin-bottom:4p
 html+='<div style="font-size:12px;color:#888;">開始: '+new Date(active.startedAt).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</div>';
 html+='</div>';
 // 当日の売上サマリー
-const todaySales=(active.history||[]).reduce((a,h)=>a+h.total,0);
+// 営業中の会計履歴はS.historyが最新。active.historyは営業終了時の保存用スナップショット。
+const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
 const pendingSales=Object.values(S.sessions).reduce((a,s)=>a+ct(s).total,0);
 html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:20px;">';
 html+='<div style="text-align:center;padding:12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:8px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み</div><div style="font-size:15px;font-weight:700;color:#4ade80;">'+pAmt(todaySales)+'</div></div>';

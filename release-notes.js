@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.155.3',kind:'fix',title:'ホームの会計済み売上を修正',changes:[
+      'ホームの会計済み金額が、営業中の最新の会計履歴を反映するよう修正しました。',
+      '合計見込みにも会計済み売上を正しく含めます。会計金額や保存済みデータは変更しません。'
+    ]},
     {version:'6.155',kind:'feature',title:'会計終了済のセット時刻・超過時間',changes:[
       'フロア・リストの会計終了済テーブルに、セット開始時刻と延長を含むセット終了時刻を表示します。',
       'セット終了時刻からの超過時間を、テーブル準備が完了するまで更新します。'
