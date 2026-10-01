@@ -135,7 +135,16 @@ function applyScopedRules(document){
       }
       const validation=or([disabled,liveTransition,`!${nextRoot}.child('activeBizDay').exists()`,and(checks)]);
       if(collection==='assignments'&&!node['.validate'].includes('_castAssignmentRevisions'))node['.validate']=and([node['.validate'],validation]);
-      else if(collection==='shifts')node['.validate']=validation;
+      else if(collection==='shifts'){
+        const {businessDayTransition,liveShiftWrite}=require('./access-rules.cjs');
+        node['.validate']=or([
+          businessDayTransition(before,nextRoot),
+          and([liveShiftWrite(before,nextRoot),...checks,
+            `newData.child('_nodeWriteNonce').val() == ${nextRoot}.child('_scopedOperation/nonce').val()`,
+            `${nextRoot}.child('_scopedOperation/records/shifts').child($shiftId).child('write').val() == true`
+          ])
+        ]);
+      }
       rules[collection]['.indexOn']=collection==='assignments'?['tableId','castId']:['castId'];
     }
     const session=rules.sessions.$tableId;

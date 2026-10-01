@@ -104,8 +104,8 @@ async function main(){
       await page.evaluate(()=>{window._fbFirstSync=true;window._fbConnected=false;maybeShowReleaseNotes();});await unseen('not while offline');
       await page.evaluate(()=>{window._fbConnected=true;vw='settings';render();maybeShowReleaseNotes();});await unseen('settings is not a safe automatic display point');
       await page.evaluate(()=>{vw='home';checkoutBusy=true;render();maybeShowReleaseNotes();});await unseen('not during checkout');
-      await page.evaluate(()=>{checkoutBusy=false;md='opsMenu';rModal();maybeShowReleaseNotes();});await unseen('do not replace another modal');
-      assert.equal(await page.evaluate(()=>md),'opsMenu');
+      await page.evaluate(()=>{checkoutBusy=false;md='sessionConflict';rModal();maybeShowReleaseNotes();});await unseen('do not replace another modal');
+      assert.equal(await page.evaluate(()=>md),'sessionConflict');
       await page.evaluate(()=>{vw='settings';closeM();sv('home');});
       await dialog().waitFor();assert.ok((await dialog().innerText()).includes(baseVersion));
       assert.equal(await dialog().getAttribute('aria-modal'),'true');

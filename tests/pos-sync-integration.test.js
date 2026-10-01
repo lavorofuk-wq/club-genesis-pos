@@ -22,7 +22,7 @@ assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId
 assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readActiveShiftCasts:\[castId\]/);
 assert.match(shiftOps,/async function cancelClockOut[\s\S]*readActiveShiftCasts:\[current\.castId\]/);
 assert.match(shiftOps,/async function saveShiftEdit[\s\S]*readActiveShiftCasts:\[current\.castId\][\s\S]*readActiveAssignCasts:\[current\.castId\]/);
-assert.match(deleteShiftOp,/await guardedShiftDelete\(sid,expected\)/);
+assert.match(deleteShiftOp,/await guardedShiftDelete\(sid,expected,expectedActiveBizDay\)/);
 assert.doesNotMatch(deleteShiftOp,/guardedCheckedUpdate|guardedRootTransaction/);
 assert.match(shiftDeleteHelper,/guardedCheckedNodeUpdate/);
 assert.match(shiftDeleteHelper,/readActiveAssignCasts/);

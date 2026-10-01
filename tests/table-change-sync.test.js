@@ -163,14 +163,16 @@ test('TC Firebase rules reject races atomically',{skip:process.env.POS_RULES_EMU
     async get(){const value=await request(key,'GET',undefined,false,field?{orderBy:field,equalTo:filter}:{});return{val:()=>value};},
     async update(updates){if(beforeWrite)await beforeWrite();return request('','PATCH',updates);}
   };}};}
-  await t.test('move succeeds and later unrelated root writes still work',async()=>{
+  await t.test('move succeeds and unrelated scoped writes work without restoring an ancestor write bypass',async()=>{
     await reset();const context=contextFor(restDb());
     await context.guardedAtomicTableChange('t1','t2',fixture().sessions.t1);
     const state=await request('pos-dev','GET',undefined,true);
     assert.equal(state.sessions.t1,undefined);assert.equal(state.sessions.t2.items[0].qty,3);
     assert.equal(state.assignments.a1.tableId,'t2');assert.equal(state.assignments.old.tableId,'t1');
     state._writeGate={versionNum:614300,nonce:'later-root-write'};state.loMode=true;
-    await request('pos-dev','PUT',state);
+    await assert.rejects(request('pos-dev','PUT',state),error=>error.code==='PERMISSION_DENIED');
+    await request('','PATCH',{'pos-dev/loMode':true,'pos-dev/_writeGate':state._writeGate});
+    assert.equal(await request('pos-dev/loMode'),true);
   });
   for(const change of ['order','destination','assignment','new-assignment','business-day']){
     await t.test('rejects concurrent '+change,async()=>{

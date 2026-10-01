@@ -1,16 +1,40 @@
 // Database rules enforce the same roles. Keep every UI entry point consistent.
-function posCanView(view){return !window._posAccessInvalidated&&!!window.PosAccess&&window.PosAccess.canView(window._posRole,view);}
+function posBusinessView(view){return ["floor","list","shifts","tableDetail","assignHistory"].includes(view);}
+function posCanView(view){return !window._posAccessInvalidated&&!!window.PosAccess&&window.PosAccess.canView(window._posRole,view)&&(!posBusinessView(view)||(typeof S!=="undefined"&&!!S.activeBizDay));}
 function posIsOp(){return !window._posAccessInvalidated&&window._posRole==="op";}
 function posCanStartBusiness(){return !window._posAccessInvalidated&&!!window.PosAccess?.canStartBusiness(window._posRole);}
 function posDefaultView(){return S.activeBizDay?(posCanView("floor")?"floor":posCanView("list")?"list":"home"):"home";}
 function posDenyAccess(){if(typeof sbs==="function")sbs(false,"この機能の利用権限がありません");return false;}
 function posRequireView(view){return posCanView(view)||posDenyAccess();}
+function posRequireAttendanceBusinessDay(expectedBizDay=S.activeBizDay){
+  if(!posCanView("shifts")||!expectedBizDay||expectedBizDay!==S.activeBizDay){
+    if(typeof sbs==="function")sbs(false,!S.activeBizDay?"営業開始後に出勤を登録してください":"営業状態が変更されています。出勤画面を開き直してください");
+    return false;
+  }
+  return true;
+}
+function posBusinessModal(name){
+  return ["shift","tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation","opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est","deleteSession","endBizDay"].includes(name)||String(name||"").startsWith("ci-")||String(name||"").startsWith("liquor_");
+}
+function invalidateBusinessDayDialogs(previous,next){
+  if(previous===next)return;
+  if(typeof shiftMd!=="undefined")shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
+  if(typeof md!=="undefined"&&(posBusinessModal(md)||md==="startBizDay")){
+    md=null;
+    const modal=document.getElementById("md");if(modal)modal.innerHTML="";
+  }
+  const floor=document.getElementById("floor-order-modal");if(floor)floor.style.display="none";
+  if(typeof at!=="undefined")at=null;
+  window._detailTid=null;
+  if(typeof vw!=="undefined"&&posBusinessView(vw))vw=posDefaultView();
+}
 function posCanOpenModal(name){
   if(window._posAccessInvalidated)return false;
   if(!name)return true;
   if(!window.PosAccess?.normalizeRole(window._posRole))return false;
+  if(posBusinessModal(name)&&!(typeof S!=="undefined"&&S.activeBizDay))return false;
+  if(name==="startBizDay")return posCanStartBusiness()&&!S.activeBizDay;
   if(posIsOp())return true;
-  if(name==="startBizDay")return posCanStartBusiness();
   if(["releaseNotes","firebaseLock","sessionConflict"].includes(name))return true;
   if(name==="settingsEditor")return posCanView("settings");
   if(name==="shift")return posCanView("shifts");
@@ -25,7 +49,7 @@ function posLimitedHome(){
   return '<section class="access-home"><h2>'+escape(window.PosAccess?.label(role)||"アクセス確認中")+'</h2><p>'
     +(S.activeBizDay?'営業日：'+escape(S.activeBizDay):posCanStartBusiness()?'現在営業していません。営業日を選択して開始してください。':'現在営業していません。営業開始はキャッシャーまたはOPアカウントで操作してください。')
     +'</p>'+(!S.activeBizDay&&posCanStartBusiness()?'<button class="btn access-start-business" onclick="om(\'startBizDay\')">営業を開始する</button>':'')
-    +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
+    +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]&&posCanView(tab)).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
 }
 window.posClearPrivateState=function(){
   if(typeof S!=="undefined"){

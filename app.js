@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.157";
+const APP_VERSION="6.157.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -447,7 +447,7 @@ function togglePriceHide(){
 
 // ===== FIREBASE =====
 const POS_CORE_SYNC_PATHS=["appVersion","casts","castLifecycleLogs","menus","tables","sessions","tablePreparations","history","shifts","assignments","activeBizDay","loMode","loStatus","config","_capabilities"];
-const BIZ_DAYS_VIEWS=new Set(["shifts","backupDetail"]);
+const BIZ_DAYS_VIEWS=new Set(["backupDetail"]);
 const HISTORY_PAGE_SIZE=24;
 const BACKUP_VIEWS=new Set(["admin","backupDetail"]);
 const lazyDataState={
@@ -555,6 +555,8 @@ function applyPosCoreValue(db,path,value){
     const previous=S.activeBizDay;
     S.activeBizDay=value||null;
     if(previous!==S.activeBizDay){
+      invalidateBusinessDayDialogs(previous,S.activeBizDay);
+      updateNav();
       const listState=lazyDataState.bizDayList;
       listState.status="idle";listState.ids=[];listState.oldestKey=null;listState.hasMore=true;
     }
@@ -1232,12 +1234,13 @@ async function readRemoteActiveShiftsForCast(castId){
   }));
   return found;
 }
-async function guardedShiftDelete(shiftId,expected){
+async function guardedShiftDelete(shiftId,expected,expectedActiveBizDay=S.activeBizDay){
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))throw Object.assign(new Error("ATTENDANCE_BUSINESS_CLOSED"),{userMessage:"営業開始後に出勤画面を開き直してください。"});
   const relative="shifts/"+shiftId;
   await guardedCheckedNodeUpdate({[FB_ROOT+"/"+relative]:null},root=>{
     if(!expected.clockOut&&remoteActiveAssign(root,expected.castId))return{ok:false,message:"付け回し中の出退勤記録は削除できません。先に付け回しを終了してください。"};
     return{ok:true};
-  },{expectedRecords:{[relative]:expected},readActiveAssignCasts:expected.clockOut?[]:[expected.castId]});
+  },{expectedActiveBizDay,expectedRecords:{[relative]:expected},readActiveAssignCasts:expected.clockOut?[]:[expected.castId]});
   return true;
 }
 function syncVersionedRecordsFromPrepared(prepared){
@@ -1341,7 +1344,7 @@ async function guardedScopedCommit(root,updates,options={}){
     if(isFirebasePermissionDenied(error))throw Object.assign(new Error("scoped conflict"),{userMessage:"対象データが他端末で変更されたか、保存ルールが更新されています。最新状態を確認してから再実行してください。"});
     throw error;
   }
-  if(!options.deferLocalApply){
+  if(!options.deferLocalApply&&(S.activeBizDay||null)===expectedActive){
     Object.keys(updates).forEach(path=>{
       const info=scopedRecordInfo(path);
       if(info?.collection==="sessions")syncRemoteSession(info.id,prepared[path]||null);
@@ -1437,6 +1440,9 @@ function refreshAfterOptimisticUpdate(){
   refreshFloorModal();
 }
 async function guardedCheckedUpdateOptimistic(updates,checker,options={}){
+  // Attendance waits for server acceptance so a day switch cannot restore an
+  // optimistic snapshot from the previous business day into the new one.
+  if(options.deferOptimistic)return guardedCheckedNodeUpdate(updates,checker,{...options,...options.nodeUpdate});
   const snap=snapshotLocalRootPaths(updates);
   markOptimisticPaths(updates);
   applyLocalRootUpdates(updates);
@@ -2541,7 +2547,7 @@ function render(){
 startLazyViewDataLoad(vw,false);
 const lazyState=lazyViewDataState(vw);
 if(lazyState)m.innerHTML=renderLazyViewState(vw,lazyState);
-else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis","accounts"].includes(vw)))m.innerHTML=rHome();
+else if(vw==="home"||(!S.activeBizDay&&!["history","settings","histlog","admin","backupDetail","analysis","accounts"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -2597,8 +2603,8 @@ function sv(v,extra){
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
   if(v==="admin"&&!posIsOp())return;
-  // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin","accounts"];
+  // 設定とOPの過去データ閲覧は営業前も可能。出勤・フロア・リストは営業中のみ。
+  const alwaysOk=["home","histlog","history","analysis","settings","backupDetail","admin","accounts"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["tableDetail","assignHistory"].includes(v))at=null;
@@ -7139,6 +7145,7 @@ h+='</div>';
 
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
+  if(md==="shift"&&(!posRequireAttendanceBusinessDay(shiftMd.bizDayId))){md=null;c.innerHTML="";return;}
   if(!posCanOpenModal(md)){md=null;c.innerHTML="";posDenyAccess();return;}
   if(!md){c.innerHTML="";return;}
   if(md==="releaseNotes"){const notes=getReleaseNotes();c.innerHTML=notes?.renderModal()||"";notes?.mountModal();return;}
@@ -8400,7 +8407,7 @@ else{
     // 退勤登録 or 退勤取消
     +(sh.clockOut
       ?'<button class="btn" data-sid14="'+sh.id+'" onclick="cancelClockOut(this.dataset.sid14)" style="width:100%;padding:14px;background:rgba(74,222,128,.1);border:2px solid rgba(74,222,128,.3);color:#4ade80;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">↩ 退勤を取消して出勤に戻す</button>'
-      :'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15)};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">退勤登録</button>'
+      :'<button class="btn" data-sid13="'+sh.id+'" onclick="shiftMd={step:\'time\',mode:\'out\',castId:\''+castId+'\',shiftId:this.dataset.sid13,time:roundHHMM(15),bizDayId:S.activeBizDay};md=\'shift\';rModal()" style="width:100%;padding:14px;background:rgba(255,80,80,.12);border:2px solid rgba(255,80,80,.35);color:#ff6b6b;border-radius:8px;font-size:15px;font-weight:700;margin-bottom:10px;touch-action:manipulation;">退勤登録</button>'
     )
     +'<button class="btn" data-cid12="'+castId+'" onclick="window._historyCastId=this.dataset.cid12;md=\'castHistory\';rModal()" style="width:100%;padding:11px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:6px;font-size:13px;touch-action:manipulation;">付け回し履歴</button>'
     +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:12px;color:#555;background:none;">閉じる</button>'
@@ -8634,7 +8641,7 @@ async function doh(){
 // ===== 出勤・退勤 =====
 const ASSIGN_TYPES={hon:{label:"本指名",col:"#ff4444"},free:{label:"フリー",col:"#38bdf8"},help:{label:"ヘルプ",col:"#e8dcc8"},banai:{label:"場内指名",col:"#4ade80"}};
 const TYPE_SFX={hon:"本",free:"F",help:"H",banai:"場"};
-let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:""};
+let shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
 let tsukeMd={step:"cast",castId:null,type:null,time:"",useNow:true};
 
 function nowHHMM(){const d=new Date();return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
@@ -8704,10 +8711,11 @@ function remoteActiveAssign(root,castId,ignoreIds=[]){
   return Object.values(root.assignments||{}).find(a=>String(a.castId)===String(castId)&&!a.endTime&&!ignored.includes(String(a.id)));
 }
 
-async function clockIn(castId,time){
+async function clockIn(castId,time,expectedActiveBizDay=S.activeBizDay){
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))return;
   const c=S.casts.find(c=>String(c.id)===String(castId));
   if(!c)return;
-  const t=hhmm2ts(time||nowHHMM());
+  const t=hhmm2ts(time||nowHHMM(),expectedActiveBizDay);
   const sid="sh_"+Date.now()+"_"+Math.random().toString(36).slice(2,7);
   // statusLogは待機・休憩の開始/終了を記録する配列
   const castType=normalizeCastType(c.castType,c.isTrial,c.status);
@@ -8720,8 +8728,9 @@ async function clockIn(castId,time){
           if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
           return{ok:true};
         },
-        {createRecords:["shifts/"+sid],nodeUpdate:{createRecords:["shifts/"+sid],readActiveShiftCasts:[castId]}}
+        {deferOptimistic:true,expectedActiveBizDay,createRecords:["shifts/"+sid],nodeUpdate:{expectedActiveBizDay,createRecords:["shifts/"+sid],readActiveShiftCasts:[castId]}}
       );
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -8743,11 +8752,12 @@ sh.statusLog.push({status:newStatus,startTime:changedAt,endTime:null});
   sh.status=newStatus;
   return sh;
 }
-async function clockOut(shiftId,time){
+async function clockOut(shiftId,time,expectedActiveBizDay=S.activeBizDay){
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))return;
   const current=S.shifts[shiftId];if(!current)return;
   const expected=cloneData(current);
   const desired=cloneData(current);
-  desired.clockOut=hhmm2ts(time||nowHHMM());
+  desired.clockOut=hhmm2ts(time||nowHHMM(),expectedActiveBizDay);
   // 退勤が出勤より前なら翌日扱い
   if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
   if(desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
@@ -8762,8 +8772,9 @@ async function clockOut(shiftId,time){
           if(remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤できません。先に付け回しを終了してください。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveAssignCasts:[current.castId]}}
+        {deferOptimistic:true,expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},readActiveAssignCasts:[current.castId]}}
       );
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -8774,6 +8785,8 @@ async function clockOut(shiftId,time){
 function saveLocalBackup(){/* localStorageバックアップは廃止、Firebase backup/bizDaysを使用 */}
 
 async function cancelClockOut(shiftId){
+  const expectedActiveBizDay=S.activeBizDay;
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))return;
   if(!confirm("退勤をキャンセルして出勤状態に戻します。よろしいですか？"))return;
   const current=S.shifts[shiftId];if(!current)return;
   const expected=cloneData(current);
@@ -8790,8 +8803,9 @@ async function cancelClockOut(shiftId){
           if(other)return{ok:false,message:"このキャストは別の出勤記録ですでに出勤中です。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId]}}
+        {deferOptimistic:true,expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId]}}
       );
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -8800,31 +8814,36 @@ async function cancelClockOut(shiftId){
   });
 }
 function confirmShiftTime(){
+  if(!posRequireAttendanceBusinessDay(shiftMd.bizDayId))return;
   const el=document.getElementById("shift-time");
   const t=(el&&el.value)?el.value:nowHHMM();
   if(shiftMd.mode==="in"){
-clockIn(shiftMd.castId,t);
+clockIn(shiftMd.castId,t,shiftMd.bizDayId);
   }else{
-clockOut(shiftMd.shiftId,t);
+clockOut(shiftMd.shiftId,t,shiftMd.bizDayId);
   }
 }
 function openShiftMd(mode){
-  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:roundHHMM(15)};
+  if(!posRequireAttendanceBusinessDay())return;
+  shiftMd={step:"cast",mode,castId:null,shiftId:null,time:roundHHMM(15),bizDayId:S.activeBizDay};
   md="shift";rModal();
 }
 function editShift(sid){
-  shiftMd.step="edit";shiftMd.shiftId=sid;md="shift";rModal();
+  if(!posRequireAttendanceBusinessDay())return;
+  shiftMd={step:"edit",mode:"in",castId:null,shiftId:sid,time:"",bizDayId:S.activeBizDay};md="shift";rModal();
 }
 async function saveShiftEdit(){
+  const expectedActiveBizDay=shiftMd.bizDayId;
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))return;
   const shiftId=shiftMd.shiftId;
   const current=S.shifts[shiftId];if(!current)return;
   const expected=cloneData(current);
   const desired=cloneData(current);
   const inEl=document.getElementById("se-in");
   const outEl=document.getElementById("se-out");
-  if(inEl&&inEl.value)desired.clockIn=hhmm2ts(inEl.value);
+  if(inEl&&inEl.value)desired.clockIn=hhmm2ts(inEl.value,expectedActiveBizDay);
   if(outEl&&outEl.value){
-desired.clockOut=hhmm2ts(outEl.value);
+desired.clockOut=hhmm2ts(outEl.value,expectedActiveBizDay);
 if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
   }else{desired.clockOut=null;}
   if(desired.clockOut&&desired.clockOut-desired.clockIn>86400000){alert("勤務時間は24時間以内にしてください。");return;}
@@ -8838,8 +8857,9 @@ if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
           if(!current.clockOut&&desired.clockOut&&remoteActiveAssign(root,current.castId))return{ok:false,message:"付け回し中のため退勤時刻を設定できません。先に付け回しを終了してください。"};
           return{ok:true};
         },
-        {expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId],readActiveAssignCasts:[current.castId]}}
+        {deferOptimistic:true,expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},nodeUpdate:{expectedActiveBizDay,expectedRecords:{["shifts/"+shiftId]:expected},readActiveShiftCasts:[current.castId],readActiveAssignCasts:[current.castId]}}
       );
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -8848,12 +8868,15 @@ if(desired.clockOut<=desired.clockIn)desired.clockOut+=86400000;
   });
 }
 async function deleteShift(sid){
+  const expectedActiveBizDay=md==="shift"?shiftMd.bizDayId:S.activeBizDay;
+  if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))return;
   const current=S.shifts[sid];if(!current)return;
   if(!confirm("この出退勤記録を削除します。よろしいですか？"))return;
   const expected=cloneData(current);
   await withDataOperation("cast:"+current.castId,async()=>{
     try{
-      await guardedShiftDelete(sid,expected);
+      await guardedShiftDelete(sid,expected,expectedActiveBizDay);
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
     }catch(e){
       sbs(false,"保存エラー");
@@ -8862,6 +8885,7 @@ async function deleteShift(sid){
   });
 }
 function exportShiftCSV(){
+  if(!posRequireAttendanceBusinessDay())return;
   const data=Object.values(S.shifts||{});
   if(!data.length){alert("出勤データがありません");return;}
   const bom="\uFEFF";
@@ -9083,6 +9107,7 @@ async function deleteAssign(aid){
 
 // ===== 出勤画面 =====
 function rShifts(){
+  if(!posCanView("shifts"))return '<div class="access-home">営業開始後に出勤画面を開いてください。</div>';
   // S.shiftsは現在の営業日データのみ含むため、追加フィルタリング不要
   const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
   const onIds=getOndutyIds();

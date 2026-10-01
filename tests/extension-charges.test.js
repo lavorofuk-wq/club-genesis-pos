@@ -13,7 +13,7 @@ function runtime({guests=1,room='vip',fail=false}={}){
   const ctx={
     Date:Clock,at:'t1',md:'ext',chargeSaveBusy:false,chargeSaveFailure:null,chargeTargetId:'base',chargeLegacyId:'',failSave:fail,
     extRoomIncluded:true,extSingleIncluded:true,chargeSessionIdentity:null,banaiExtCastIds:[],
-    S:{casts:[],assignments:{},menus:{
+    S:{activeBizDay:'2026-10-02',casts:[],assignments:{},menus:{
       options:[{id:'sc',price:2000}],
       vip:[{id:'v60',label:'VIP60',price:30000,minutes:60}],
       karaoke:[{id:'k60',label:'Karaoke60',price:2000,minutes:60}],
