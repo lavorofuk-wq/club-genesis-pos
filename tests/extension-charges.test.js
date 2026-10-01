@@ -2,6 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
+const {installAccessRuntime}=require('./helpers/access-runtime.cjs');
 const {source,clone,emulator,fixture}=require('./helpers/scoped-runtime.cjs');
 
 const scLabel='\u30b7\u30f3\u30b0\u30eb\u30c1\u30e3\u30fc\u30b8';
@@ -33,6 +34,7 @@ function runtime({guests=1,room='vip',fail=false}={}){
   };
   ctx.save=(path,s)=>ctx.queueSessionSave('t1',s);
   vm.createContext(ctx);
+  installAccessRuntime(ctx);
   for(const [from,to] of [
     ['function roomTypeFromItem','async function addBanai'],
     ['async function remItem','// qty '],
@@ -251,7 +253,7 @@ test('increasing current guests does not silently preselect a single charge',()=
 
 test('charge modal prevents close and navigation while saving and lists the whole parent deletion',async()=>{
   const c=runtime(),modal={innerHTML:''};
-  Object.assign(c,{DEV:'mobile',checkoutBusy:false,tableChangeBusy:false,entryTimeBusy:false,window:{},
+  Object.assign(c,{DEV:'mobile',checkoutBusy:false,tableChangeBusy:false,entryTimeBusy:false,
     document:{getElementById:id=>id==='md'?modal:null},fmt:value=>String(value)});
   vm.runInContext(source('function rModal(){','function scc('),c);
   vm.runInContext(source('function om(name)','// ===== RECEIPT PRINT ====='),c);

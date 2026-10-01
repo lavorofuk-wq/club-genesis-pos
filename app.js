@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.155.3";
+const APP_VERSION="6.156";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -502,7 +502,7 @@ function subscribeActiveBizDayRecord(db,bizDayId){
   if(activeBizDayRecordRef)activeBizDayRecordRef.off();
   activeBizDayRecordRef=null;
   activeBizDayRecordId=nextId;
-  if(!nextId){finishInitialPosSyncPath("$activeBizDayRecord");return;}
+  if(!nextId||(window.PosAccess&&!window.PosAccess.canReadPath(window._posRole,"bizDays"))){finishInitialPosSyncPath("$activeBizDayRecord");return;}
   const ref=db.ref(FB_ROOT+"/bizDays/"+nextId);
   activeBizDayRecordRef=ref;
   ref.on("value",snap=>{
@@ -577,8 +577,9 @@ function applyPosCoreValue(db,path,value){
   handlePosSyncRender(settingsChanged);
 }
 function subscribePosCoreData(db){
-  initialPosSyncPending=new Set([...POS_CORE_SYNC_PATHS,"$activeBizDayRecord"]);
-  POS_CORE_SYNC_PATHS.forEach(path=>{
+  const paths=POS_CORE_SYNC_PATHS.filter(path=>!window.PosAccess||window.PosAccess.canReadPath(window._posRole,path));
+  initialPosSyncPending=new Set([...paths,"$activeBizDayRecord"]);
+  paths.forEach(path=>{
     db.ref(FB_ROOT+"/"+path).on("value",snap=>applyPosCoreValue(db,path,snap.val()),()=>{
       if(path==="appVersion")window._posVersionCheckFailed=true;
       finishInitialPosSyncPath(path);
@@ -749,6 +750,7 @@ function removeCachedBackupDay(key){
   if(S.backups?.bizDays)delete S.backups.bizDays[key];
 }
 function startLazyViewDataLoad(view,refresh=false){
+  if(window.PosAccess&&(!window.PosAccess.canView(window._posRole,view)||window._posRole!=="op"))return null;
   const tasks=[];
   const bizState=lazyDataState.bizDays;
   const listState=lazyDataState.bizDayList;
@@ -762,6 +764,7 @@ function startLazyViewDataLoad(view,refresh=false){
   return tasks.length?Promise.all(tasks):null;
 }
 function lazyViewDataState(view){
+  if(window.PosAccess&&window._posRole!=="op")return null;
   if(view==="admin")return null;
   const states=[];
   if(BIZ_DAYS_VIEWS.has(view))states.push(lazyDataState.bizDays);
@@ -791,7 +794,7 @@ function initFB(){
   // 自分が最新バージョンならFirebaseにブロードキャスト（古い端末への再読み込み要求用）
   db.ref(FB_ROOT+"/appVersion").once("value",snap=>{
 rememberServerAppVersion(snap.val());
-if(_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION,{allowBeforeFirstSync:true,silent:true}).catch(()=>{});
+if((!window.PosAccess||window._posRole==="op")&&_verNum(APP_VERSION)>=_verNum(snap.val()||"0"))guardedSet("appVersion",APP_VERSION,{allowBeforeFirstSync:true,silent:true}).catch(()=>{});
   });
   // Service Workerの更新を即座にチェック
   if('serviceWorker' in navigator){
@@ -2488,18 +2491,19 @@ function renderOrderPartial(){refreshFloorModal();}
 
 function updateNav(){
   const inBiz=!!S.activeBizDay;
-  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+  const isAdmin=posIsOp()&&sessionStorage.getItem("genesis_admin")==="1";
   const nav=document.getElementById("main-nav");
   if(nav)nav.style.display="flex"; // 常時表示
   const opsBtn=document.getElementById("ops-btn");
-  if(opsBtn)opsBtn.style.display=inBiz?"":"none";
+  if(opsBtn)opsBtn.style.display=inBiz&&posCanView("floor")?"":"none";
   [["nf","floor"],["nli","list"],["nsh","shifts"],["nh","history"],["nan","analysis"],["ns","settings"],["nm","admin"]].forEach(([id,v])=>{
 const el=document.getElementById(id);if(!el)return;
+if(!posCanView(v)){el.style.display="none";return;}
 // フロア・リスト・出勤・売上は営業中のみ表示
 const bizOnly=["floor","list","shifts","history"].includes(v);
 if(bizOnly){el.style.display=inBiz?"":"none";}
 // 管理は管理モード時のみ
-else if(v==="admin"){el.style.display=isAdmin?"":"none";}
+else if(v==="admin"){el.style.display=posIsOp()?"":"none";}
 // 設定は常時表示
 else{el.style.display="";}
 el.className="nb"+((v==="floor"&&vw==="floor")||(v==="list"&&["list","tableDetail","assignHistory"].includes(vw))||(v===vw)?" ac":"");
@@ -2510,6 +2514,11 @@ el.className="nb"+((v==="floor"&&vw==="floor")||(v==="list"&&["list","tableDetai
   else if(opsBtn2){opsBtn2.style.background="rgba(212,160,23,.12)";opsBtn2.style.color="#d4a017";opsBtn2.style.borderColor="rgba(212,160,23,.3)";}
   // 管理ボタン: 管理モード中はゴールドハイライト
   const mgmtBtn=document.getElementById("mgmt-btn");
+  if(mgmtBtn)mgmtBtn.style.display=posIsOp()?"":"none";
+  const accountBtn=document.getElementById("account-access-btn");
+  if(accountBtn)accountBtn.style.display=posIsOp()?"":"none";
+  const roleLabel=document.getElementById("account-role-label");
+  if(roleLabel)roleLabel.textContent=window.PosAccess?.label(window._posRole)||"";
   if(mgmtBtn&&isAdmin){mgmtBtn.style.background="rgba(212,160,23,.15)";mgmtBtn.style.color="#d4a017";mgmtBtn.style.borderColor="rgba(212,160,23,.3)";}
   else if(mgmtBtn){mgmtBtn.style.background="rgba(255,80,80,.12)";mgmtBtn.style.color="#ff6b6b";mgmtBtn.style.borderColor="rgba(255,80,80,.3)";}
   // 管理モード中のヘッダー強調
@@ -2517,13 +2526,15 @@ el.className="nb"+((v==="floor"&&vw==="floor")||(v==="list"&&["list","tableDetai
   if(header){header.style.borderBottom=isAdmin?"2px solid rgba(212,160,23,.5)":"";header.style.background=isAdmin?"rgba(212,160,23,.04)":"";}
 }
 function render(){
+  if(window._posAccessInvalidated)return;
+  if(!posCanView(vw))vw=posDefaultView();
   updateNav();
   const m=document.getElementById("m");if(!m)return;
   try{
 startLazyViewDataLoad(vw,false);
 const lazyState=lazyViewDataState(vw);
 if(lazyState)m.innerHTML=renderLazyViewState(vw,lazyState);
-else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis"].includes(vw)))m.innerHTML=rHome();
+else if(vw==="home"||(!S.activeBizDay&&!["history","shifts","settings","histlog","admin","backupDetail","analysis","accounts"].includes(vw)))m.innerHTML=rHome();
 else if(vw==="floor")m.innerHTML=rFloor();
 else if(vw==="list")m.innerHTML=rList();
 else if(vw==="tableDetail")m.innerHTML=rTableDetail();
@@ -2535,6 +2546,7 @@ else if(vw==="settings")m.innerHTML=rSettings();
 else if(vw==="admin")m.innerHTML=rAdmin();
 else if(vw==="backupDetail")m.innerHTML=rBackupDetail();
 else if(vw==="histlog")m.innerHTML=rHistLog();
+else if(vw==="accounts")m.innerHTML=rAccountAccess();
   }catch(e){
 console.error("render error:",vw,e);
 m.innerHTML='<div style="padding:20px;color:#ff6b6b;font-size:13px;">表示エラー: '+e.message+'<br><button class="btn" onclick="sv(\'home\')" style="margin-top:12px;padding:8px 16px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:4px;">ホームへ戻る</button></div>';
@@ -2570,23 +2582,26 @@ document.addEventListener("focusout",()=>{
   setTimeout(()=>{if(vw==="settings")scheduleRender();},0);
 });
 function sv(v,extra){
+  if(!posRequireView(v))return;
   if(typeof settingsSaving==="function"&&settingsSaving())return;
   if(md==="settingsEditor"){settingsClose();if(md==="settingsEditor")return;}
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;
   if(v==="tableDetail"&&tablePreparationPending(extra)){openTablePreparation(extra);return;}
   const _fom=document.getElementById("floor-order-modal");if(_fom)_fom.style.display="none";
   // 管理タブは管理モード時のみアクセス可
-  if(v==="admin"&&sessionStorage.getItem("genesis_admin")!=="1")return;
+  if(v==="admin"&&!posIsOp())return;
   // home・histlog・history・shifts・settings・adminは営業日に関係なく常時アクセス可
-  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin"];
+  const alwaysOk=["home","histlog","history","analysis","shifts","settings","backupDetail","admin","accounts"];
   if(!S.activeBizDay&&!alwaysOk.includes(v))return;
   if(v==="tableDetail"&&extra)window._detailTid=extra;
   vw=v;if(!["tableDetail","assignHistory"].includes(v))at=null;
+  if(v==="accounts")ensureAccountAccessLoaded();
   startLazyViewDataLoad(v,true);
   render();
 }
 function tc2(id){if(tablePreparationPending(id)){openTablePreparation(id);}else if(!S.sessions[id]){openCheckinWizard(id);}else{openFloorDetail(id);}}
 function openFloorDetail(id){
+  if(!posRequireView("floor"))return;
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;
   at=id;etv=new Date(S.sessions[id].startTime).toTimeString().slice(0,5);
   const fom=document.getElementById("floor-order-modal");if(!fom)return;
@@ -2605,6 +2620,7 @@ function closeFloorDetail(){
   at=null;render();
 }
 function refreshFloorModal(){
+  if(!posCanView("floor"))return;
   const fom=document.getElementById("floor-order-modal");
   if(!fom||fom.style.display==="none")return;
   if(_floorModalRefreshPending)return;
@@ -2617,6 +2633,7 @@ function refreshFloorModal(){
   });
 }
 function buildFloorOrderContent(){
+  if(!posCanView("floor"))return "";
   const s=S.sessions[at];if(!s)return'';
   const tl=S.tables.find(t=>t.id===at)?.label||'';
   const hn=(s.items||[]).filter(i=>i.isHonShimei).map(itemCastName).filter(Boolean);
@@ -2712,7 +2729,7 @@ return '<div style="height:'+colH+';overflow-y:auto;margin-bottom:6px;">'+inner+
 +'</div>'
 +'</div></div>';
 // BOTTOM
-const _isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+const _isAdmin=posIsOp()&&sessionStorage.getItem("genesis_admin")==="1";
 html+='<div style="flex-shrink:0;display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.06);">'
 +'<div style="flex:1;"><div style="font-size:'+fColH+';color:#666;margin-bottom:2px;">合計</div>'
 +'<div style="font-size:'+fTotal+';font-weight:700;color:#d4a017;" id="fom-total">'+pAmt(total)+'</div></div>'
@@ -2728,6 +2745,7 @@ return html;
 
 // ===== HOME & 営業日管理 =====
 function rHome(){
+  if(!posIsOp())return posLimitedHome();
   const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
   let html='<div class="pos-home" style="max-width:480px;margin:0 auto;padding-top:32px;">';
   html+='<div style="text-align:center;margin-bottom:40px;">';
@@ -4407,7 +4425,7 @@ const banaiNames=histRec?(histRec.items||[]).filter(i=>i.isBanaiShimei).map(item
 const note=histRec?.note||"";
 
 // セッションヘッダー
-const _canViewBill=!!histRec;
+const _canViewBill=!!histRec&&posCanView("history");
 html+='<div class="glass" style="border-radius:10px;margin-bottom:10px;overflow:hidden;">';
 html+='<div style="padding:10px 14px;background:rgba(212,160,23,.08);border-bottom:2px solid rgba(212,160,23,.2);display:flex;align-items:center;flex-wrap:wrap;gap:8px;'+(_canViewBill?'cursor:pointer;':'')+'" '
   +(_canViewBill?'data-hrid="'+histRec.id+'" onclick="window._viewHistRec=(S.history||[]).find(h=>h.id===Number(this.dataset.hrid));md=\'viewHistDetail\';rModal()"':'')+' >';
@@ -4603,6 +4621,7 @@ desired.attachedAt=desired.startTime; // カウントアップ基準も同期
 // ===== CHECKIN =====
 function resetCheckinState(){ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};etv=roundHHMM(5);}
 function openCheckinWizard(tableId){
+  if(!posRequireView("floor"))return;
   if(checkoutBusy||tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy||checkinBusy)return;
   if(tablePreparationPending(tableId)){openTablePreparation(tableId);return;}
   at=tableId;resetCheckinState();md="ci-guests";rModal();
@@ -5231,8 +5250,7 @@ function rSettings(){return getSettingsEditor().renderList(stab);}
 
 // ===== 管理タブ =====
 function rAdmin(){
-  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
-  if(!isAdmin)return '<div style="padding:20px;color:#666;">管理モードが必要です</div>';
+  if(!posIsOp())return '<div style="padding:20px;color:#666;">この機能の利用権限がありません</div>';
   let html='<div style="max-width:680px;margin:0 auto;">';
   html+='<h2 style="font-family:\'Cormorant Garamond\',serif;font-size:22px;color:#d4a017;margin-bottom:16px;">管理</h2>';
   // プリンター設定
@@ -5904,7 +5922,7 @@ async function dta(id){
 function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
-function om(name){if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
+function om(name){if(!posCanOpenModal(name)){posDenyAccess();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
 function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="releaseNotes"){acknowledgeReleaseNotes();return;}if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();}
 
 // ===== RECEIPT PRINT =====
@@ -7110,6 +7128,7 @@ h+='</div>';
 
 function rModal(){
   const c=document.getElementById("md");if(!c)return;
+  if(!posCanOpenModal(md)){md=null;c.innerHTML="";posDenyAccess();return;}
   if(!md){c.innerHTML="";return;}
   if(md==="releaseNotes"){const notes=getReleaseNotes();c.innerHTML=notes?.renderModal()||"";notes?.mountModal();return;}
   if(md==="settingsEditor"){const editor=getSettingsEditor();c.innerHTML=editor.renderModal();editor.mountModal?.();return;}
@@ -9188,7 +9207,8 @@ if(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.tagName==='SELECT'){
 
 // ===== 管理モード =====
 function toggleAdminMode(){
-  const isAdmin=sessionStorage.getItem("genesis_admin")==="1";
+  if(!posRequireView("admin"))return;
+  const isAdmin=posIsOp()&&sessionStorage.getItem("genesis_admin")==="1";
   if(isAdmin){
 // OFFにする
 sessionStorage.removeItem("genesis_admin");

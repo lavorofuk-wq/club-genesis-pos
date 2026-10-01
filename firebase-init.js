@@ -95,9 +95,30 @@
       }
     });
   }
-  async function isAuthorized(db,user){
-    const snap=await db.ref("access/authorizedUsers/"+user.uid).once("value");
-    return snap.val()===true;
+  async function readAuthorization(db,user){
+    const [allowed,role]=await Promise.all([
+      db.ref("access/authorizedUsers/"+user.uid).once("value"),
+      db.ref("access/roles/"+user.uid).once("value")
+    ]);
+    return allowed.val()===true?window.PosAccess.normalizeRole(role.val()):null;
+  }
+  function clearPrivateView(){
+    window._fbReady=false;
+    window._fbFirstSync=false;
+    window._posAccessInvalidated=true;
+    window._posRole=null;
+    window._posUid=null;
+    window._db=null;
+    const app=document.getElementById("app");
+    if(app){app.style.display="none";app.setAttribute("inert","");}
+    ["m","md","fom-inner","receipt-print-area"].forEach(id=>{
+      const el=document.getElementById(id);if(el)el.textContent="";
+    });
+    const modal=document.getElementById("floor-order-modal");if(modal)modal.style.display="none";
+    const password=document.getElementById("auth-password");if(password)password.value="";
+    if(typeof window.posClearPrivateState==="function"){
+      try{window.posClearPrivateState();}catch(_clearError){}
+    }
   }
   function exposeDatabase(db){
     window._db=db;
@@ -121,35 +142,78 @@
       if(!firebase.apps.length)firebase.initializeApp(cfg);
       const auth=firebase.auth();
       const db=firebase.database();
+      if(!window.PosAccess)throw new Error("Access policy is unavailable");
       await auth.setPersistence(firebase.auth.Auth.Persistence.SESSION);
       bindLogin(auth);
-      window.posSignOut=async function(){
-        try{await auth.signOut();}finally{window.location.reload();}
-      };
-      let authorizing=false;
+      let authSequence=0;
+      let invalidating=false;
+      let accessSubscriptions=[];
+      function stopAccessSubscriptions(){
+        accessSubscriptions.forEach(({ref,listener})=>ref.off("value",listener));
+        accessSubscriptions=[];
+      }
+      async function invalidateAccess(message){
+        if(invalidating)return;
+        invalidating=true;
+        authSequence++;
+        clearPrivateView();
+        stopAccessSubscriptions();
+        if(typeof db.goOffline==="function")db.goOffline();
+        showLogin(message||"");
+        try{await auth.signOut();}catch(_signOutError){}finally{window.location.reload();}
+      }
+      window.posSignOut=()=>invalidateAccess("");
+      function watchAuthorization(user,role){
+        const checks=[
+          ["access/authorizedUsers/"+user.uid,value=>value===true],
+          ["access/roles/"+user.uid,value=>value===role]
+        ];
+        checks.forEach(([path,valid])=>{
+          if(invalidating)return;
+          const ref=db.ref(path);
+          const listener=snap=>{
+            if(!valid(snap.val()))invalidateAccess("アクセス権限が変更されました。もう一度ログインしてください");
+          };
+          accessSubscriptions.push({ref,listener});
+          ref.on("value",listener,()=>invalidateAccess("アクセス権限を確認できませんでした。もう一度ログインしてください"));
+        });
+      }
       auth.onAuthStateChanged(async user=>{
-        if(window._fbReady&&!user){window.location.reload();return;}
+        if(invalidating)return;
+        const sequence=++authSequence;
+        if(window._fbReady&&(!user||user.uid!==window._posUid)){
+          await invalidateAccess("ログイン状態が変更されました。もう一度ログインしてください");return;
+        }
         if(!user){showLogin("");return;}
-        if(authorizing||window._fbReady)return;
-        authorizing=true;
+        if(window._fbReady)return;
         hideLogin();
         setLoading("アクセス権限を確認中...","許可されたアカウントか確認しています");
         try{
-          if(!await isAuthorized(db,user)){
+          const role=await readAuthorization(db,user);
+          if(invalidating||sequence!==authSequence)return;
+          if(!role){
             await auth.signOut();
-            showLogin("このアカウントにはPOSの利用権限がありません");
+            showLogin("このアカウントにはPOSの利用権限がありません。管理者に権限の設定を依頼してください");
             return;
           }
+          window._posRole=role;
+          window._posUid=user.uid;
+          window._posAccessInvalidated=false;
+          watchAuthorization(user,role);
+          if(invalidating||sequence!==authSequence)return;
           exposeDatabase(db);
         }catch(error){
-          console.error("Authorization check failed",error);
+          if(invalidating||sequence!==authSequence)return;
+          stopAccessSubscriptions();
+          window._posRole=null;
+          window._posUid=null;
+          console.error("Authorization check failed",error&&error.code||"unknown");
           try{await auth.signOut();}catch(_signOutError){}
           showLogin("アクセス権限を確認できませんでした。管理者に連絡してください");
-        }finally{
-          authorizing=false;
         }
       },error=>{
-        console.error("Auth state check failed",error);
+        if(window._fbReady){invalidateAccess("ログイン状態を確認できませんでした。もう一度ログインしてください");return;}
+        console.error("Auth state check failed",error&&error.code||"unknown");
         showLogin(authMessage(error));
       });
     }catch(e){

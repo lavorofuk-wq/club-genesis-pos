@@ -19,7 +19,7 @@ function getSettingsEditor(){
   });
   return settingsEditorInstance;
 }
-function settingsOpen(data){if(settingsCommitBusy)return;getSettingsEditor().open({...data});}
+function settingsOpen(data){if(window.PosAccess&&!window.PosAccess.canView(window._posRole,"settings"))return;if(settingsCommitBusy)return;getSettingsEditor().open({...data});}
 function settingsField(field,value){getSettingsEditor().update(field,value);}
 function settingsSubmit(){return getSettingsEditor().submit();}
 function settingsClose(){return getSettingsEditor().close();}
@@ -34,6 +34,7 @@ function settingsClearResolvedErrors(){
 }
 function settingsSaving(){return settingsCommitBusy||!!settingsEditorInstance?.isBusy();}
 function settingsRequireReady(){
+  if(window.PosAccess&&!window.PosAccess.canView(window._posRole,"settings"))throw Object.assign(new Error("SETTINGS_ACCESS_DENIED"),{code:"SETTINGS_ACCESS_DENIED",userMessage:"設定の利用権限がありません。"});
   if(requireFirebaseReady({silent:true}))return;
   const code=clientUpdateRequired()?"SETTINGS_UPDATE_REQUIRED":"SETTINGS_OFFLINE";
   throw Object.assign(new Error(code),{code,userMessage:clientUpdateRequired()

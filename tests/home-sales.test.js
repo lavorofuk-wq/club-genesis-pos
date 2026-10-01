@@ -1,6 +1,7 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
+const {installAccessRuntime}=require('./helpers/access-runtime.cjs');
 const {source}=require('./helpers/scoped-runtime.cjs');
 
 function runtime(overrides={}){
@@ -14,6 +15,7 @@ function runtime(overrides={}){
     handlePosSyncRender:()=>rendered.push(ctx.rHome())
   };
   vm.createContext(ctx);
+  installAccessRuntime(ctx);
   vm.runInContext(source('function fmt(','function isV('),ctx);
   vm.runInContext(source('function pAmt(','function togglePriceHide('),ctx);
   vm.runInContext(source('function rHome(){','function rHistLog(){'),ctx);
