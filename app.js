@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.155";
+const APP_VERSION="6.155.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const POS_CHARGES=window.PosChargeCore;
@@ -2729,7 +2729,7 @@ return html;
 // ===== HOME & 営業日管理 =====
 function rHome(){
   const active=S.activeBizDay?S.bizDays[S.activeBizDay]:null;
-  let html='<div style="max-width:480px;margin:0 auto;padding-top:32px;">';
+  let html='<div class="pos-home" style="max-width:480px;margin:0 auto;padding-top:32px;">';
   html+='<div style="text-align:center;margin-bottom:40px;">';
   html+='<div style="font-family:\'Cormorant Garamond\',serif;font-size:36px;font-weight:300;letter-spacing:.3em;color:#d4a017;">CLUB GENESIS</div>';
   html+='</div>';

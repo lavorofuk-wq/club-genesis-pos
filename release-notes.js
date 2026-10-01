@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.155.1',kind:'ui',title:'画面デザインを整理',changes:[
+      '配色・文字の強弱・区切り線を統一し、ホーム・フロア・ログイン・設定画面の装飾を整理しました。',
+      '計算・会計・データ保存の処理は変更していません。'
+    ]},
     {version:'6.155',kind:'feature',title:'会計終了済のセット時刻・超過時間',changes:[
       'フロア・リストの会計終了済テーブルに、セット開始時刻と延長を含むセット終了時刻を表示します。',
       'セット終了時刻からの超過時間を、テーブル準備が完了するまで更新します。'
