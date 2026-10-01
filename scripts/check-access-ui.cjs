@@ -42,6 +42,74 @@ async function fixture(page,role){
     vw='home';at=null;md=null;checkoutBusy=false;window.__qaBusiness=JSON.stringify(S);render();
   },role);
 }
+async function checkAttendanceLifecycle(page,role,size){
+  await page.evaluate(()=>{at=null;md=null;vw='home';render();});
+  assert.equal(await page.locator('#nsh').isVisible(),false,role+' hides attendance tab while closed');
+  assert.equal(await page.locator('#m [onclick="sv(\'shifts\')"]').count(),0,role+' hides closed attendance home shortcut');
+  assert.equal(await page.locator('#m [onclick="sv(\'floor\')"], #m [onclick="sv(\'list\')"]').count(),0,role+' hides closed operational shortcuts');
+  await page.evaluate(()=>sv('shifts'));assert.equal(await page.evaluate(()=>vw),'home','closed direct navigation stays at home');
+  await page.evaluate(()=>{vw='shifts';render();});assert.equal(await page.evaluate(()=>vw),'home','closed direct view is rejected');
+  assert.doesNotMatch(await page.evaluate(()=>rShifts()),/onclick="(?:openShiftMd|editShift|cancelClockOut|exportShiftCSV)/);
+  const closed=await page.evaluate(async()=>{
+    const before=JSON.stringify(S),writeCount=window.__qaWrites.length,originalConfirm=window.confirm;let confirmations=0;
+    window.confirm=()=>{confirmations++;return true;};
+    try{
+      openShiftMd('in');openShiftMd('out');editShift('sh1');
+      await clockIn(101,'21:00');await clockOut('sh1','22:00');
+      await cancelClockOut('sh1');await deleteShift('sh1');
+      shiftMd={step:'edit',mode:'in',castId:101,shiftId:'sh1',time:'21:00',bizDayId:'2026-10-02'};
+      await saveShiftEdit();confirmShiftTime();
+      md='shift';rModal();
+      return{unchanged:JSON.stringify(S)===before,writes:window.__qaWrites.length-writeCount,confirmations,modal:md};
+    }finally{window.confirm=originalConfirm;}
+  });
+  assert.deepEqual(closed,{unchanged:true,writes:0,confirmations:0,modal:null},role+' closed direct calls are harmless');
+  await page.screenshot({path:path.join(output,size+'-'+role+'-closed-attendance.png'),fullPage:true});
+  // Simulate realtime activeBizDay events, never a real database write. Archive subscription
+  // is irrelevant to these synthetic events and is already covered by the sync unit suite.
+  async function changeDay(day){
+    await page.evaluate(day=>{
+      const subscribe=subscribeActiveBizDayRecord;subscribeActiveBizDayRecord=()=>{};
+      try{applyPosCoreValue(window._db,'activeBizDay',day);}finally{subscribeActiveBizDayRecord=subscribe;}
+    },day);
+  }
+  await changeDay('2026-10-02');
+  await page.waitForFunction(()=>posCanView('shifts')&&document.getElementById('nsh').style.display!=='none');
+  await page.evaluate(()=>sv('shifts'));assert.equal(await page.evaluate(()=>vw),'shifts');
+  assert.match(await page.locator('#m').innerText(),/出勤登録/);
+  await page.evaluate(()=>openCastStatusModal(101));
+  await page.locator('#md [data-sid13="sh1"]').click();
+  assert.equal(await page.evaluate(()=>md),'shift','cast status can still open the clock-out shortcut');
+  assert.equal(await page.evaluate(()=>shiftMd.bizDayId),'2026-10-02','inline clock-out shortcut binds its business day');
+  await page.evaluate(()=>closeM());
+  await page.evaluate(()=>openShiftMd('in'));
+  assert.equal(await page.evaluate(()=>shiftMd.bizDayId),'2026-10-02');
+  assert.equal(await page.evaluate(()=>md),'shift');
+  await changeDay('2026-10-03');
+  assert.equal(await page.evaluate(()=>md),null,'a different business day closes the attendance dialog');
+  assert.equal(await page.evaluate(()=>vw===posDefaultView()),true,'a different business day leaves the stale attendance page');
+  assert.notEqual(await page.evaluate(()=>shiftMd.bizDayId),'2026-10-02','old business-day dialog data is cleared');
+  assert.equal(await page.locator('#md').innerHTML(),'','changed-day modal contents are removed');
+  await page.evaluate(()=>{sv('home');openShiftMd('in');});
+  assert.equal(await page.evaluate(()=>shiftMd.bizDayId),'2026-10-03');
+  await changeDay(null);
+  assert.equal(await page.evaluate(()=>md),null,'remote closure closes attendance dialog even from home');
+  assert.equal(await page.evaluate(()=>vw),'home');
+  assert.equal(await page.locator('#nsh').isVisible(),false,'remote closure immediately updates the navigation');
+  await page.evaluate(()=>{const before=window.__qaWrites.length;confirmShiftTime();if(window.__qaWrites.length!==before)throw new Error('Closed stale dialog submitted a write');});
+  await changeDay('2026-10-03');await page.evaluate(()=>{sv('shifts');openShiftMd('out');});
+  await changeDay(null);
+  assert.equal(await page.evaluate(()=>vw),'home','remote closure returns an attendance page home');
+  assert.equal(await page.evaluate(()=>md),null);
+  if(role!=='list'){
+    // Business-day synchronization must refresh hidden navigation even while the
+    // settings editor deliberately avoids a complete page rerender.
+    await page.evaluate(()=>sv('settings'));await changeDay('2026-10-03');
+    assert.equal(await page.locator('#nsh').isVisible(),true,'opening while in settings enables attendance');
+    await changeDay(null);assert.equal(await page.locator('#nsh').isVisible(),false,'closing while in settings disables attendance');
+  }
+  await page.evaluate(()=>{sv('home');render();});
+}
 async function main(){
   fs.mkdirSync(output,{recursive:true});
   const server=http.createServer((req,res)=>{
@@ -145,10 +213,11 @@ async function main(){
         assert.match(await page.locator('#m').innerText(),/営業開始はキャッシャーまたはOPアカウント/);
         assert.equal(await page.locator('#m [onclick*="startBizDay"]').count(),0);
       }
+      await checkAttendanceLifecycle(page,role,size);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,size+' '+role+' fits horizontal viewport');
       const contentOverflow=await page.locator('#m').evaluate(node=>node.scrollWidth>node.clientWidth+1);assert.equal(contentOverflow,false,'main content fits viewport');
       assert.deepEqual(errors,[],size+' '+role+' no browser errors');
-      console.log(size+' '+role+': navigation, home, direct view/modal guards, account permissions and layout passed');
+      console.log(size+' '+role+': navigation, home, direct view/modal guards, account permissions, closed attendance, remote day transitions and layout passed');
       await context.close();
     }
   }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

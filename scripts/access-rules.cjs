@@ -24,6 +24,33 @@ const CASHIER_WRITE_PATHS=[
   '_settingsRevisions','_settingsWriteMeta','_tableChangeOperations','_banaiOperations'
 ];
 
+// Lifecycle writes intentionally replace or clear the live collections together.
+// A fresh proof is required even before the optional legacy capabilities exist.
+function businessDayTransition(before,after){
+  const op=`${after}.child('_bizDayOperation')`;
+  const previous=`${before}.child('activeBizDay')`,next=`${after}.child('activeBizDay')`;
+  return [
+    `${op}.child('version').isNumber() && ${op}.child('version').val() >= 614400`,
+    `${op}.child('nonce').isString()`,
+    `${op}.child('nonce').val() != ${before}.child('_bizDayOperation/nonce').val()`,
+    `${op}.child('expectedActiveBizDay').val() == ${previous}.val()`,
+    `${op}.child('nextActiveBizDay').val() == ${next}.val()`,
+    `((!${previous}.exists() && ${next}.isString() && ${next}.val() != '' && ${op}.child('dayId').val() == ${next}.val() && (${op}.child('type').val() == 'start' || ${op}.child('type').val() == 'reopen')) || (${previous}.isString() && !${next}.exists() && ${op}.child('dayId').val() == ${previous}.val() && ${op}.child('type').val() == 'end'))`
+  ].map(part=>`(${part})`).join(' && ');
+}
+
+function liveShiftWrite(before,after){
+  return [
+    `${before}.child('activeBizDay').isString()`,`${before}.child('activeBizDay').val() != ''`,
+    `${after}.child('activeBizDay').val() == ${before}.child('activeBizDay').val()`,
+    `${after}.child('_scopedOperation/expectedActiveBizDay').val() == ${before}.child('activeBizDay').val()`,
+    `${after}.child('_scopedOperation/version').isNumber() && ${after}.child('_scopedOperation/version').val() >= 614400`,
+    `${after}.child('_scopedOperation/nonce').isString()`,
+    `${after}.child('_scopedOperation/nonce').val() != ${before}.child('_scopedOperation/nonce').val()`,
+    `${after}.child('_scopedOperation/records/shifts').exists()`
+  ].map(part=>`(${part})`).join(' && ');
+}
+
 // A cashier may create one empty, previously unused business day. Keep the
 // ancestor grants OP-only: a child grant cannot revoke an ancestor RTDB grant.
 function applyCashierStartRules(rules,writeGate){
@@ -114,7 +141,9 @@ function applyAccessRules(document){
     const rules=result.rules[name];
     if(!rules)throw new Error(`Missing ${name} rules`);
     const opPrefix=`${OP} && (`;
-    const priorRootWrite=rules['.write'];
+    const lifecycleSuffix=` && (${businessDayTransition('data','newData')})`;
+    const existingRootWrite=rules['.write'];
+    const priorRootWrite=typeof existingRootWrite==='string'&&existingRootWrite.endsWith(lifecycleSuffix)?existingRootWrite.slice(0,-lifecycleSuffix.length):existingRootWrite;
     if(typeof priorRootWrite!=='string')throw new Error(`Missing ${name} write gate`);
     const writeGate=priorRootWrite.startsWith(opPrefix)?priorRootWrite.slice(opPrefix.length,-1):priorRootWrite;
     // Parent grants cascade in RTDB: the POS root must be OP-only, and every old
@@ -129,18 +158,33 @@ function applyAccessRules(document){
     }
     for(const [key,value] of Object.entries(rules))if(value&&typeof value==='object')constrainDescendants(value,key);
     rules['.read']=OP;
-    rules['.write']=`${OP} && (${writeGate})`;
+    // No ordinary ancestor write grant: otherwise OP could bypass a denied shift
+    // deletion (RTDB does not run .validate on deleted records).
+    rules['.write']=`${OP} && (${writeGate})${lifecycleSuffix}`;
     for(const key of SHARED_READ_PATHS)rules[key]={...(rules[key]||{}),'.read':STAFF};
     for(const key of CASHIER_READ_PATHS)rules[key]={...(rules[key]||{}),'.read':CASHIER};
     const childGate=writeGate.replace(/\bnewData\b/g,'newData.parent()').replace(/\bdata\b/g,'data.parent()');
     for(const key of SHARED_WRITE_PATHS)rules[key]={...(rules[key]||{}),'.write':`${STAFF} && (${childGate})`};
     for(const key of CASHIER_WRITE_PATHS)rules[key]={...(rules[key]||{}),'.write':`${CASHIER} && (${childGate})`};
     applyCashierStartRules(rules,writeGate);
+    const opChildWrite=`${OP} && (${childGate})`;
+    for(const [key,node] of Object.entries(rules)){
+      if(key.startsWith('.')||key==='$other'||key==='shifts'||!node||typeof node!=='object')continue;
+      if(!node['.write'])node['.write']=opChildWrite;
+      else if(['activeBizDay','_bizDayOperation'].includes(key)&&!node['.write'].startsWith(`(${opChildWrite}) || (`))node['.write']=`(${opChildWrite}) || (${node['.write']})`;
+    }
+    // Explicit paths, especially shifts, shadow this OP-only compatibility grant.
+    rules.$other={...(rules.$other||{}),'.write':opChildWrite};
+    const shiftGuard=`(${liveShiftWrite('data.parent()','newData.parent()')}) || (${businessDayTransition('data.parent()','newData.parent()')})`;
+    rules.shifts['.write']=`${STAFF} && (${childGate}) && (${shiftGuard})`;
+    const shift=rules.shifts.$shiftId;
+    const legacyGuard=`(${liveShiftWrite('data.parent().parent()','newData.parent().parent()')}) || (${businessDayTransition('data.parent().parent()','newData.parent().parent()')})`;
+    if(!shift['.write'].includes("child('_scopedOperation/expectedActiveBizDay')"))shift['.write']=`(${shift['.write']}) && (${legacyGuard})`;
   }
   for(const name of ['backup','backup-dev'])result.rules[name]={...(result.rules[name]||{}),'.read':OP,'.write':OP};
   return result;
 }
-module.exports={applyAccessRules,SHARED_READ_PATHS,CASHIER_READ_PATHS,SHARED_WRITE_PATHS,CASHIER_WRITE_PATHS};
+module.exports={applyAccessRules,businessDayTransition,liveShiftWrite,SHARED_READ_PATHS,CASHIER_READ_PATHS,SHARED_WRITE_PATHS,CASHIER_WRITE_PATHS};
 if(require.main===module){
   const file=path.join(__dirname,'..','database.rules.json');
   fs.writeFileSync(file,JSON.stringify(applyAccessRules(JSON.parse(fs.readFileSync(file,'utf8'))),null,2)+'\n');

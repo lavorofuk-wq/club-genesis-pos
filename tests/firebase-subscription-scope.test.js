@@ -34,7 +34,7 @@ assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsExportMeta\/"\+id\)\.once\("v
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/gmsTargetCorrections\/"\+id\)\.once\("value"\)/);
 assert.match(app,/window\._db\.ref\(BACKUP_ROOT\+"\/bizDays"\)\.once\("value"\)/);
 assert.match(app,/db\.ref\(FB_ROOT\+"\/bizDays\/"\+nextId\)/,"the active business day must remain realtime");
-assert.match(app,/const BIZ_DAYS_VIEWS=new Set\(\["shifts","backupDetail"\]\)/);
+assert.match(app,/const BIZ_DAYS_VIEWS=new Set\(\["backupDetail"\]\)/,"attendance uses live shifts without loading historical days");
 assert.match(app,/const HISTORY_PAGE_SIZE=24/);
 assert.match(app,/async function ensureBizDayListLoaded[\s\S]*readHistoryPage\("bizDaySummaries"[\s\S]*readHistoryPage\("bizDays"/);
 assert.match(app,/const BACKUP_VIEWS=new Set\(\["admin","backupDetail"\]\)/);
