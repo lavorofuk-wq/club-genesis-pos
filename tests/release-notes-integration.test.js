@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {installAccessRuntime}=require('./helpers/access-runtime.cjs');
 
 const root=path.join(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
@@ -66,6 +67,7 @@ function runtime(options={}){
     settingsClose:()=>{},initialPosSyncPending:new Set(['appVersion','sessions']),console
   };
   vm.createContext(ctx);
+  installAccessRuntime(ctx,{uid:auth.currentUser.uid});
   vm.runInContext(fs.readFileSync(path.join(root,'release-notes.js'),'utf8'),ctx);
   for(const [from,to] of [
     ['function _verNum','function applyFixedShimeiPrices'],

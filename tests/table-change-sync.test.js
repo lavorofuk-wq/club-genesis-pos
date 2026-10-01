@@ -157,7 +157,7 @@ test('TC Firebase rules reject races atomically',{skip:process.env.POS_RULES_EMU
   }
   const rules=JSON.parse(fs.readFileSync(path.join(__dirname,'..','database.rules.json'),'utf8'));
   await request('.settings/rules','PUT',rules,true);
-  const reset=async(state=fixture())=>request('','PUT',{access:{authorizedUsers:{'tc-test':true}},'pos-dev':state},true);
+  const reset=async(state=fixture())=>request('','PUT',{access:{authorizedUsers:{'tc-test':true},roles:{'tc-test':'op'}},'pos-dev':state},true);
   function restDb(beforeWrite){return{ref(key){let field,filter;return{
     orderByChild(value){field=value;return this;},equalTo(value){filter=value;return this;},
     async get(){const value=await request(key,'GET',undefined,false,field?{orderBy:field,equalTo:filter}:{});return{val:()=>value};},

@@ -7,7 +7,7 @@ const root=path.resolve(__dirname,'..'),output=path.resolve(process.argv[3]||pat
 async function fixture(page,{uid='qa-release',scope='pos-dev',ready=true}={}){
   await page.waitForFunction(()=>typeof maybeShowReleaseNotes==='function'&&!!window.PosReleaseNotes);
   await page.evaluate(({uid,scope,ready})=>{
-    window.__qaIdentity=uid;window.FB_ROOT=scope;
+    window.__qaIdentity=uid;window.FB_ROOT=scope;window._posRole='op';window._posUid=uid;
     window.firebase={auth:()=>({currentUser:window.__qaIdentity?{uid:window.__qaIdentity}:null})};
     window.__qaDatabaseCalls=0;window.__qaSeenWrites=[];
     const originalSetItem=Storage.prototype.setItem;

@@ -2,6 +2,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const assert=require('node:assert/strict');
+const {installAccessRuntime}=require('./access-runtime.cjs');
 const app=fs.readFileSync(path.join(__dirname,'../../app.js'),'utf8');
 const clone=value=>value==null?null:JSON.parse(JSON.stringify(value));
 const relative=key=>String(key).replace(/^pos-dev\//,'');
@@ -58,6 +59,7 @@ function contextFor(db,state=fixture()){
     clientUpdateRequired:()=>false
   };
   vm.createContext(context);
+  installAccessRuntime(context);
   for(const [from,to] of [
     ['function canonicalJsonValue','function settingConflictError'],
     ['function castIdQueryValues','const optimisticRootPaths'],
@@ -74,8 +76,8 @@ function contextFor(db,state=fixture()){
   ])vm.runInContext(source(from,to),context);
   return context;
 }
-async function emulator(namespace='demo-pos-scoped'){
-  const token=Buffer.from(JSON.stringify({alg:'none',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:'scoped-test',user_id:'scoped-test',aud:namespace,iss:'https://securetoken.google.com/'+namespace,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.';
+async function emulator(namespace='demo-pos-scoped',authUid='scoped-test'){
+  const token=Buffer.from(JSON.stringify({alg:'none',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:authUid,user_id:authUid,aud:namespace,iss:'https://securetoken.google.com/'+namespace,iat:Math.floor(Date.now()/1000),exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.';
   const reads=[];
   async function request(key,method='GET',value,admin=false,query={}){
     const url=new URL('http://127.0.0.1:9017/'+key.replace(/^\//,'')+'.json');
@@ -89,7 +91,7 @@ async function emulator(namespace='demo-pos-scoped'){
   await request('.settings/rules','PUT',JSON.parse(fs.readFileSync(path.join(__dirname,'../../database.rules.json'),'utf8')),true);
   return{
     request,reads,
-    reset:state=>request('','PUT',{access:{authorizedUsers:{'scoped-test':true}},'pos-dev':state},true),
+    reset:state=>request('','PUT',{access:{authorizedUsers:{[authUid]:true},roles:{[authUid]:'op'}},'pos-dev':state},true),
     db(beforeWrite){return{ref(key){let field,filter;return{
       orderByChild(value){field=value;return this;},equalTo(value){filter=value;return this;},
       async get(){reads.push({key,field,filter});const value=await request(key,'GET',undefined,false,field?{orderBy:field,equalTo:filter}:{});return{val:()=>value};},

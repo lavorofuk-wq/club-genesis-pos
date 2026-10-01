@@ -162,7 +162,7 @@ function applyScopedRules(document){
     }
     normalizeCapability(rules);
   }
-  return result;
+  return result.rules.access?.roles?require('./access-rules.cjs').applyAccessRules(result):result;
 }
 module.exports={applyScopedRules};
 if(require.main===module){

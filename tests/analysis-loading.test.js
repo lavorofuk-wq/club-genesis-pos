@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
+const {installAccessRuntime}=require('./helpers/access-runtime.cjs');
 
 process.env.TZ='Asia/Tokyo';
 const app=fs.readFileSync(path.join(__dirname,'..','app.js'),'utf8');
@@ -23,6 +24,7 @@ function contextFor(loadDays=async()=>({})){
     updateRemoteHash:()=>{throw new Error('analysis must not hash the global business history');}
   };
   vm.createContext(ctx);
+  installAccessRuntime(ctx);
   for(const [from,to] of [
     ['const POS_CORE_SYNC_PATHS','// Firebase config'],
     ['function rAnalysis(){','function anaSetMonth('],
