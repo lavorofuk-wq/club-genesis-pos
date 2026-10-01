@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.155.3',kind:'fix',title:'ホームの会計済み売上を修正',changes:[
+      'ホームの会計済み金額が、営業中の最新の会計履歴を反映するよう修正しました。',
+      '合計見込みにも会計済み売上を正しく含めます。会計金額や保存済みデータは変更しません。'
+    ]},
     {version:'6.155.2',kind:'ui',title:'業務画面の表示を統一',changes:[
       '四角い枠、グレーの見出し、青い選択タブを基調とした業務画面に統一しました。',
       'ホームの売上集計を罫線で区切り、画面見出しを日本語に揃えました。'
