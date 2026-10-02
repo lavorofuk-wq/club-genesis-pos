@@ -36,17 +36,6 @@
   .list-cast-name {font-weight:700!important;}
   .list-cast-card,#list-root .list-cast-card {box-shadow:none!important;border-radius:2px!important;}
   #loading > div:first-child {font-family:inherit!important;letter-spacing:0!important;font-size:20px!important;font-weight:700;}
-  #auth-gate {background:var(--gms-bg);}
-  .auth-card {background:#fff;border:1px solid #aeb9c4;border-top:4px solid #245987;border-radius:0;box-shadow:none;padding:26px;}
-  .auth-brand {font-family:inherit;font-size:18px;font-weight:700;letter-spacing:0;color:#214e75;text-align:left;}
-  .auth-card h1 {color:#222;font-size:14px;letter-spacing:0;text-align:left;font-weight:700;border-bottom:1px solid #bdc5cd;padding:8px 0 12px;margin-bottom:14px;}
-  .auth-card p {color:var(--gms-muted);text-align:left;}
-  .auth-card label {color:var(--gms-muted);}
-  .auth-card input {background:#fff;color:var(--gms-text);border-color:var(--gms-line-strong);border-radius:1px;font-family:inherit;}
-  .auth-card input:focus {border-color:var(--gms-primary);box-shadow:0 0 0 3px var(--gms-focus);}
-  #auth-submit {background:var(--gms-primary);color:#fff;border-radius:2px;font-family:inherit;}
-  .auth-card small {color:var(--gms-subtle);}
-  #auth-error {color:#a32929;background:#fff3f2;border-color:#ebc2be;}
   .pos-home {max-width:720px!important;margin:0 auto!important;padding:20px!important;border:1px solid #aeb9c4;background:#fff;}
   .pos-home > div:first-child {text-align:left!important;margin:-20px -20px 20px!important;border-bottom:1px solid #aeb9c4;padding:12px 16px;background:#e7ebef;}
   .pos-home > div:first-child > div {font-family:inherit!important;font-size:17px!important;font-weight:700!important;letter-spacing:0!important;color:#222!important;}

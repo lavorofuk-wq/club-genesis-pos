@@ -1,0 +1,117 @@
+/* Shared staff login UI. Keep independent of optional POS screen themes. */
+#auth-gate{
+  --auth-bg:#eef0f2;
+  --auth-line:#bdc5cd;
+  --auth-text:#222;
+  --auth-muted:#45515d;
+  --auth-primary:#245987;
+  position:fixed;
+  inset:0;
+  z-index:1000000;
+  align-items:flex-start;
+  justify-content:center;
+  overflow:auto;
+  overscroll-behavior:contain;
+  padding:24px;
+  background:var(--auth-bg);
+  color:var(--auth-text);
+  color-scheme:light;
+  font-family:Meiryo,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;
+}
+.auth-card{
+  flex:0 0 auto;
+  width:min(100%,390px);
+  margin:auto;
+  padding:26px;
+  border:1px solid #aeb9c4;
+  border-top:4px solid var(--auth-primary);
+  border-radius:0;
+  background:#fff;
+  box-shadow:none;
+}
+.auth-brand{
+  margin-bottom:8px;
+  color:#214e75;
+  font-size:18px;
+  font-weight:700;
+  letter-spacing:0;
+  text-align:left;
+}
+.auth-card h1{
+  margin:0 0 14px;
+  padding:8px 0 12px;
+  border-bottom:1px solid var(--auth-line);
+  color:var(--auth-text);
+  font-size:14px;
+  font-weight:700;
+  letter-spacing:0;
+  text-align:left;
+}
+.auth-card p{
+  margin:0 0 24px;
+  color:var(--auth-muted);
+  font-size:12px;
+  line-height:1.7;
+  text-align:left;
+}
+.auth-card label{
+  display:block;
+  margin:14px 0 6px;
+  color:var(--auth-muted);
+  font-size:12px;
+}
+.auth-card input{
+  box-sizing:border-box;
+  width:100%;
+  padding:13px 12px;
+  border:1px solid #8997a5;
+  border-radius:1px;
+  outline:none;
+  background:#fff;
+  color:var(--auth-text);
+  font:inherit;
+  font-size:16px;
+}
+.auth-card input:focus{
+  border-color:var(--auth-primary);
+  box-shadow:0 0 0 3px rgb(36 89 135 / .25);
+}
+#auth-error{
+  margin-top:14px;
+  padding:10px 12px;
+  border:1px solid #ebc2be;
+  border-radius:2px;
+  background:#fff3f2;
+  color:#a32929;
+  font-size:12px;
+  line-height:1.55;
+  overflow-wrap:anywhere;
+}
+#auth-submit{
+  width:100%;
+  margin-top:20px;
+  padding:13px;
+  border:0;
+  border-radius:2px;
+  background:var(--auth-primary);
+  color:#fff;
+  font:inherit;
+  font-size:14px;
+  font-weight:700;
+  cursor:pointer;
+}
+#auth-submit:hover:not(:disabled){background:#184369;}
+#auth-submit:focus-visible{outline:3px solid var(--auth-primary);outline-offset:3px;}
+#auth-submit:disabled{cursor:wait;opacity:.65;}
+.auth-card small{
+  display:block;
+  margin-top:15px;
+  color:#596775;
+  font-size:10px;
+  line-height:1.6;
+  text-align:center;
+}
+@media(max-width:420px){
+  #auth-gate{padding:16px;}
+  .auth-card{padding:22px 20px;}
+}
