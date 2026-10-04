@@ -52,6 +52,11 @@ function contextFor(){
     }
   }
   vm.createContext(ctx);
+  require('./helpers/access-runtime.cjs').installAccessRuntime(ctx);
+  ctx.S.activeBizDay='2026-10-04';
+  ctx.sc=()=>ctx.S.casts;
+  ctx.getOnduty=()=>Object.values(ctx.S.shifts).filter(sh=>!sh.clockOut);
+  vm.runInContext(source('function castOrderCandidates','function addCDC'),ctx);
   for(const [from,to] of [
     ['function assignmentWithType(','function assignmentMatchesSession('],
     ['async function remItem(','// qty '],

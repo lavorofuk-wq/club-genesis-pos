@@ -17,6 +17,7 @@ test("business-day transitions use one narrow atomic multipath update",async()=>
     FB_ROOT:"pos-dev",
     SCOPED_ATOMIC_VALIDATION_VERSION:614400,
     S:{bizDays:{}},
+    window:{_db:{ref:()=>({get:async()=>({val:()=>null})})}},
     requireScopedAtomic:()=>{},
     readScopedPaths:async()=>({activeBizDay:writes.length?'2026-09-07':null}),
     getPathValue:()=>null,

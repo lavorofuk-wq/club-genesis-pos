@@ -8,6 +8,7 @@ const ui=fs.readFileSync(path.join(root,'access-ui.js'),'utf8');
 // Existing business tests run as an explicitly authenticated OP. Load the real
 // policy and UI helpers so these fixtures cannot bypass production permission checks.
 function installAccessRuntime(context,{role='op',uid='fixture-op'}={}){
+  context.CAST_ORDER_ATTENDANCE=require('../../cast-order-attendance.js');
   if(!vm.isContext(context))vm.createContext(context);
   context.window=context.window||{};
   vm.runInContext(policy,context,{filename:'access-control.js'});

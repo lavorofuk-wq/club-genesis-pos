@@ -18,6 +18,8 @@ function posBusinessModal(name){
 }
 function invalidateBusinessDayDialogs(previous,next){
   if(previous===next)return;
+  if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
+  if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof shiftMd!=="undefined")shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
   if(typeof md!=="undefined"&&(posBusinessModal(md)||md==="startBizDay")){
     md=null;
@@ -52,6 +54,8 @@ function posLimitedHome(){
     +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]&&posCanView(tab)).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
 }
 window.posClearPrivateState=function(){
+  if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
+  if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof S!=="undefined"){
     S.history=[];S.sessions={};S.tablePreparations={};S.bizDays={};S.bizDaySummaries={};S.backups={};S.casts=[];S.tables=[];S.menus={};S.shifts={};S.assignments={};S.config={};S.castLifecycleLogs={};S.gmsExportMeta={};S.gmsTargetCorrections={};S.activeBizDay=null;
   }

@@ -163,6 +163,23 @@ function applyScopedRules(document){
       `newData.parent().child('bizDaySummaries').child(newData.child('dayId').val()).child('_dayRev').val() == newData.child('expectedDayCounter').val() + 1`
     ]);
     if(!rules._bizDayOperation['.validate'].includes('expectedDayCounter'))rules._bizDayOperation['.validate']=and([rules._bizDayOperation['.validate'],or([disabled,`newData.child('nonce').val() == data.child('nonce').val()`,dayCheck])]);
+    if(!rules._bizDayOperation['.validate'].includes('endStateVersion'))rules._bizDayOperation['.validate']=and([rules._bizDayOperation['.validate'],or([
+      `newData.child('nonce').val() == data.child('nonce').val()`,`newData.child('type').val() != 'end'`,
+      and([
+        `newData.child('endStateVersion').val() == 1`,
+        `newData.child('expectedWriteNonce').val() == ${before}.child('_writeGate/nonce').val()`,
+        ...tableSlots.map(index=>or([`!${before}.child('tables/${index}').exists()`,`newData.child('expectedSessionStates').child(${before}.child('tables/${index}/id').val()).hasChildren(['exists','revision','nonce'])`]))
+      ])
+    ])]);
+    const endSession=`${before}.child('sessions').child($tableId)`;
+    rules._bizDayOperation.expectedSessionStates={$tableId:{'.validate':or([
+      `newData.parent().parent().child('nonce').val() == data.parent().parent().child('nonce').val()`,
+      and([
+        `newData.child('exists').val() == ${endSession}.exists()`,
+        `newData.child('revision').val() == ${rev(endSession+".child('_rev')")}`,
+        `newData.child('nonce').val() == (${endSession}.child('_nodeWriteNonce').isString() ? ${endSession}.child('_nodeWriteNonce').val() : '')`
+      ])
+    ])}};
     function normalizeCapability(node){
       Object.entries(node).forEach(([key,value])=>{
         if(value&&typeof value==='object')normalizeCapability(value);
