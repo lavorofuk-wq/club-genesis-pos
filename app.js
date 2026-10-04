@@ -4,9 +4,10 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.157.2";
+const APP_VERSION="6.158";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
+const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
 const POS_CHARGES=window.PosChargeCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -138,6 +139,7 @@ function applyPosCastPolicy(casts){
 }
 let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},tablePreparations:{},history:[],shifts:{},assignments:{},bizDays:{},bizDaySummaries:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
+let offDutyCastSelection=false,endBizDayAttendanceIssues=null;
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
@@ -1482,6 +1484,24 @@ async function guardedAtomicBizDayUpdate(type,dayId,expectedActiveBizDay,nextAct
   const root=await readScopedPaths(cashierStart?["activeBizDay",counterPath]:["activeBizDay",path,counterPath]);
   if((root.activeBizDay||null)!==(expectedActiveBizDay||null)||(!cashierStart&&!sameFirebaseValue(getPathValue(root,path),expectedDay)))throw Object.assign(new Error("business day changed"),{userMessage:"営業日が他端末で変更されています。最新状態を確認してください。"});
   const extra={...operationExtra};delete extra.expectedDay;
+  if(type==="end"){
+    const livePaths=["history","shifts","assignments","sessions"];
+    extra.expectedWriteNonce=(await window._db.ref(FB_ROOT+"/_writeGate/nonce").get()).val();
+    // Closing archives these live collections; ordinary order writes stay record-scoped.
+    await Promise.all([...livePaths,"tables"].map(async key=>{root[key]=(await window._db.ref(FB_ROOT+"/"+key).get()).val();}));
+    const issues=CAST_ORDER_ATTENDANCE.missingOrders(root.history,root.shifts,root.sessions,S.tables,S.casts);
+    if(issues.length)throw Object.assign(new Error("cast attendance missing"),{castAttendanceIssues:issues,userMessage:"出勤実績のないキャストへのオーダーがあります。"});
+    const day=values[path],byId=rows=>Object.values(rows||{}).sort((a,b)=>String(a.id).localeCompare(String(b.id)));
+    if(!sameFirebaseValue(byId(root.history),byId(day.history))||!sameFirebaseValue(root.shifts,day.shifts)||!sameFirebaseValue(root.assignments,day.assignments)||!sameFirebaseValue(root.sessions,S.sessions)){
+      throw Object.assign(new Error("business data changed"),{userMessage:"注文・会計履歴・出勤記録が変更されています。最新状態で営業終了をやり直してください。"});
+    }
+    extra.endStateVersion=1;
+    const tableIds=new Set([...Object.values(root.tables||{}).map(table=>String(table.id)),...Object.keys(root.sessions||{})]);
+    extra.expectedSessionStates=Object.fromEntries([...tableIds].map(tableId=>{
+      const session=root.sessions?.[tableId];
+      return[tableId,{exists:!!session,revision:Number(session?._rev)||0,nonce:session?._nodeWriteNonce||""}];
+    }));
+  }
   const revision=(Number(getPathValue(root,counterPath))||0)+1;
   const operation=bizDayOperation(type,dayId,expectedActiveBizDay,nextActiveBizDay,{...extra,version:SCOPED_ATOMIC_VALIDATION_VERSION,expectedDayRev:Number(getPathValue(root,path)?._rev)||0,expectedDayExists:!!getPathValue(root,path),expectedDayCounter:revision-1});
   values[path]={...values[path],_rev:revision};
@@ -1799,7 +1819,9 @@ function assignmentWithType(assignment,newType,changedAt=Date.now()){
   return desired;
 }
 async function addBanai(cid){
-  const c=S.casts.find(c=>c.id===cid);if(!c)return;
+  if(!requireCastOrderTarget(cid))return;
+  const c=S.casts.find(c=>String(c.id)===String(cid));if(!c)return;
+  cid=c.id;
   const tableId=at;
   const current=S.sessions[tableId];if(!current)return;
   if((current.items||[]).some(i=>i.isHonShimei&&i.castId===cid))return;
@@ -2003,7 +2025,9 @@ async function updateBizDateWarn(val){
 function confQty(){
   if(!qm)return;const qty=Math.max(1,qv);
   const s=S.sessions[at];
+  if(!s)return;
   const isCastDrink=qm.category==="castDrink";
+  if(isCastDrink&&!requireCastOrderTarget(qm.itemData?.castId))return;
   const isPaidBottle=(qm.category==="champagneWine"||qm.category==="keepBottle")&&Number(qm.price)>0;
   const eligibleBottleCastIds=isPaidBottle?gmsBottleBackEligibleCastIds(s?.items||[]):[];
   const selectedBottleCastIds=gmsUniqueStrings(qm.itemData?.backTargetCastIds||[]);
@@ -2020,6 +2044,7 @@ function openCastDrinkQty(cid,price,drinkLabel){
   const c=S.casts.find(c=>String(c.id)===String(cid));
   const amount=Number(price);
   if(!c||price==null||String(price).trim()===""||!["number","string"].includes(typeof price)||!Number.isFinite(amount)||amount<0)return;
+  if(!requireCastOrderTarget(cid))return;
   qv=1;
   qm={
     id:"cd",label:String(drinkLabel||"キャストDrink")+" ("+c.name+")",itemLabel:"キャストDrink ("+c.name+")",price:amount,category:"castDrink",
@@ -3888,10 +3913,11 @@ async function endBizDay(){
   const id=S.activeBizDay;if(!id)return;
   if(!requireFirebaseReady())return;
   const currentDay=S.bizDays[id];if(!currentDay)return;
+  endBizDayAttendanceIssues=CAST_ORDER_ATTENDANCE.missingOrders(S.history,S.shifts,S.sessions,S.tables,S.casts);
   const onduty=getOnduty();
-  if(onduty.length){
+  if(onduty.length||endBizDayAttendanceIssues.length){
     md="endBizDay";
-    sbs(false,"未退勤のキャストがいます");
+    sbs(false,endBizDayAttendanceIssues.length?"出勤実績のないオーダーがあります":"未退勤のキャストがいます");
     rModal();
     return;
   }
@@ -3952,7 +3978,11 @@ try{
   if(castsChanged){S.casts=nextCasts;S.castLifecycleLogs=nextLifecycle;}
   cacheBackupDay(backupKey,daySnap);
   sbs(true,"同期済み ✓");
-}catch(e){sbs(false,"保存エラー");alert(e.userMessage||"営業終了に失敗しました。最新状態を確認してください。");location.reload();return;}
+}catch(e){
+  sbs(false,"保存エラー");
+  if(e.castAttendanceIssues){endBizDayAttendanceIssues=e.castAttendanceIssues;md="endBizDay";rModal();return;}
+  alert(e.userMessage||"営業終了に失敗しました。最新状態を確認してください。");location.reload();return;
+}
 finally{bizDayBusy=false;}
   }
   S.history=[];S.shifts={};S.assignments={};S.sessions={};
@@ -5939,7 +5969,7 @@ async function dta(id){
 function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TABLE_COUNT){alert("テーブル数は最大 "+MAX_TABLE_COUNT+" 卓です");return;}S.tables=[...S.tables,{id:"t_"+Date.now(),label:ntl.trim(),vip:ntv}];save("tables",S.tables);ntl="";ntv=false;render();}
 
 // ===== MODAL =====
-function om(name){if(!posCanOpenModal(name)){posDenyAccess();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;md=name;rModal();}
+function om(name){if(!posCanOpenModal(name)){posDenyAccess();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;if(name==="cd"||name==="banai"){offDutyCastSelection=false;if(name==="cd"){cds=0;cdc=null;}}if(name==="endBizDay")endBizDayAttendanceIssues=null;md=name;rModal();}
 function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="releaseNotes"){acknowledgeReleaseNotes();return;}if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();}
 
 // ===== RECEIPT PRINT =====
@@ -7496,10 +7526,10 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   else if(md==="cd"){
 // キャスト選択：大型グリッドUI（指名メニューと同じスタイル）
 let cb="";
-const onIdsCD=getOndutyIds();sc().filter(c=>onIdsCD.has(c.id)).forEach(c=>{
+castOrderCandidates().forEach(c=>{
   const sel=cdc===c.id;
-  cb+='<button class="btn" data-cid="'+c.id+'" onclick="scc(parseInt(this.dataset.cid))" style="padding:16px 8px;background:'+(sel?"rgba(124,77,255,.3)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#7c4dff":"rgba(124,77,255,.3)")+';color:'+(sel?"#e0cfff":"#a78bfa")+';border-radius:8px;font-size:15px;font-weight:600;text-align:center;touch-action:manipulation;">'
-    +(sel?"✓ ":"")+c.name
+  cb+='<button class="btn" data-cid="'+gmsEscapeHtml(c.id)+'" onclick="scc(this.dataset.cid)" style="padding:16px 8px;background:'+(sel?"rgba(124,77,255,.3)":"rgba(124,77,255,.1)")+';border:1px solid '+(sel?"#7c4dff":"rgba(124,77,255,.3)")+';color:'+(sel?"#e0cfff":"#a78bfa")+';border-radius:8px;font-size:15px;font-weight:600;text-align:center;touch-action:manipulation;">'
+    +(sel?"✓ ":"")+gmsEscapeHtml(c.name)
     +'</button>';
 });
 let db2="";
@@ -7509,8 +7539,9 @@ S.menus.castDrinks.forEach(d=>{
 h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;">'
   +'<h3 style="margin-bottom:16px;font-size:16px;color:#d4a017;">キャストドリンク</h3>'
   +(cds===0
-    ?'<div class="st" style="margin-bottom:10px;">キャストを選択</div>'
+    ?'<div class="st" style="margin-bottom:10px;">'+(offDutyCastSelection&&posIsOp()?"休み":"キャストを選択")+'</div>'
      +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:55vh;overflow-y:auto;">'+cb+'</div>'
+     +offDutyCastButton()
     :'<div style="display:inline-flex;align-items:center;gap:8px;margin-bottom:14px;padding:6px 14px;background:rgba(124,77,255,.2);border:1px solid rgba(124,77,255,.4);border-radius:20px;">'
      +'<span style="font-size:14px;color:#a78bfa;font-weight:600;">'+S.casts.find(c=>c.id===cdc)?.name+'</span>'
      +'<button class="btn" onclick="cds=0;rModal()" style="background:none;color:#666;font-size:12px;padding:0;">✕</button>'
@@ -7661,8 +7692,12 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const al=(s?.items||[]).filter(i=>i.isBanaiShimei);
 let alh="";
 if(al.length){alh='<div style="margin-bottom:12px;padding:10px 12px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#4ade80;letter-spacing:.1em;margin-bottom:6px;">追加済み</div><div style="display:flex;flex-wrap:wrap;gap:6px;">';al.forEach(i=>{alh+='<span style="background:rgba(74,222,128,.15);border:1px solid rgba(74,222,128,.3);border-radius:20px;padding:3px 10px;font-size:12px;color:#4ade80;">'+(S.casts.find(c=>c.id===i.castId)?.name||i.label)+'</span>';});alh+='</div></div>';}
-const onIds=getOndutyIds();let cb="";sc().filter(c=>onIds.has(c.id)).forEach(c=>{const isHon=(s?.items||[]).some(i=>i.isHonShimei&&i.castId===c.id);const dn=(s?.items||[]).some(i=>i.isBanaiShimei&&i.castId===c.id);const dsbl=isHon||dn;cb+='<button class="btn" '+(dsbl?"disabled":"data-cid=\""+c.id+"\" onclick=\"event.stopPropagation();addBanai(parseInt(this.dataset.cid))\"")+' style="padding:12px 8px;background:'+(dn?"rgba(74,222,128,.05)":isHon?"rgba(255,255,255,.03)":"rgba(74,222,128,.1)")+';border:1px solid '+(dn?"rgba(74,222,128,.15)":isHon?"rgba(255,255,255,.07)":"rgba(74,222,128,.3)")+';color:'+(dn?"#555":isHon?"#3a3a3a":"#4ade80")+';border-radius:6px;font-size:14px;text-align:center;cursor:'+(dsbl?"default":"pointer")+';touch-action:manipulation;">'+(dn?"✓ ":"")+c.name+(isHon?'<div style="font-size:9px;color:#555;margin-top:2px;">本指名</div>':!dn?'<div style="font-size:10px;color:#4ade8099;margin-top:2px;">¥'+fmt(BANAI_SHIMEI_PRICE)+'</div>':"")+' </button>';});
-h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">タップで追加（¥'+fmt(BANAI_SHIMEI_PRICE)+'/名）</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">'+cb+'</div><button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
+let cb="";castOrderCandidates().forEach(c=>{
+  const isHon=(s.items||[]).some(i=>i.isHonShimei&&String(i.castId)===String(c.id));
+  const added=(s.items||[]).some(i=>i.isBanaiShimei&&String(i.castId)===String(c.id));
+  cb+='<button class="btn" data-cid="'+gmsEscapeHtml(c.id)+'" '+(isHon||added?'disabled':'onclick="event.stopPropagation();addBanai(this.dataset.cid)"')+' style="padding:12px 8px;border:1px solid #94a3b8;border-radius:6px;font-size:14px;">'+gmsEscapeHtml(c.name)+(isHon?'（本指名）':added?'（追加済み）':'')+'</button>';
+});
+h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:500px;"><h3 style="margin-bottom:4px;font-size:16px;color:#4ade80;">場内指名'+(offDutyCastSelection&&posIsOp()?'：休み':'')+'</h3><div style="font-size:12px;color:#666;margin-bottom:16px;">¥'+fmt(BANAI_SHIMEI_PRICE)+'/名</div>'+alh+'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;max-height:50vh;overflow:auto;">'+cb+'</div>'+offDutyCastButton()+'<button class="btn" onclick="closeM()" style="margin-top:16px;width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#888;border-radius:4px;font-size:13px;">閉じる</button></div></div>';
   }
   else if(md&&String(md).indexOf("ci-")===0){
 const tl=S.tables.find(t=>t.id===at)?.label||"";
@@ -8538,6 +8573,8 @@ const assignCount=Object.values(S.assignments||{}).filter(a=>a.endTime).length;
 const openSessions=Object.values(S.sessions||{}).length;
 const onduty=getOnduty().sort((a,b)=>(a.clockIn||0)-(b.clockIn||0));
 const hasOnduty=onduty.length>0;
+const attendanceIssues=endBizDayAttendanceIssues||CAST_ORDER_ATTENDANCE.missingOrders(S.history,S.shifts,S.sessions,S.tables,S.casts);
+const endBlocked=hasOnduty||attendanceIssues.length>0;
 h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="event.stopPropagation()" style="max-width:440px;">'
   +'<h3 style="margin-bottom:4px;font-size:18px;color:#ff6b6b;">営業終了</h3>'
   +'<div style="font-size:13px;color:#888;margin-bottom:'+(active?.isReEdit?"8px":"20px")+'">'+(active?active.date:"")+'</div>'
@@ -8549,8 +8586,9 @@ h='<div class="mo" onclick="event.stopPropagation()"><div class="mb" onclick="ev
   +'</div>'
   +(openSessions>0?'<div style="padding:10px 14px;background:rgba(255,80,80,.08);border:1px solid rgba(255,80,80,.2);border-radius:6px;margin-bottom:16px;font-size:13px;color:#ff6b6b;">会計未了のテーブルが '+openSessions+' 卓あります</div>':"")
   +(hasOnduty?'<div style="padding:12px 14px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.3);border-radius:8px;margin-bottom:16px;color:#ff6b6b;"><div style="font-size:13px;font-weight:700;margin-bottom:8px;">未退勤のキャストがいます。営業終了には全員の退勤が必須です。</div><div style="display:flex;flex-direction:column;gap:5px;">'+onduty.map(sh=>'<div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#ffd1d1;"><span>'+((sh.castName||"不明"))+'</span><span>出勤 '+new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"})+'</span></div>').join("")+'</div></div>':"")
+  +attendanceWarningHtml(attendanceIssues)
   +'<div style="display:flex;gap:8px;">'
-  +'<button class="btn" '+(hasOnduty?'disabled':'onclick="endBizDay()"')+' style="flex:2;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;'+(hasOnduty?'opacity:.45;cursor:not-allowed;':'')+'">終了して保存する</button>'
+  +'<button class="btn" '+(endBlocked?'disabled':'onclick="endBizDay()"')+' style="flex:2;padding:14px 8px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.15);border:1px solid rgba(255,80,80,.35);color:#ff6b6b;touch-action:manipulation;'+(endBlocked?'opacity:.45;cursor:not-allowed;':'')+'">終了して保存する</button>'
   +'<button class="btn" onclick="closeM()" style="flex:1;padding:14px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);color:#888;border-radius:8px;">戻る</button>'
   +'</div></div></div>';
   }
@@ -8610,7 +8648,30 @@ return;
   if(md==="startBizDay")setTimeout(()=>{const input=document.getElementById("biz-date-input");if(input)updateBizDateWarn(input.value);},0);
 }
 
-function scc(id){cdc=id;cds=1;rModal();}
+function castOrderCandidates(){
+  const onIds=new Set(getOnduty().map(sh=>String(sh.castId)));
+  const offDuty=offDutyCastSelection&&posIsOp();
+  return sc().filter(c=>offDuty?!onIds.has(String(c.id)):onIds.has(String(c.id)));
+}
+function requireCastOrderTarget(cid){
+  if(!posCanView("floor")||!sc().some(c=>String(c.id)===String(cid)))return posDenyAccess();
+  if(!posIsOp()&&!getOnduty().some(sh=>String(sh.castId)===String(cid)))return posDenyAccess();
+  return true;
+}
+function toggleOffDutyCastSelection(){
+  if(!posIsOp()||!posCanView("floor"))return posDenyAccess();
+  if(md!=="banai"&&!(md==="cd"&&cds===0))return;
+  offDutyCastSelection=!offDutyCastSelection;rModal();
+}
+function offDutyCastButton(){
+  if(!posIsOp())return "";
+  return '<button type="button" class="btn off-duty-cast-button" onclick="toggleOffDutyCastSelection()" aria-pressed="'+offDutyCastSelection+'">'+(offDutyCastSelection?"出勤中に戻る":"休み")+'</button>';
+}
+function attendanceWarningHtml(issues){
+  if(!issues.length)return "";
+  return '<div class="cast-attendance-warning" role="alert"><strong>出勤実績のないキャストへのオーダーがあります。営業終了できません。</strong><ul>'+issues.map(issue=>'<li><strong>'+gmsEscapeHtml((issue.source==="history"?"会計履歴：":"未会計：")+issue.tableLabel)+'</strong><div>'+gmsEscapeHtml(issue.castName+"（"+issue.kinds.join("・")+"）")+'</div>'+(issue.startTime?'<div>入店 '+gmsEscapeHtml(new Date(issue.startTime).toLocaleTimeString("ja-JP",{hour:"2-digit",minute:"2-digit"}))+'</div>':"")+'</li>').join("")+'</ul></div>';
+}
+function scc(id){if(!requireCastOrderTarget(id))return;cdc=S.casts.find(c=>String(c.id)===String(id)).id;cds=1;rModal();}
 function addCDC(){const el=document.getElementById("cdp");const p=parseInt(el?.value||"",10);if(!Number.isFinite(p)||p<0)return;openCastDrinkQty(cdc,p,"その他 "+fmt(p)+"円");}
 function addExt2(id){const e=S.menus.extensions.find(e=>e.id===id);if(e)return addExt(e,extSingleIncluded);}
 function tryExt(){

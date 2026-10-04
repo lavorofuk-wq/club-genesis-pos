@@ -207,7 +207,7 @@ test('scoped Firebase rules preserve atomicity under races',{skip:process.env.PO
     const ctx=contextFor(em.db(),state);
     await ctx.guardedAtomicBizDayUpdate('reopen','d1',null,'d1',{'bizDays/d1':{...day,isReEdit:true,endedAt:null},'bizDaySummaries/d1':{id:'d1'},activeBizDay:'d1',history:{123:day.history[0]},shifts:state.shifts,assignments:state.assignments,sessions:null});
     const remote=await saved();ctx.S.bizDays=remote.bizDays;
-    await ctx.guardedAtomicBizDayUpdate('end','d1','d1',null,{'bizDays/d1':{...remote.bizDays.d1,endedAt:300},'bizDaySummaries/d1':{id:'d1'},activeBizDay:null,history:null,shifts:null,assignments:null,sessions:null,casts:[],castLifecycleLogs:{d1:{trialCasts:[{castId:1}]}}},{'backup-dev/bizDays/d1':{date:'d1',endedAt:300}},{backupKey:'d1'});
+    await ctx.guardedAtomicBizDayUpdate('end','d1','d1',null,{'bizDays/d1':{...remote.bizDays.d1,endedAt:300,shifts:remote.shifts,assignments:remote.assignments},'bizDaySummaries/d1':{id:'d1'},activeBizDay:null,history:null,shifts:null,assignments:null,sessions:null,casts:[],castLifecycleLogs:{d1:{trialCasts:[{castId:1}]}}},{'backup-dev/bizDays/d1':{date:'d1',endedAt:300}},{backupKey:'d1'});
     assert.equal((await saved())._settingsRevisions.castRoster,1);
   });
   await t.test('old client writes are denied after capability activation',async()=>{

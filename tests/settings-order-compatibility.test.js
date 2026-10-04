@@ -26,6 +26,11 @@ function runtime(){
     alert:message=>assert.fail("Unexpected alert: "+message)
   };
   vm.createContext(ctx);
+  require('./helpers/access-runtime.cjs').installAccessRuntime(ctx);
+  ctx.S.activeBizDay="2026-10-04";
+  ctx.sc=()=>ctx.S.casts;
+  ctx.getOnduty=()=>[{castId:1,clockIn:1}];
+  vm.runInContext(source("function castOrderCandidates","function addCDC"),ctx);
   for(const [from,to] of [
     ["function roundCharge","function isV("],
     ["function isFreeDrinkItem","function hasFreeDrinkItem"],

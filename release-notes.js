@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.158',kind:'feature',title:'休みキャストの注文に対応',changes:[
+      'OPアカウントでは、キャストDrink・場内指名のキャスト選択から「休み」を開いて注文できます。',
+      '当営業日の出勤実績がないキャストに対象注文がある場合、テーブル名・キャスト名を警告し営業終了を停止します。'
+    ]},
     {version:'6.157.2',kind:'fix',title:'ログイン画面の新UIを統一',changes:[
       '本番のログイン画面を、白と青を基調としたスタッフログイン画面に統一しました。',
       '旧ログイン画面の装飾と重複したスタイル定義を削除し、画面サイズが小さい端末でも入力欄とボタンを操作できるようにしました。',
