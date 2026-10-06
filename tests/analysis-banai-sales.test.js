@@ -93,6 +93,24 @@ function verifyAnalysis(hist,expected){
   return ctx;
 }
 
+test('drink reassignment preserves hon and extension allocation across data, analysis and GMS',()=>{
+  const change=require('../cast-drink-change.js').change;
+  for(const hon of [[],['a'],['a','b']]){
+    const before=record([...hon.map(id=>({id:'hon_'+id,isHonShimei:true,castId:id,castName:id.toUpperCase(),price:2000,qty:1})),{id:'set',isSet:true,price:8000,qty:1},extension(['a']),
+      {id:'cd_test',category:'castDrink',castId:'a',castName:'A',backTargetCastIds:['a'],backTargetCastNames:['A'],price:2000,qty:3},extension(['b'])],{honShimeis:hon});
+    const after=change(before,'cd_test',{id:'c',name:'C'});
+    const ctx=verifyAnalysis([after],hon.length?{a:0,b:0,c:0}:{a:10000,b:4000,c:0});
+    const oldSales=ctx.gmsCastSales([before]),newSales=ctx.gmsCastSales([after]);
+    for(const id of ['a','b','c']){
+      const old=oldSales.find(r=>r.castId===id)||{},next=newSales.find(r=>r.castId===id)||{};
+      for(const key of ['honShimeiSales','jonaiExtensionSales','jonaiExtensionBackSales'])assert.equal(next[key]||0,old[key]||0,key+' '+id);
+    }
+    assert.equal(newSales.find(r=>r.castId==='c').drinkSales,6000);
+    assert.equal(newSales.find(r=>r.castId==='a').drinkSales,0);
+    assert.equal(ctx.anaCastDrinkCounts(after.items,'a').p2000,0);
+    assert.equal(ctx.anaCastDrinkCounts(after.items,'c').p2000,3);
+  }
+});
 test('analysis includes post-extension bottles and room charges, but excludes pre-extension orders',()=>{
   const hist=[record([
     {isSet:true,label:'Set',price:8000},

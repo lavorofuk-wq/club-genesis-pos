@@ -4,10 +4,11 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.158";
+const APP_VERSION="6.159";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
+const CAST_DRINK_CHANGE=window.PosCastDrinkChange;
 const POS_CHARGES=window.PosChargeCore;
 const MAX_TABLE_COUNT=30;
 const TAX_RATE=.30;
@@ -140,6 +141,7 @@ function applyPosCastPolicy(casts){
 let S={casts:normalizeCasts(DC),menus:normalizeMenus(DM),tables:DT,sessions:{},tablePreparations:{},history:[],shifts:{},assignments:{},bizDays:{},bizDaySummaries:{},castLifecycleLogs:{},gmsExportMeta:{},gmsTargetCorrections:{},activeBizDay:null,config:{printerIP:'192.168.150.76',printerPort:8008},backups:{},loMode:false,loStatus:{}};
 let vw="home",at=null,md=null,cds=0,cdc=null; // vw初期値をhomeに
 let offDutyCastSelection=false,endBizDayAttendanceIssues=null;
+let castDrinkChangeState=null;
 let ci={guests:1,setMenu:null,setType:null,honShimeis:[],douhan:false,douhanCastIds:[],freedrink:false,single:false,note:""};
 let etv="",stab="cast",ncn="",ntn="",cp="",cl="",dhi=null,qm=null,qv=1,nmi={},ntl="",ntv=false;
 let _rcChoices={}; // 全件復旧コンフリクト選択 { date: bkKey }
@@ -1722,6 +1724,93 @@ async function saveChargeChange(change,options={}){
     if(attemptedSave)chargeSaveFailure={tableId,identity,signature:chargeInputSignature(identity),state:sessionSaveStates[tableId]};
     sbs(false,"保存エラー");alert(chargeErrorMessage(error));return false;
   }finally{chargeSaveBusy=false;if(md)rModal();}
+}
+function castDrinkChangeAllowed(){
+  return posIsOp()&&posCanView("floor")&&!checkoutBusy&&!tableChangeBusy&&!entryTimeBusy;
+}
+function openCastDrinkChange(itemId){
+  if(!castDrinkChangeAllowed())return posDenyAccess();
+  if(chargeSaveBusy||!at||!S.sessions[at]||!requireFirebaseReady())return false;
+  if(sessionSaveStates[at]?.status==="saving"||sessionSaveStates[at]?.status==="error"){
+    alert("オーダーの保存状態を確認してから再操作してください。");return false;
+  }
+  const session=S.sessions[at],items=(session.items||[]).filter(i=>String(i.id)===String(itemId));
+  if(items.length!==1||!CAST_DRINK_CHANGE.isDrink(items[0]))return false;
+  castDrinkChangeState={tableId:at,dayId:S.activeBizDay,session:cloneData(session),itemId:String(itemId),castId:null,offDuty:false,error:""};
+  md="castDrinkChange";rModal();return true;
+}
+function selectDrinkChangeCast(id){
+  if(!castDrinkChangeAllowed()||chargeSaveBusy||!castDrinkChangeState)return false;
+  const cast=sc().find(c=>String(c.id)===String(id));if(!cast)return false;
+  castDrinkChangeState.castId=String(cast.id);castDrinkChangeState.error="";rModal();return true;
+}
+function toggleDrinkChangeOffDuty(){
+  if(!castDrinkChangeAllowed()||chargeSaveBusy||!castDrinkChangeState)return;
+  castDrinkChangeState.offDuty=!castDrinkChangeState.offDuty;rModal();
+}
+function cancelCastDrinkChange(){
+  if(chargeSaveBusy)return;
+  castDrinkChangeState=null;om("castDetail");
+}
+async function saveCastDrinkChange(){
+  if(!castDrinkChangeAllowed())return posDenyAccess();
+  const state=castDrinkChangeState;
+  if(chargeSaveBusy||!state||md!=="castDrinkChange"||!requireFirebaseReady())return false;
+  chargeSaveBusy=true;rModal();
+  try{
+    await waitForSessionSaveQueue(state.tableId);
+    const current=S.sessions[state.tableId];
+    if(castDrinkChangeState!==state||!castDrinkChangeAllowed()||at!==state.tableId||S.activeBizDay!==state.dayId||!sameFirebaseValue(current,state.session)){
+      throw Object.assign(new Error("drink-target-changed"),{userMessage:"会計またはオーダーが変更されています。画面を開き直してください。"});
+    }
+    if(sessionSaveStates[state.tableId]?.status==="error"||!requireFirebaseReady())throw new Error("unsaved orders");
+    const cast=sc().find(c=>String(c.id)===state.castId);
+    const desired=CAST_DRINK_CHANGE.change(current,state.itemId,cast);
+    const castPath="casts/"+S.casts.findIndex(c=>String(c.id)===String(cast.id));
+    const previous=current.items.find(i=>String(i.id)===state.itemId),changedAt=Date.now();
+    const auditId="cdc_"+changedAt+"_"+Math.random().toString(36).slice(2,10);
+    const audit={id:auditId,businessDate:state.dayId,tableId:state.tableId,sessionId:current.sessionId||"",startTime:current.startTime,
+      itemId:previous.id,price:previous.price??0,qty:previous.qty||1,fromCastId:String(previous.castId??""),fromCastName:previous.castName||"",
+      toCastId:String(cast.id),toCastName:cast.name,changedAt,actorUid:window._posUid,expectedRevision:Number(current._rev)||0};
+    // Read the roster revision first, then bind both snapshots to the atomic commit.
+    const rosterPath="_settingsRevisions/castRoster";
+    const root=await readScopedPaths([rosterPath]);
+    await readScopedPaths(["activeBizDay","sessions/"+state.tableId,castPath],root);
+    const remoteCast=getPathValue(root,castPath);
+    if(castDrinkChangeState!==state||!castDrinkChangeAllowed()||!sameFirebaseValue(S.sessions[state.tableId],current)
+      ||!remoteCast||String(remoteCast.id)!==String(cast.id)||remoteCast.name!==cast.name||!isVisibleCast(remoteCast)){
+      throw Object.assign(new Error("drink-target-changed"),{userMessage:"会計またはキャスト情報が変更されています。画面を開き直してください。"});
+    }
+    // The audit collection is OP-only under the existing database rules. Save both atomically.
+    await guardedScopedCommit(root,{
+      [FB_ROOT+"/sessions/"+state.tableId]:desired,
+      [FB_ROOT+"/castDrinkChanges/"+state.dayId+"/"+auditId]:audit
+    },{expectedActiveBizDay:state.dayId,expectedRecords:{["sessions/"+state.tableId]:current},counterPaths:[rosterPath]});
+    if(castDrinkChangeState===state&&S.activeBizDay===state.dayId&&posIsOp()){
+      castDrinkChangeState=null;md="castDetail";render();renderOrderPartial();refreshFloorModal();sbs(true,"同期済み ✓");
+    }
+    return true;
+  }catch(error){
+    if(castDrinkChangeState===state){
+      state.error=error.userMessage||"担当変更を保存できませんでした。最新状態を確認して再操作してください。";
+      sbs(false,"保存エラー");
+    }
+    return false;
+  }finally{chargeSaveBusy=false;if(md)rModal();}
+}
+function castDrinkChangeHtml(){
+  const state=castDrinkChangeState;if(!state)return"";
+  const item=state.session.items.find(i=>String(i.id)===state.itemId),onIds=new Set(getOnduty().map(sh=>String(sh.castId)));
+  const target=sc().find(c=>String(c.id)===state.castId);
+  const casts=sc().filter(c=>state.offDuty?!onIds.has(String(c.id)):onIds.has(String(c.id)));
+  const buttons=casts.map(c=>'<button type="button" class="btn drink-change-cast" data-cid="'+chargeHtml(c.id)+'" onclick="selectDrinkChangeCast(this.dataset.cid)" aria-pressed="'+(String(c.id)===state.castId)+'">'+chargeHtml(c.name)+'</button>').join("");
+  return '<div class="mo" onclick="closeM()"><div class="mb drink-change-dialog" onclick="event.stopPropagation()">'
+    +'<h3>キャストDrink 担当変更</h3><div class="drink-change-summary">'+chargeHtml(item.label)+' × '+chargeHtml(item.qty||1)+'<strong>¥'+fmt((item.price||0)*(item.qty||1))+'</strong></div>'
+    +'<div class="st">'+(state.offDuty?"休み":"出勤中")+'</div><div class="drink-change-casts">'+(buttons||'<p>対象キャストなし</p>')+'</div>'
+    +'<button type="button" class="btn off-duty-cast-button" onclick="toggleDrinkChangeOffDuty()" aria-pressed="'+state.offDuty+'">'+(state.offDuty?"出勤中に戻る":"休み")+'</button>'
+    +'<div class="drink-change-target">変更先：<strong>'+chargeHtml(target?.name||"未選択")+'</strong></div>'
+    +(state.error?'<p class="drink-change-error" role="alert">'+chargeHtml(state.error)+'</p>':'')
+    +'<div class="drink-change-actions"><button type="button" class="btn" onclick="cancelCastDrinkChange()">戻る</button><button type="button" class="btn bp" onclick="saveCastDrinkChange()" '+(!target||String(target.id)===String(item.castId)?'disabled':'')+'>担当変更を確定</button></div></div></div>';
 }
 function extensionAdditions(s,ext,options={}){
   const minutes=Number(ext.minutes);
@@ -5970,7 +6059,7 @@ function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TA
 
 // ===== MODAL =====
 function om(name){if(!posCanOpenModal(name)){posDenyAccess();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;if(name==="cd"||name==="banai"){offDutyCastSelection=false;if(name==="cd"){cds=0;cdc=null;}}if(name==="endBizDay")endBizDayAttendanceIssues=null;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="releaseNotes"){acknowledgeReleaseNotes();return;}if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="releaseNotes"){acknowledgeReleaseNotes();return;}if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;castDrinkChangeState=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";if(typeof scheduleReleaseNotes==="function")scheduleReleaseNotes();}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
@@ -7799,10 +7888,11 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'<button class="btn" onclick="closeM()" style="width:100%;padding:10px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">閉じる</button>'
   +'</div></div>';
   }
+  else if(md==="castDrinkChange"&&s){h=castDrinkChangeHtml();}
   else if(md==="castDetail"&&s){
 const items=(s.items||[]).filter(isCastCatItem);
 const delSt='width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;';
-let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div class="ir" style="min-height:36px;gap:4px;"><span style="flex:1;color:#ccc;font-size:13px;line-height:1.4;">'+lb+'</span><div style="display:flex;align-items:center;gap:5px;flex-shrink:0;"><span style="color:#a78bfa;font-size:13px;font-weight:600;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span><button class="btn" data-iid="'+i.id+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
+let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;return'<div class="ir cast-detail-row"><span class="cast-detail-label">'+chargeHtml(lb)+'</span><div class="cast-detail-actions"><span style="color:#a78bfa;font-size:13px;font-weight:600;">¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span>'+(posIsOp()&&CAST_DRINK_CHANGE.isDrink(i)?'<button type="button" class="btn drink-change-open" data-iid="'+chargeHtml(i.id)+'" onclick="openCastDrinkChange(this.dataset.iid)">担当変更</button>':'')+'<button class="btn" data-iid="'+chargeHtml(i.id)+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
 if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
 const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
 const champItems2=S.menus.champagne||[];

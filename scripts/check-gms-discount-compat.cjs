@@ -218,4 +218,5 @@ async function main() {
     console.log(`${ref} ${commit.slice(0, 12)}: ${cases} cases passed (export, checksum, import, daily/monthly sales, cash, unchanged backs, legacy).`);
   }
 }
-main().catch(error => { console.error(error); process.exitCode = 1; });
+module.exports = { loadGms, fixture };
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode = 1; });
