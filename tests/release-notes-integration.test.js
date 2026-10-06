@@ -9,6 +9,15 @@ const root=path.join(__dirname,'..');
 const app=fs.readFileSync(path.join(root,'app.js'),'utf8');
 const version=app.match(/const APP_VERSION="([^"]+)"/)[1];
 const newer=version.split('.').slice(0,2).map((value,index)=>String(Number(value)+(index===1?1:0))).join('.');
+test('release entry files have no merge markers and one current version button',()=>{
+  const html=fs.readFileSync(path.join(root,'index.html'),'utf8');
+  const worker=fs.readFileSync(path.join(root,'sw.js'),'utf8');
+  for(const source of [app,html,worker])assert.doesNotMatch(source,/^(?:<{7}|={7}|>{7})(?:\s|$)/m);
+  assert.equal((html.match(/id="release-notes-button"/g)||[]).length,1);
+  const button=html.match(/<button\b[^>]*id="release-notes-button"[^>]*>([^<]+)<\/button>/);
+  assert.equal(button?.[1],'Ver'+version);
+  assert.equal(worker.match(/const RELEASE_VERSION = '([^']+)'/)[1],version);
+});
 function source(from,to){
   const start=app.indexOf(from),end=app.indexOf(to,start+from.length);
   assert.ok(start>=0&&end>start,from+' extraction boundary');
