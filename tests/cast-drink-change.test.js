@@ -66,6 +66,34 @@ for(const mutation of ['local-order','checkout','day','selection-cleared','close
   if(mutation==='remote-checkout')delete s.sessions.t1;
   assert.equal(await c.saveCastDrinkChange(),false);assert.equal(db.writes.length,0);assert.equal(c.chargeSaveBusy,false);
 });
+for(const mutation of ['quantity','added-order','note','selection-closed','table','day','offline','role','signout'])test('changes during remote reads cannot overwrite the order: '+mutation,async()=>{
+  const s=state(),db=fakeDb(s),c=runtime(db,s);choose(c);
+  const ref=db.ref;
+  db.ref=function(key){
+    const node=ref.call(this,key),get=node.get;
+    node.get=async function(){
+      if(key==='pos-dev/casts/1'){
+        if(mutation==='quantity')c.S.sessions.t1.items[2].qty=4;
+        if(mutation==='added-order')c.S.sessions.t1.items.push({id:'new',price:3000,qty:1});
+        if(mutation==='note')c.S.sessions.t1.note='Updated';
+        if(mutation==='selection-closed')c.md=null;
+        if(mutation==='table')c.at='t2';
+        if(mutation==='day')c.S.activeBizDay='2026-09-09';
+        if(mutation==='offline')c.requireFirebaseReady=()=>false;
+        if(mutation==='role')c.window._posRole='cashier';
+        if(mutation==='signout')c.window.posClearPrivateState();
+      }
+      return get.call(this);
+    };
+    return node;
+  };
+  assert.equal(await c.saveCastDrinkChange(),false);assert.equal(db.writes.length,0);
+  assert.equal(s.sessions.t1.items[2].castId,'c1');assert.equal(s.sessions.t1.items[2].qty,3);
+  if(mutation==='quantity')assert.equal(c.S.sessions.t1.items[2].qty,4);
+  if(mutation==='added-order')assert.equal(c.S.sessions.t1.items.at(-1).id,'new');
+  if(mutation==='note')assert.equal(c.S.sessions.t1.note,'Updated');
+  assert.equal(c.chargeSaveBusy,false);
+});
 test('save failure leaves the original order intact and allows retry',async()=>{
   const s=state();let fail=true;const db=fakeDb(s,()=>{if(fail)throw new Error('offline');}),c=runtime(db,s);choose(c);
   assert.equal(await c.saveCastDrinkChange(),false);assert.equal(c.S.sessions.t1.items[2].castId,'c1');assert.equal(db.writes.length,0);

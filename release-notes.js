@@ -5,6 +5,10 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.159.1',kind:'fix',title:'担当変更の競合対策',changes:[
+      '担当変更の保存中に注文や画面の状態が変わった場合、古い内容で上書きしないよう修正しました。',
+      'CAST詳細の文字と、担当変更で選択中のキャストを見やすくしました。'
+    ]},
     {version:'6.159',kind:'feature',title:'ドリンクの担当変更',changes:[
       'OPアカウントで、会計前のキャストDrinkの担当を変更できるようになりました。',
       'フロア復活後にも対応し、金額・数量・注文の順番を保持して担当とバック対象を変更します。',
