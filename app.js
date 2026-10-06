@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.159";
+const APP_VERSION="6.159.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -1777,7 +1777,8 @@ async function saveCastDrinkChange(){
     const root=await readScopedPaths([rosterPath]);
     await readScopedPaths(["activeBizDay","sessions/"+state.tableId,castPath],root);
     const remoteCast=getPathValue(root,castPath);
-    if(castDrinkChangeState!==state||!castDrinkChangeAllowed()||!sameFirebaseValue(S.sessions[state.tableId],current)
+    if(castDrinkChangeState!==state||!castDrinkChangeAllowed()||md!=="castDrinkChange"||at!==state.tableId||S.activeBizDay!==state.dayId
+      ||!sameFirebaseValue(S.sessions[state.tableId],state.session)
       ||!remoteCast||String(remoteCast.id)!==String(cast.id)||remoteCast.name!==cast.name||!isVisibleCast(remoteCast)){
       throw Object.assign(new Error("drink-target-changed"),{userMessage:"会計またはキャスト情報が変更されています。画面を開き直してください。"});
     }
@@ -1803,14 +1804,14 @@ function castDrinkChangeHtml(){
   const item=state.session.items.find(i=>String(i.id)===state.itemId),onIds=new Set(getOnduty().map(sh=>String(sh.castId)));
   const target=sc().find(c=>String(c.id)===state.castId);
   const casts=sc().filter(c=>state.offDuty?!onIds.has(String(c.id)):onIds.has(String(c.id)));
-  const buttons=casts.map(c=>'<button type="button" class="btn drink-change-cast" data-cid="'+chargeHtml(c.id)+'" onclick="selectDrinkChangeCast(this.dataset.cid)" aria-pressed="'+(String(c.id)===state.castId)+'">'+chargeHtml(c.name)+'</button>').join("");
+  const buttons=casts.map(c=>'<button type="button" class="btn drink-change-cast'+(String(c.id)===state.castId?' gbg':'')+'" data-cid="'+chargeHtml(c.id)+'" onclick="selectDrinkChangeCast(this.dataset.cid)" aria-pressed="'+(String(c.id)===state.castId)+'">'+chargeHtml(c.name)+'</button>').join("");
   return '<div class="mo" onclick="closeM()"><div class="mb drink-change-dialog" onclick="event.stopPropagation()">'
     +'<h3>キャストDrink 担当変更</h3><div class="drink-change-summary">'+chargeHtml(item.label)+' × '+chargeHtml(item.qty||1)+'<strong>¥'+fmt((item.price||0)*(item.qty||1))+'</strong></div>'
     +'<div class="st">'+(state.offDuty?"休み":"出勤中")+'</div><div class="drink-change-casts">'+(buttons||'<p>対象キャストなし</p>')+'</div>'
     +'<button type="button" class="btn off-duty-cast-button" onclick="toggleDrinkChangeOffDuty()" aria-pressed="'+state.offDuty+'">'+(state.offDuty?"出勤中に戻る":"休み")+'</button>'
     +'<div class="drink-change-target">変更先：<strong>'+chargeHtml(target?.name||"未選択")+'</strong></div>'
     +(state.error?'<p class="drink-change-error" role="alert">'+chargeHtml(state.error)+'</p>':'')
-    +'<div class="drink-change-actions"><button type="button" class="btn" onclick="cancelCastDrinkChange()">戻る</button><button type="button" class="btn bp" onclick="saveCastDrinkChange()" '+(!target||String(target.id)===String(item.castId)?'disabled':'')+'>担当変更を確定</button></div></div></div>';
+    +'<div class="drink-change-actions"><button type="button" class="btn" onclick="cancelCastDrinkChange()">戻る</button><button type="button" class="btn gbg" onclick="saveCastDrinkChange()" '+(!target||String(target.id)===String(item.castId)?'disabled':'')+'>担当変更を確定</button></div></div></div>';
 }
 function extensionAdditions(s,ext,options={}){
   const minutes=Number(ext.minutes);

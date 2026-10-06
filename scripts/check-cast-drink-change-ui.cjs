@@ -31,6 +31,7 @@ async function main(){
       const page=await context.newPage(),errors=[];
       page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>d.accept());
       await page.goto(origin);await seed(page,'op');await addDrink(page);
+      assert.equal(await page.locator('.cast-detail-label').evaluate(el=>getComputedStyle(el).color),await page.locator('.mb').last().evaluate(el=>getComputedStyle(el).color),'order text uses the readable theme color');
       await page.screenshot({path:path.join(output,name+'-detail.png'),fullPage:true});
       await page.getByRole('button',{name:'担当変更',exact:true}).click();
       const confirm=page.getByRole('button',{name:'担当変更を確定',exact:true});
@@ -39,6 +40,7 @@ async function main(){
       await page.getByRole('button',{name:'休み',exact:true}).click();
       assert.equal(await page.locator('#md [data-cid="4"]').count(),0);
       await page.locator('#md [data-cid="2"]').click();
+      assert.notEqual(await page.locator('#md [data-cid="2"]').evaluate(el=>getComputedStyle(el).backgroundColor),await page.locator('#md [data-cid="3"]').evaluate(el=>getComputedStyle(el).backgroundColor),'selected cast remains visibly distinct');
       await page.screenshot({path:path.join(output,name+'-select.png'),fullPage:true});
       assert.equal(await page.locator('.drink-change-dialog').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
       await confirm.click();
