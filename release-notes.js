@@ -5,6 +5,11 @@
 })(typeof window!=='undefined'?window:null,function(){
   'use strict';
   const history=Object.freeze([
+    {version:'6.159',kind:'feature',title:'ドリンクの担当変更',changes:[
+      'OPアカウントで、会計前のキャストDrinkの担当を変更できるようになりました。',
+      'フロア復活後にも対応し、金額・数量・注文の順番を保持して担当とバック対象を変更します。',
+      '休みキャストを選べます。出勤実績のない注文が残る場合は営業終了時に警告します。'
+    ]},
     {version:'6.158',kind:'feature',title:'休みキャストの注文に対応',changes:[
       'OPアカウントでは、キャストDrink・場内指名のキャスト選択から「休み」を開いて注文できます。',
       '当営業日の出勤実績がないキャストに対象注文がある場合、テーブル名・キャスト名を警告し営業終了を停止します。'

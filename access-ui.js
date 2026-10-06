@@ -14,10 +14,12 @@ function posRequireAttendanceBusinessDay(expectedBizDay=S.activeBizDay){
   return true;
 }
 function posBusinessModal(name){
+  if(name==="castDrinkChange")return true;
   return ["shift","tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation","opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est","deleteSession","endBizDay"].includes(name)||String(name||"").startsWith("ci-")||String(name||"").startsWith("liquor_");
 }
 function invalidateBusinessDayDialogs(previous,next){
   if(previous===next)return;
+  if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
   if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
   if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof shiftMd!=="undefined")shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
@@ -54,6 +56,7 @@ function posLimitedHome(){
     +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]&&posCanView(tab)).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
 }
 window.posClearPrivateState=function(){
+  if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
   if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
   if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof S!=="undefined"){
