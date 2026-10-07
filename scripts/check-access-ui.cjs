@@ -1,10 +1,11 @@
 // Usage: node scripts/check-access-ui.cjs <playwright module path> [output directory]
 // Serves the real app on loopback with Firebase initialization removed. All data is synthetic,
 // external requests and service workers are blocked, and account writes update only an in-memory mock.
+// Data-tab action tests spy on persistence/print/download boundaries without sending or changing data.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),http=require('node:http');
 const {chromium}=require(process.argv[2]||'playwright');
 const root=path.resolve(__dirname,'..'),output=path.resolve(process.argv[3]||path.join(root,'.codex-artifacts','access-ui-qa'));
-const allowedNav={cashier:['nf','nli','nsh','ns'],list:['nli','nsh'],op:['nf','nli','nsh','nh','nan','ns','nm']};
+const allowedNav={cashier:['nf','nli','nsh','nh','ns'],list:['nli','nsh'],op:['nf','nli','nsh','nh','nan','ns','nm']};
 async function fixture(page,role){
   await page.waitForFunction(()=>typeof rAccountAccess==='function'&&typeof render==='function'&&!!window.PosAccess);
   await page.evaluate(role=>{
@@ -32,7 +33,7 @@ async function fixture(page,role){
     S.casts=[{id:101,name:'QA キャスト',active:true,castType:'regular',registeredAt:1,sortIndex:0}];
     S.menus=normalizeMenus({sets:[{id:'s1',label:'QA セット',price:8000,minutes:60}],options:[{id:'sc',label:'シングルチャージ',price:2000}]});
     S.sessions={t1:{tableId:'t1',startTime:time-1800000,setEndTime:time+1800000,guests:1,items:[{id:'s1',label:'QA セット',price:8000,qty:1,isSet:true}],honShimeis:[],banaiShimeis:[],note:'QA 営業中'}};
-    S.history=[{id:past,tableId:'t2',startTime:past,endTime:past+1800000,guests:2,total:9876543,subtotal:8000,items:[],note:'QA 過去明細'}];
+    S.history=[{id:past,tableId:'t2',tableLabel:'QA 卓 2',startTime:past,endTime:past+1800000,guests:2,total:9876543,subtotal:8000,tax:0,payMethod:'cash',items:[{id:'qa-drink',label:'QA Drink',price:2000,qty:1,castId:101,castName:'QA キャスト',category:'castDrink'},{id:'qa-hon',label:'QA 本指名',price:1000,qty:1,castId:101,castName:'QA キャスト',isHonShimei:true}],note:'QA 過去明細'}];
     S.assignments={a1:{id:'a1',castId:101,castName:'QA キャスト',tableId:'t2',type:'free',startTime:past,endTime:past+1200000,sessionId:past}};
     S.shifts={sh1:{id:'sh1',castId:101,castName:'QA キャスト',clockIn:time-3600000,clockOut:null,status:'waiting',statusLog:[]}};
     S.tablePreparations={};S.castLifecycleLogs={};S.bizDaySummaries={};S.backups={};S.config={};S.loMode=false;S.loStatus={};
@@ -41,6 +42,78 @@ async function fixture(page,role){
     document.getElementById('app').style.display='block';document.body.style.overflow='auto';
     vw='home';at=null;md=null;checkoutBusy=false;window.__qaBusiness=JSON.stringify(S);render();
   },role);
+}
+async function checkDataAccess(page,role,size){
+  const before=await page.evaluate(()=>({reads:window.__qaReads.length,writes:window.__qaWrites.length,state:JSON.stringify(S)}));
+  await page.evaluate(()=>{closeM();at=null;sv('home');});
+  if(role==='list'){
+    assert.equal(await page.locator('#nh').isVisible(),false);
+    await page.evaluate(()=>sv('history'));assert.equal(await page.evaluate(()=>vw),'home');
+    await page.evaluate(()=>{editHistPay(S.history[0].id);});assert.equal(await page.evaluate(()=>md),null);
+    await page.evaluate(()=>{window._viewHistRec=S.history[0];om('viewHistDetail');});assert.equal(await page.evaluate(()=>md),null);
+    return;
+  }
+  if(role==='cashier')await page.locator('.access-home-tabs button').filter({hasText:/^データ$/}).click();
+  else await page.locator('#nh').click();
+  assert.equal(await page.evaluate(()=>vw),'history');
+  assert.match(await page.locator('#m').innerText(),/会計履歴/);
+  for(const label of ['会計済み','未収（進行中）','合計見込み','会計データ','売上データ','ドリンクデータ'])assert.ok((await page.locator('#m').innerText()).includes(label),label);
+  assert.match(await page.locator('#m').innerText(),/9,876,543/);
+  await page.locator('.hist-header').click();assert.equal(await page.locator('.hist-body').count(),1);
+  await page.evaluate(()=>{window.scrollTo(0,0);sbs(true,'同期済み ✓');});
+  await page.screenshot({path:path.join(output,size+'-'+role+'-data.png'),fullPage:true});
+  await page.evaluate(()=>{
+    window.__qaData={prints:[],exports:[],updates:[],restores:[],opened:[]};
+    window.__qaDataOriginal={eposPrint,_downloadXLSX,guardedHistoryRecordUpdate,guardedRestoreHistoryToFloor,openFloorDetail,confirm:window.confirm};
+    window.confirm=()=>true;
+    eposPrint=(record,reprint)=>window.__qaData.prints.push({record,reprint});
+    _downloadXLSX=(rows,filename,sheet)=>window.__qaData.exports.push({rows,filename,sheet});
+    guardedHistoryRecordUpdate=async(expected,desired)=>{window.__qaData.updates.push({expected,desired});};
+    guardedRestoreHistoryToFloor=async(expected)=>{window.__qaData.restores.push(expected);return{session:{tableId:expected.tableId},skippedAssignments:0};};
+    openFloorDetail=id=>window.__qaData.opened.push(id);
+  });
+  try{
+    await page.locator('[data-phidg]').click();await page.locator('[data-phids]').click();
+    assert.deepEqual(await page.evaluate(()=>window.__qaData.prints.map(p=>!!p.record.isGuest)),[true,false],'receipt dispatch retains guest/store variants');
+    for(const fn of ['exportAccountingDataXLSX','exportSalesDataXLSX','exportDrinkDataXLSX'])await page.locator('#m [onclick="'+fn+'()"]' ).click();
+    assert.deepEqual(await page.evaluate(()=>window.__qaData.exports.map(item=>item.sheet)),['Accounting','Sales','Drink']);
+    assert.equal(await page.evaluate(()=>window.__qaData.exports.every(item=>item.rows.length>1&&item.filename.endsWith('2026-10-02.xlsx'))),true);
+    await page.locator('[data-ehid]').click();assert.equal(await page.evaluate(()=>md),'editpay');
+    assert.match(await page.locator('#md').innerText(),/支払記録を変更/);
+    await page.locator('#md .ep-method-btn[data-m="card"]').click();
+    await page.locator('#md [onclick="saveHistPay()"]' ).click();
+    await page.waitForFunction(()=>window.__qaData.updates.length===1&&md===null);
+    assert.equal(await page.evaluate(()=>window.__qaData.updates[0].desired.payMethod),'card');
+    await page.locator('[data-dhid]').click();assert.equal(await page.evaluate(()=>md),'dh');
+    await page.locator('#md [onclick="doh()"]' ).click();
+    await page.waitForFunction(()=>window.__qaData.updates.length===2&&md===null);
+    assert.equal(await page.evaluate(()=>window.__qaData.updates[1].desired),null,'delete reaches the existing guarded writer');
+    await page.evaluate(()=>sv('assignHistory'));
+    await page.locator('#m [data-hrid]').click();assert.equal(await page.evaluate(()=>md),'viewHistDetail');
+    assert.match(await page.locator('#md').innerText(),/QA 過去明細/);
+    await page.locator('#md [data-rhid]').click();
+    await page.waitForFunction(()=>window.__qaData.opened.length===1);
+    assert.equal(await page.evaluate(()=>vw),'floor');
+    assert.equal(await page.evaluate(()=>window.__qaData.restores[0].tableId),'t2');
+  }finally{
+    await page.evaluate(()=>{
+      ({eposPrint,_downloadXLSX,guardedHistoryRecordUpdate,guardedRestoreHistoryToFloor,openFloorDetail}=window.__qaDataOriginal);
+      window.confirm=window.__qaDataOriginal.confirm;delete window.__qaDataOriginal;
+      at=null;closeM();sv('home');
+    });
+  }
+  assert.deepEqual(await page.evaluate(()=>({reads:window.__qaReads.length,writes:window.__qaWrites.length,state:JSON.stringify(S)})),before,'data actions use only spies and leave business data unchanged');
+}
+async function checkClosedDataAccess(page,role){
+  await page.evaluate(()=>{at=null;closeM();sv('home');});
+  assert.equal(await page.locator('#nh').isVisible(),false,role+' hides data tab while closed');
+  assert.equal(await page.locator('#m [onclick="sv(\'history\')"]').count(),0,role+' hides closed data shortcut');
+  await page.evaluate(()=>sv('history'));assert.equal(await page.evaluate(()=>vw),'home');
+  await page.evaluate(()=>{vw='history';render();});assert.equal(await page.evaluate(()=>vw),'home');
+  await page.evaluate(()=>editHistPay(S.history[0].id));assert.equal(await page.evaluate(()=>md),null,'closed payment editing is blocked');
+  await page.evaluate(()=>{window._viewHistRec=S.history[0];window._histDetailBack=null;om('viewHistDetail');});
+  assert.equal(await page.evaluate(()=>md),role==='op'?'viewHistDetail':null,'only OP may inspect archived invoice details when closed');
+  await page.evaluate(()=>closeM());
 }
 async function checkAttendanceLifecycle(page,role,size){
   await page.evaluate(()=>{at=null;md=null;vw='home';render();});
@@ -75,6 +148,19 @@ async function checkAttendanceLifecycle(page,role,size){
   }
   await changeDay('2026-10-02');
   await page.waitForFunction(()=>posCanView('shifts')&&document.getElementById('nsh').style.display!=='none');
+  assert.equal(await page.locator('#nh').isVisible(),role!=='list','business opening restores only authorized data tabs');
+  if(role!=='list'){
+    for(const name of ['editpay','viewHistDetail']){
+      await page.evaluate(name=>{sv('history');if(name==='editpay')editHistPay(S.history[0].id);else{window._viewHistRec=S.history[0];window._histDetailBack=null;om(name);}},name);
+      assert.equal(await page.evaluate(()=>md),name);
+      await changeDay('2026-10-03');
+      assert.equal(await page.evaluate(()=>md),null,'day switch closes '+name);
+      assert.equal(await page.evaluate(()=>vw===posDefaultView()),true,'day switch leaves stale data view');
+      assert.equal(await page.evaluate(()=>editPayHid),null,'day switch clears payment editor identity');
+      assert.equal(await page.evaluate(()=>window._viewHistRec==null),true,'day switch clears selected invoice');
+      await changeDay('2026-10-02');
+    }
+  }
   await page.evaluate(()=>sv('shifts'));assert.equal(await page.evaluate(()=>vw),'shifts');
   assert.match(await page.locator('#m').innerText(),/出勤登録/);
   await page.evaluate(()=>openCastStatusModal(101));
@@ -138,18 +224,18 @@ async function main(){
       const home=await page.locator('#m').innerText();
       if(role!=='op'){
         assert.ok(!/会計済み|未収|合計見込み|過去の営業履歴|営業終了|9,876,543/.test(home),'restricted home excludes sales and OP actions');
-        assert.deepEqual(await page.locator('.access-home-tabs button').allTextContents(),role==='cashier'?['フロア','リスト','設定','出勤']:['リスト','出勤']);
+        assert.deepEqual(await page.locator('.access-home-tabs button').allTextContents(),role==='cashier'?['フロア','リスト','設定','出勤','データ']:['リスト','出勤']);
       }else assert.match(home,/会計済み/);
       await page.screenshot({path:path.join(output,size+'-'+role+'-home.png'),fullPage:true});
-      for(const view of role==='cashier'?['history','analysis','admin','histlog','backupDetail','accounts']:role==='list'?['floor','settings','history','analysis','admin','histlog','backupDetail','accounts']:[]){
+      for(const view of role==='cashier'?['analysis','admin','histlog','backupDetail','accounts']:role==='list'?['floor','settings','history','analysis','admin','histlog','backupDetail','accounts']:[]){
         await page.evaluate(view=>sv(view),view);assert.equal(await page.evaluate(()=>vw),'home','sv denies '+role+': '+view);
         await page.evaluate(view=>{vw=view;render();},view);
         assert.equal(await page.evaluate(()=>posCanView(vw)),true,'render redirects forbidden direct view');
         await page.evaluate(()=>sv('home'));
       }
       if(role!=='op'){
-        const denied=['mgmtMenu','endBizDay','viewHistDetail','deleteSession','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
-        if(role==='list')denied.push('startBizDay','settingsEditor','co','co2','opsMenu','ci-guests','est');
+        const denied=['mgmtMenu','endBizDay','deleteSession','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
+        if(role==='list')denied.push('startBizDay','settingsEditor','co','co2','opsMenu','ci-guests','est','editpay','viewHistDetail');
         for(const name of denied){
           await page.evaluate(name=>{at='t1';md=name;rModal();},name);
           assert.equal(await page.evaluate(()=>md),null,role+' direct modal denied: '+name);
@@ -160,7 +246,7 @@ async function main(){
         assert.equal(await page.locator('#nm').isVisible(),false,'sessionStorage admin flag cannot expose management tab');
         await page.evaluate(()=>{sessionStorage.removeItem('genesis_admin');sv('assignHistory');});
         assert.match(await page.locator('#m').innerText(),/付け回し履歴/);
-        assert.equal(await page.locator('#m [data-hrid]').count(),0,'list history cannot open invoice details');
+        assert.equal(await page.locator('#m [data-hrid]').count(),role==='cashier'?1:0,'invoice details follow data tab permission');
         await page.evaluate(()=>sv('tableDetail','t1'));assert.equal(await page.evaluate(()=>vw),'tableDetail');
         assert.match(await page.locator('#m').innerText(),/付ける/);
         await page.evaluate(()=>{openShiftMd('in');});assert.equal(await page.evaluate(()=>md),'shift');
@@ -193,6 +279,7 @@ async function main(){
         await page.evaluate(()=>window.scrollTo(0,0));
         await page.screenshot({path:path.join(output,size+'-op-accounts-self-guard.png'),fullPage:true});
       }
+      await checkDataAccess(page,role,size);
       assert.equal(await page.evaluate(()=>JSON.stringify(S)===window.__qaBusiness),true,'role UI browsing leaves all business data unchanged');
       await page.evaluate(()=>{at=null;md=null;document.getElementById('floor-order-modal').style.display='none';S.activeBizDay=null;vw='home';render();});
       if(role==='op'){
@@ -213,11 +300,12 @@ async function main(){
         assert.match(await page.locator('#m').innerText(),/営業開始はキャッシャーまたはOPアカウント/);
         assert.equal(await page.locator('#m [onclick*="startBizDay"]').count(),0);
       }
+      await checkClosedDataAccess(page,role);
       await checkAttendanceLifecycle(page,role,size);
       assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,size+' '+role+' fits horizontal viewport');
       const contentOverflow=await page.locator('#m').evaluate(node=>node.scrollWidth>node.clientWidth+1);assert.equal(contentOverflow,false,'main content fits viewport');
       assert.deepEqual(errors,[],size+' '+role+' no browser errors');
-      console.log(size+' '+role+': navigation, home, direct view/modal guards, account permissions, closed attendance, remote day transitions and layout passed');
+      console.log(size+' '+role+': navigation, data tab actions, direct view/modal guards, account permissions, closed attendance/data, remote day transitions and layout passed');
       await context.close();
     }
   }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}
