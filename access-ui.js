@@ -1,5 +1,5 @@
 // Database rules enforce the same roles. Keep every UI entry point consistent.
-function posBusinessView(view){return ["floor","list","shifts","tableDetail","assignHistory"].includes(view);}
+function posBusinessView(view){return ["floor","list","shifts","history","tableDetail","assignHistory"].includes(view);}
 function posCanView(view){return !window._posAccessInvalidated&&!!window.PosAccess&&window.PosAccess.canView(window._posRole,view)&&(!posBusinessView(view)||(typeof S!=="undefined"&&!!S.activeBizDay));}
 function posIsOp(){return !window._posAccessInvalidated&&window._posRole==="op";}
 function posCanStartBusiness(){return !window._posAccessInvalidated&&!!window.PosAccess?.canStartBusiness(window._posRole);}
@@ -14,7 +14,7 @@ function posRequireAttendanceBusinessDay(expectedBizDay=S.activeBizDay){
   return true;
 }
 function posBusinessModal(name){
-  if(name==="castDrinkChange")return true;
+  if(name==="castDrinkChange"||name==="editpay")return true;
   return ["shift","tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation","opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est","deleteSession","endBizDay"].includes(name)||String(name||"").startsWith("ci-")||String(name||"").startsWith("liquor_");
 }
 function invalidateBusinessDayDialogs(previous,next){
@@ -23,7 +23,10 @@ function invalidateBusinessDayDialogs(previous,next){
   if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
   if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof shiftMd!=="undefined")shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
-  if(typeof md!=="undefined"&&(posBusinessModal(md)||md==="startBizDay")){
+  if(typeof editPayHid!=="undefined")editPayHid=null;
+  if(typeof dhi!=="undefined")dhi=null;
+  window._viewHistRec=null;window._histDetailBack=null;
+  if(typeof md!=="undefined"&&(posBusinessModal(md)||md==="startBizDay"||md==="viewHistDetail")){
     md=null;
     const modal=document.getElementById("md");if(modal)modal.innerHTML="";
   }
@@ -42,13 +45,14 @@ function posCanOpenModal(name){
   if(["releaseNotes","firebaseLock","sessionConflict"].includes(name))return true;
   if(name==="settingsEditor")return posCanView("settings");
   if(name==="shift")return posCanView("shifts");
+  if(["editpay","viewHistDetail"].includes(name))return posCanView("history");
   if(["tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation"].includes(name))return posCanView("list");
   const floorModals=["opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est"];
   return posCanView("floor")&&(floorModals.includes(name)||name.startsWith("ci-")||name.startsWith("liquor_"));
 }
 function posLimitedHome(){
   const escape=value=>String(value||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const role=window._posRole,labels={floor:"フロア",list:"リスト",settings:"設定",shifts:"出勤"};
+  const role=window._posRole,labels={floor:"フロア",list:"リスト",settings:"設定",shifts:"出勤",history:"データ"};
   const tabs=window.PosAccess?.tabs(role)||[];
   return '<section class="access-home"><h2>'+escape(window.PosAccess?.label(role)||"アクセス確認中")+'</h2><p>'
     +(S.activeBizDay?'営業日：'+escape(S.activeBizDay):posCanStartBusiness()?'現在営業していません。営業日を選択して開始してください。':'現在営業していません。営業開始はキャッシャーまたはOPアカウントで操作してください。')

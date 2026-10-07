@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.159.1";
+const APP_VERSION="6.160";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -5149,7 +5149,7 @@ function exportCSV(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||S.activeBizDay||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
 }
-function cdh(id){dhi=id;om("dh");}
+function cdh(id){if(!posRequireView("history"))return;dhi=id;om("dh");}
 
 // ===== 分割払い操作 =====
 function spSetMethod(idx,method){
@@ -5207,7 +5207,7 @@ function spRemove(idx){
 }
 
 // ===== 履歴支払変更 =====
-function editHistPay(id){editPayHid=id;md="editpay";rModal();}
+function editHistPay(id){if(!posRequireView("history"))return;editPayHid=id;md="editpay";rModal();}
 function epToggleMethod(btn,method){
   const row=btn.closest(".editpay-row");row.dataset.method=method;
   row.querySelectorAll(".ep-method-btn").forEach(b=>{
@@ -5232,7 +5232,8 @@ function epAddRow(){
 +'<button class="btn" onclick="this.closest(\'.editpay-row\').remove()" style="width:28px;height:28px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;touch-action:manipulation;">×</button>';
   rows.appendChild(div);
 }
-async function guardedHistoryRecordUpdate(expected,desired){
+async function guardedHistoryRecordUpdate(expected,desired,expectedActiveBizDay=S.activeBizDay){
+  if(!posCanView("history")||!expectedActiveBizDay||S.activeBizDay!==expectedActiveBizDay)throw Object.assign(new Error("HISTORY_BUSINESS_ACCESS_DENIED"),{userMessage:"営業状態が変更されています。データ画面を開き直してください。"});
   requireScopedAtomic();
   const matches={};
   await Promise.all(castIdQueryValues(expected.id).map(async value=>{
@@ -5242,20 +5243,18 @@ async function guardedHistoryRecordUpdate(expected,desired){
   const entries=Object.entries(matches);
   if(entries.length!==1)throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が変更されています。最新状態を読み込み直してください。"});
   const [key]=entries[0],path="history/"+key;
-  const result=await guardedCheckedNodeUpdate({[FB_ROOT+"/"+path]:desired},null,{expectedRecords:{[path]:expected}});
+  const result=await guardedCheckedNodeUpdate({[FB_ROOT+"/"+path]:desired},null,{expectedActiveBizDay,expectedRecords:{[path]:expected}});
   const saved=result.history?.[key];
-  S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
-  if(saved)S.history=[saved,...S.history].sort((a,b)=>b.startTime-a.startTime);
+  if(S.activeBizDay===expectedActiveBizDay){
+    S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
+    if(saved)S.history=[saved,...S.history].sort((a,b)=>b.startTime-a.startTime);
+  }
   return saved;
-}
-function histRestoreSessionKey(h){
-  return String(h?.sessionId||h?.startTime||"");
 }
 function isCheckoutEndedAssignment(a,h){
   if(!a||!h||String(a.tableId||"")!==String(h.tableId||""))return false;
-  const hKey=histRestoreSessionKey(h);
-  const aKey=String(a.sessionId||"");
-  const sessionMatched=(hKey&&aKey&&aKey===hKey)||(!aKey&&Number(a.startTime||0)>=Number(h.startTime||0)-60000&&Number(a.startTime||0)<=Number(h.endTime||0));
+  // Assignment links use the entry timestamp; checkout records keep the stable session ID.
+  const sessionMatched=assignmentMatchesSession(a,h);
   if(!sessionMatched||!a.endTime||!h.endTime)return false;
   return Math.abs(Number(a.endTime)-Number(h.endTime))<=1000;
 }
@@ -5275,7 +5274,8 @@ function buildRestoredSessionFromHistory(h){
     note:h.note||""
   });
 }
-async function guardedRestoreHistoryToFloor(expected){
+async function guardedRestoreHistoryToFloor(expected,expectedActiveBizDay=S.activeBizDay){
+  if(!posCanView("history")||!expectedActiveBizDay||S.activeBizDay!==expectedActiveBizDay)throw Object.assign(new Error("HISTORY_BUSINESS_ACCESS_DENIED"),{userMessage:"営業状態が変更されています。データ画面を開き直してください。"});
   requireScopedAtomic();
   const tableId=String(expected?.tableId||"");
   if(!tableId)throw Object.assign(new Error("missing table"),{userMessage:"復活するテーブルを確認できません。"});
@@ -5291,7 +5291,6 @@ async function guardedRestoreHistoryToFloor(expected){
   if(!sameFirebaseValue(remoteHistory,expected))throw Object.assign(new Error("history changed"),{userMessage:"会計履歴が他端末で変更されています。最新状態を確認してください。"});
 
   const root=await readScopedPaths(["activeBizDay","sessions/"+tableId,"tablePreparations/"+tableId,"history/"+historyKey,"_tableAssignmentRevisions/"+tableId]);
-  const expectedActiveBizDay=S.activeBizDay||null;
   if((root.activeBizDay||null)!==expectedActiveBizDay)throw Object.assign(new Error("business day changed"),{userMessage:"営業状態が他端末で変更されています。最新状態を確認してください。"});
   if(getPathValue(root,"sessions/"+tableId))throw Object.assign(new Error("table occupied"),{userMessage:"復活先のテーブルは現在使用中です。空席にしてから再実行してください。"});
   if(root.tablePreparations?.[tableId])throw tablePreparationRequiredError();
@@ -5330,10 +5329,12 @@ async function guardedRestoreHistoryToFloor(expected){
     expectedRecords["shifts/"+shift.id]=cloneData(shift);
   });
   await guardedScopedCommit(root,updates,{expectedRecords,expectedActiveBizDay,counterPaths,recordPaths:["history/"+historyKey,"sessions/"+tableId,...eligibleAssignments.map(([id])=>"assignments/"+id),...eligibleCastIds.map(id=>"shifts/"+remoteActiveShift(root,id).id)]});
-  S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
+  if(S.activeBizDay===expectedActiveBizDay)S.history=S.history.filter(h=>String(h.id)!==String(expected.id));
   return{session:restoredSession,restoredAssignments:eligibleAssignments.length,skippedAssignments:restoreAssignments.length-eligibleAssignments.length};
 }
 async function restoreHistoryToFloor(id){
+  if(!posRequireView("history"))return;
+  const expectedActiveBizDay=S.activeBizDay;
   if(!S.activeBizDay){alert("営業中のみフロア復活できます。過去営業日は営業日データを読み込んでから操作してください。");return;}
   const record=(S.history||[]).find(h=>String(h.id)===String(id));
   if(!record){alert("復活対象の会計履歴が現在の営業データにありません。最新状態を確認してください。");return;}
@@ -5342,12 +5343,13 @@ async function restoreHistoryToFloor(id){
   if(!confirm("この会計履歴を削除して、テーブル「"+(record.tableLabel||record.tableId)+"」をフロアへ復活します。\n復活後に内容を修正して、もう一度会計してください。"))return;
   return withDataOperation("history:"+record.id,async()=>{
     try{
-      const restored=await guardedRestoreHistoryToFloor(cloneData(record));
+      const restored=await guardedRestoreHistoryToFloor(cloneData(record),expectedActiveBizDay);
+      if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");
       window._viewHistRec=null;window._histDetailBack=null;
       at=restored.session.tableId;vw="floor";closeM();render();
       if(restored.skippedAssignments>0)alert("会計をフロアへ復活しました。\n退勤済み、または別テーブル対応中の付け回しは復活せず、履歴のまま残しています。");
-      setTimeout(()=>openFloorDetail(restored.session.tableId),0);
+      setTimeout(()=>{if(S.activeBizDay===expectedActiveBizDay)openFloorDetail(restored.session.tableId);},0);
     }catch(error){
       console.error("会計履歴のフロア復活に失敗しました",error);
       sbs(false,"保存エラー");
@@ -5356,6 +5358,8 @@ async function restoreHistoryToFloor(id){
   });
 }
 async function saveHistPay(){
+  if(!posRequireView("history"))return;
+  const expectedActiveBizDay=S.activeBizDay;
   const h=S.history.find(x=>x.id===editPayHid);if(!h)return;
   const splits=[];
   document.querySelectorAll(".editpay-row").forEach(row=>{
@@ -5366,7 +5370,7 @@ if(amount>0)splits.push({method,amount});
   if(splits.length===0)return;
   const desired={...cloneData(h),splits,payMethod:splits[0].method};delete desired.receiptIssued;
   return withDataOperation("history:"+h.id,async()=>{
-    try{await guardedHistoryRecordUpdate(cloneData(h),desired);sbs(true,"同期済み ✓");editPayHid=null;closeM();render();}
+    try{await guardedHistoryRecordUpdate(cloneData(h),desired,expectedActiveBizDay);if(S.activeBizDay!==expectedActiveBizDay)return;sbs(true,"同期済み ✓");editPayHid=null;closeM();render();}
     catch(error){sbs(false,"保存エラー");alert(error.userMessage||"支払方法を保存できませんでした。入力内容を確認して再実行してください。");}
   });
 }
@@ -8783,9 +8787,11 @@ function addSCToSession(){
   return saveChargeChange(s=>POS_CHARGES.addSC(s,targetId,offset=>({id:"sc_add_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)+"_"+offset,label:"シングルチャージ"+(targetId==="base"?"":"（延長）"),price:singleChargePrice(),qty:1}),legacyId));
 }
 async function doh(){
+  if(!posRequireView("history"))return;
+  const expectedActiveBizDay=S.activeBizDay;
   const record=S.history.find(h=>String(h.id)===String(dhi));if(!record)return;
   return withDataOperation("history:"+record.id,async()=>{
-    try{await guardedHistoryRecordUpdate(cloneData(record),null);sbs(true,"同期済み ✓");dhi=null;closeM();render();}
+    try{await guardedHistoryRecordUpdate(cloneData(record),null,expectedActiveBizDay);if(S.activeBizDay!==expectedActiveBizDay)return;sbs(true,"同期済み ✓");dhi=null;closeM();render();}
     catch(error){sbs(false,"保存エラー");alert(error.userMessage||"会計履歴を削除できませんでした。最新状態を確認してください。");}
   });
 }

@@ -5,7 +5,7 @@
 })(typeof globalThis!=="undefined"?globalThis:this,function(){
   "use strict";
   const ROLE_TABS=Object.freeze({
-    cashier:Object.freeze(["floor","list","settings","shifts"]),
+    cashier:Object.freeze(["floor","list","settings","shifts","history"]),
     list:Object.freeze(["list","shifts"]),
     op:Object.freeze(["floor","list","settings","shifts","history","analysis","admin","accounts"])
   });

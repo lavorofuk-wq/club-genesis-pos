@@ -3,7 +3,7 @@ const assert=require("node:assert/strict");
 const access=require("../access-control.js");
 
 test("each role receives exactly the requested tabs",()=>{
-  assert.deepEqual(access.tabs("cashier"),["floor","list","settings","shifts"]);
+  assert.deepEqual(access.tabs("cashier"),["floor","list","settings","shifts","history"]);
   assert.deepEqual(access.tabs("list"),["list","shifts"]);
   for(const tab of ["floor","list","settings","shifts","history","analysis","admin","accounts"]){
     assert.equal(access.canView("op",tab),true,tab);
@@ -51,8 +51,10 @@ test("internal navigation cannot open another role's tab",()=>{
     assert.equal(access.canView(role,"__proto__"),false);
   }
   for(const role of ["cashier","list"]){
-    for(const view of ["history","analysis","admin","histlog","backupDetail","accounts"]){assert.equal(access.canView(role,view),false);}
+    for(const view of ["analysis","admin","histlog","backupDetail","accounts"]){assert.equal(access.canView(role,view),false);}
   }
+  assert.equal(access.canView("cashier","history"),true);
+  assert.equal(access.canView("list","history"),false);
   for(const view of ["floor","settings"]){assert.equal(access.canView("list",view),false);}
 });
 

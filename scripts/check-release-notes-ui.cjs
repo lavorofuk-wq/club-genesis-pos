@@ -125,7 +125,19 @@ async function main(){
       await assertFocusLoop();await selectVersion('6.152.1');
       await page.screenshot({path:path.join(output,name+'-history.png'),fullPage:true});
       const canScroll=await dialog().locator('.rn-content').evaluate(el=>el.scrollHeight>el.clientHeight+1);
-      if(canScroll){await dialog().locator('.rn-content').focus();await page.keyboard.press('ArrowDown');await page.waitForFunction(()=>document.querySelector('#release-notes-dialog .rn-content').scrollTop>0);}
+      if(canScroll){
+        // ArrowDown animates natively in Chrome. Finish that independent action before
+        // setting the bottom position or changing entries; otherwise its remaining
+        // delta can be applied after the application's correctly executed reset.
+        await dialog().locator('.rn-content').evaluate(el=>{
+          window.__qaReleaseNotesScrollEnded=false;
+          el.addEventListener('scrollend',()=>{window.__qaReleaseNotesScrollEnded=true;},{once:true});
+        });
+        await dialog().locator('.rn-content').focus();await page.keyboard.press('ArrowDown');
+        await page.waitForFunction(()=>document.querySelector('#release-notes-dialog .rn-content').scrollTop>0);
+        await page.waitForFunction(()=>window.__qaReleaseNotesScrollEnded,null,{timeout:3000});
+        await page.evaluate(()=>{delete window.__qaReleaseNotesScrollEnded;});
+      }
       const scroll=await dialog().locator('.rn-content').evaluate(el=>{el.scrollTop=el.scrollHeight;return{needed:el.scrollHeight>el.clientHeight+1,moved:el.scrollTop>0};});
       if(height<=568)assert.equal(scroll.needed,true,'long selected note scrolls on short screens');
       if(scroll.needed)assert.equal(scroll.moved,true);
