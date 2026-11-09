@@ -14,6 +14,7 @@ function contextFor(hist){
   vm.createContext(ctx);
   for(const [from,to] of [
     ['function gmsEscapeHtml','function gmsInt'],
+    ['function gmsInt','function gmsHHMM'],
     ['function exportCSV','function cdh'],
     ['function _paymentBreakdownFromHist','function _accountingRowsFromHist']
   ])vm.runInContext(source(from,to),ctx);
@@ -21,6 +22,12 @@ function contextFor(hist){
 }
 
 for(const exporter of ['exportDayCSV','exportCSV']){
+  test(exporter+' uses cumulative guests without changing legacy records',async()=>{
+    const ctx=contextFor([{startTime:1,guests:2,totalGuests:5,items:[]},{startTime:2,guests:3,items:[]}]);
+    ctx[exporter]('day');
+    const rows=(await ctx.blob.text()).trim().split('\n').slice(1).map(line=>line.split(','));
+    assert.deepEqual(rows.map(row=>Number(row[2])),[5,3]);
+  });
   test(exporter+' exports split payment labels and cash/card amounts without changing history',async()=>{
     const cases=[
       {payMethod:'cash',splits:[{method:'cash',amount:5000},{method:'card',amount:8000}],label:'現金・カード',cash:5000,card:8000},

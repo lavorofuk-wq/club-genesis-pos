@@ -14,12 +14,14 @@ function posRequireAttendanceBusinessDay(expectedBizDay=S.activeBizDay){
   return true;
 }
 function posBusinessModal(name){
-  if(name==="castDrinkChange"||name==="editpay")return true;
+  if(name==="castDrinkChange"||name==="editpay"||name==="setPrice")return true;
   return ["shift","tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation","opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est","deleteSession","endBizDay"].includes(name)||String(name||"").startsWith("ci-")||String(name||"").startsWith("liquor_");
 }
 function invalidateBusinessDayDialogs(previous,next){
   if(previous===next)return;
   if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
+  if(typeof setPriceState!=="undefined")setPriceState=null;
+  if(typeof extensionGuests!=="undefined")extensionGuests=null;
   if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
   if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof shiftMd!=="undefined")shiftMd={step:"cast",mode:"in",castId:null,shiftId:null,time:"",bizDayId:null};
@@ -36,6 +38,7 @@ function invalidateBusinessDayDialogs(previous,next){
   if(typeof vw!=="undefined"&&posBusinessView(vw))vw=posDefaultView();
 }
 function posCanOpenModal(name){
+  if(name==="setPrice")return posCanView("floor");
   if(window._posAccessInvalidated)return false;
   if(!name)return true;
   if(!window.PosAccess?.normalizeRole(window._posRole))return false;
@@ -61,6 +64,9 @@ function posLimitedHome(){
 }
 window.posClearPrivateState=function(){
   if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
+  if(typeof setPriceState!=="undefined")setPriceState=null;
+  if(typeof extensionGuests!=="undefined")extensionGuests=null;
+  if(typeof chargeSessionIdentity!=="undefined")chargeSessionIdentity=null;
   if(typeof offDutyCastSelection!=="undefined")offDutyCastSelection=false;
   if(typeof endBizDayAttendanceIssues!=="undefined")endBizDayAttendanceIssues=null;
   if(typeof S!=="undefined"){

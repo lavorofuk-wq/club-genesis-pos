@@ -31,6 +31,7 @@ function contextFor(){
   };
   vm.createContext(context);
   for(const [from,to] of [
+    ['function gmsInt','function gmsHHMM'],
     ['function sessionGrossSubtotal','function standardChargeFromSubtotal'],
     ['function isSetCatItem','function isGuestCatItem'],
     ['function isBanaiExtensionBackItem','async function execDelItem'],
@@ -92,6 +93,27 @@ function verifyAnalysis(hist,expected){
   assert.equal(JSON.stringify(hist),before,'analysis must not mutate stored history');
   return ctx;
 }
+
+test('set corrections and guest joins agree across data, analysis, CSV and GMS',()=>{
+  const charges=require('../charge-core.js');
+  for(const hon of [false,true]){
+    const h=record([
+      {id:'set',isSet:true,label:'Set',price:10000,qty:3,minutes:60},
+      {id:'nom-a',castId:'a',castName:'A',price:2000,qty:1,...(hon?{isHonShimei:true}:{isBanaiShimei:true})},
+      {id:'nom-b',castId:'b',castName:'B',price:2000,qty:1,...(hon?{isHonShimei:true}:{isBanaiShimei:true})},
+      {...extension(['a','b'],8000),id:'ext',groupId:'phase',extMinutes:60,qty:2},
+      {id:'bottle',category:'champagneWine',label:'Bottle',price:30000,qty:1}
+    ],{guests:2,totalGuests:3,startTime:100000,setEndTime:7300000});
+    charges.setPrice(h,'set',{id:'set90',label:'Set90',price:15000,minutes:90});
+    charges.addGuestSet(h,{id:'set90',label:'Set90',price:15000,minutes:90},1,'joined');
+    charges.setNextGuests(h,4);
+    h.items.push({...extension(['a'],8000),id:'next',extMinutes:60,qty:4});
+    h.subtotal=h.items.reduce((sum,i)=>sum+i.price*i.qty,0);
+    const ctx=verifyAnalysis([h],hon?{a:0,b:0}:{a:62500,b:30500});
+    assert.equal(ctx.gmsGuestCount(h),5);
+    for(const row of ctx.gmsCastSales([h]))assert.equal(row.honShimeiSales,hon?71000:0);
+  }
+});
 
 test('drink reassignment preserves hon and extension allocation across data, analysis and GMS',()=>{
   const change=require('../cast-drink-change.js').change;

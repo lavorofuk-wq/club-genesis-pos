@@ -1,8 +1,9 @@
-const RELEASE_VERSION = '6.160.1';
-const CACHE = 'genesis-pos-v6.160.1-auth';
-const ASSETS = ['./', './index.html', './styles.css', './commercial-ui.css?v=6.160.1', './list-analysis.css?v=6.160.1', './boot-compat.js?v=6.160.1', './firebase-init.js?v=6.160.1', './gms-json-core.js?v=6.160.1', './sync-core.js?v=6.160.1', './charge-core.js?v=6.160.1', './analysis-data.js?v=6.160.1', './list-analysis-core.js?v=6.160.1', './list-analysis-ui.js?v=6.160.1', './settings-store.js?v=6.160.1', './settings-editor.js?v=6.160.1', './settings-actions.js?v=6.160.1', './settings-editor.css?v=6.160.1', './release-notes.js?v=6.160.1', './release-notes.css?v=6.160.1', './app.js?v=6.160.1', './manifest.json', './icon-192.png', './icon-512.png'];
+const RELEASE_VERSION = '6.161';
+const CACHE = 'genesis-pos-v6.161-auth';
+const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.161', './boot-compat.js?v=6.161', './firebase-init.js?v=6.161', './gms-json-core.js?v=6.161', './sync-core.js?v=6.161', './charge-core.js?v=6.161', './analysis-data.js?v=6.161', './list-analysis-core.js?v=6.161', './list-analysis-ui.js?v=6.161', './settings-store.js?v=6.161', './settings-editor.js?v=6.161', './settings-actions.js?v=6.161', './settings-editor.css?v=6.161', './release-notes.js?v=6.161', './release-notes.css?v=6.161', './app.js?v=6.161', './manifest.json', './icon-192.png', './icon-512.png'];
+ASSETS.push('./commercial-ui.css?v=6.161');
 
-ASSETS.push('./cast-drink-change.js?v=6.160.1', './cast-order-attendance.js?v=6.160.1', './auth.css?v=6.160.1', './access-control.js?v=6.160.1', './access-ui.js?v=6.160.1', './account-access-ui.js?v=6.160.1', './account-access.css?v=6.160.1');
+ASSETS.push('./cast-drink-change.js?v=6.161', './cast-order-attendance.js?v=6.161', './auth.css?v=6.161', './access-control.js?v=6.161', './access-ui.js?v=6.161', './account-access-ui.js?v=6.161', './account-access.css?v=6.161');
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));

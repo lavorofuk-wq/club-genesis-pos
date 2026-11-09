@@ -16,6 +16,7 @@ function source(from,to){
 }
 function contextFor(){
   const context={
+    POS_CHARGES:require('../charge-core.js'),
     Date,cloneData:clone,markSessionGuard:value=>value,
     gmsUniqueStrings:values=>[...new Set(values.map(String))]
   };
@@ -127,6 +128,8 @@ test('restoring history reuses the calculated end without mutating the history',
 test('checkout persists set end separately from actual checkout time',async()=>{
   const ctx=contextFor(),session=record({tableId:'t1',sessionId:'s1',guests:1,setEndTime:start+157*minute});
   session.items.push({isExtension:true,extMinutes:60});
+  session.totalGuests=3;
+  session.setChanges=[{kind:'extension',reason:'next set',before:{guests:3},after:{guests:1}}];
   let saved;
   Object.assign(ctx,{
     at:'t1',S:{sessions:{t1:session},tables:[{id:'t1',label:'T1'}],history:[]},
@@ -142,6 +145,11 @@ test('checkout persists set end separately from actual checkout time',async()=>{
   vm.runInContext(source('async function checkout(){','function setCheckoutProgress'),ctx);
   const before=Date.now();
   await ctx.checkout();
+  assert.equal(saved.totalGuests,3);assert.deepEqual(saved.setChanges,session.setChanges);
+  const restored=ctx.buildRestoredSessionFromHistory(clone(saved));
+  assert.equal(restored.totalGuests,3);assert.equal(restored.guests,1);
+  assert.deepEqual(clone(restored.setChanges),session.setChanges);
+  restored.setChanges[0].reason='changed';assert.equal(saved.setChanges[0].reason,'next set');
   assert.equal(saved.setEndTime,start+120*minute);
   assert.ok(saved.endTime>=before&&saved.endTime<=Date.now());
   assert.equal(ctx.S.history[0].setEndTime,saved.setEndTime);

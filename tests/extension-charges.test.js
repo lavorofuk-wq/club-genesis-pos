@@ -48,6 +48,137 @@ const session=c=>c.S.sessions.t1;
 const ext=c=>session(c).items.filter(i=>i.extMinutes>0);
 const sc=c=>session(c).items.filter(i=>i.isExtension&&String(i.id).startsWith('sc_'));
 
+function setRuntime(options={}){
+  const c=runtime({guests:3,room:'',...options});
+  c.S.menus.sets=[{id:'s60',label:'Set60',price:8000,minutes:60},{id:'s90',label:'Set90',price:12000,minutes:90}];
+  c.S.menus.normalSets=[];
+  c.TAX_RATE=.3;c.TOTAL_ROUND_UNIT=100;c.setPriceState=null;c.extensionGuests=null;
+  c.document={getElementById:()=>null};
+  vm.runInContext(source('function fmt(n)','function isV(id)'),c);
+  vm.runInContext(source('function addSetToSession','function addHonShimeiToSession'),c);
+  return c;
+}
+function selectPrice(c,menuId='s90',custom=false){
+  c.md='setPrice';c.chargeSessionIdentity=clone(session(c));
+  c.setPriceState={itemId:'set',menuId,menu:clone(c.S.menus.sets.find(m=>m.id===menuId)||null),custom,price:'7000',reason:'Check-in correction'};
+}
+
+test('set quantities remain historical while current and cumulative guests track 3 to 2 to 4',async()=>{
+  const c=setRuntime(),base=clone(session(c).items),end=session(c).setEndTime;
+  assert.equal(await c.addExt(c.S.menus.extensions[1],false,{roomIncluded:false,guests:2}),true);
+  assert.equal(session(c).guests,2);assert.equal(session(c).totalGuests,3);
+  assert.deepEqual(clone(session(c).items.slice(0,base.length)),base);
+  assert.equal(ext(c)[0].qty,2);assert.equal(session(c).items.at(-1).qty,2);
+  assert.equal(await c.addExt(c.S.menus.extensions[1],false,{roomIncluded:false,guests:4}),true);
+  assert.equal(session(c).guests,4);assert.equal(session(c).totalGuests,5);
+  assert.equal(ext(c)[0].qty,2);assert.equal(ext(c)[1].qty,4);
+  assert.equal(session(c).setEndTime,end+120*minute);
+  const before=clone(session(c));assert.equal(await c.remItem(ext(c)[0].id),false);assert.deepEqual(clone(session(c)),before);
+  assert.equal(await c.remItem(ext(c)[1].id),true);
+  assert.equal(session(c).guests,2);assert.equal(session(c).totalGuests,3);
+  assert.equal(await c.remItem(ext(c)[0].id),true);
+  assert.equal(session(c).guests,3);assert.equal(session(c).totalGuests,3);
+  assert.equal(session(c).setEndTime,end);
+});
+
+test('initial price correction changes price and duration but not extension quantities or assignments',async()=>{
+  const c=setRuntime();c.window._posRole='cashier';
+  await c.addExt(c.S.menus.extensions[1],false,{roomIncluded:false,guests:2});
+  const end=session(c).setEndTime,extension=clone(ext(c)[0]);
+  c.S.assignments={a:{startTime:123,endTime:456}};const assignments=clone(c.S.assignments);
+  selectPrice(c);assert.equal(await c.saveSetPrice(),true);
+  assert.equal(session(c).items[0].price,12000);assert.equal(session(c).items[0].minutes,90);
+  assert.equal(session(c).items[0].qty,3);assert.equal(session(c).setEndTime,end+30*minute);
+  assert.deepEqual(clone(ext(c)[0]),extension);assert.deepEqual(clone(c.S.assignments),assignments);
+  assert.equal(session(c).setChanges.at(-1).actorRole,'cashier');
+  assert.equal(session(c).setChanges.at(-1).after.total-session(c).setChanges.at(-1).before.total,15600);
+});
+
+test('joined guests use a full menu price, share the timer and inherit the current cast phase',async()=>{
+  const c=setRuntime();c.S.casts=[{id:'a',name:'A'}];c.banaiExtCastIds=['a'];
+  await c.addExt(c.S.menus.extensions[1],false,{roomIncluded:false,guests:2});
+  const end=session(c).setEndTime;
+  session(c).items.push({id:'bottle',category:'champagneWine',price:10000,qty:1});
+  const existingIds=session(c).items.map(i=>i.id);
+  assert.equal(await c.addSetToSession('s90',2),true);
+  assert.deepEqual(session(c).items.slice(0,existingIds.length).map(i=>i.id),existingIds);
+  const joined=session(c).items.find(i=>i.guestSetTarget);
+  assert.equal(joined.price,12000);assert.equal(joined.qty,2);
+  assert.deepEqual(clone(joined.banaiExtCastIds),['a']);assert.equal(joined.groupId,ext(c)[0].groupId);
+  assert.equal(session(c).setEndTime,end);assert.equal(session(c).guests,4);assert.equal(session(c).totalGuests,5);
+  await c.addExt(c.S.menus.extensions[0],false,{roomIncluded:false,guests:3});
+  assert.equal(await c.remItem(joined.id),false);
+  await c.remItem(ext(c)[1].id);assert.equal(session(c).guests,4);
+  assert.equal(await c.remItem(joined.id),true);assert.equal(session(c).guests,2);assert.equal(session(c).totalGuests,3);
+});
+
+test('only OP can specify custom prices and list accounts cannot change sets',async()=>{
+  for(const role of ['op','cashier','list']){
+    const c=setRuntime();c.window._posRole=role;selectPrice(c,'',true);const before=clone(session(c));
+    assert.equal(await c.saveSetPrice(),role==='op');
+    if(role==='op'){assert.equal(session(c).items[0].price,7000);assert.equal(session(c).items[0].minutes,60);}
+    else assert.deepEqual(clone(session(c)),before);
+    if(role==='list'){
+      assert.equal(await c.addExt(c.S.menus.extensions[0],false,{guests:2}),false);
+      assert.equal(await c.addSetToSession('s60',1),false);
+    }
+  }
+});
+
+test('failed price and guest saves preserve the entire session and can be retried',async()=>{
+  for(const operation of ['price','join']){
+    const c=setRuntime({fail:true});selectPrice(c);const before=clone(session(c));
+    const apply=()=>operation==='price'?c.saveSetPrice():c.addSetToSession('s60',1);
+    assert.equal(await apply(),false);assert.deepEqual(clone(session(c)),before);
+    c.failSave=false;assert.equal(await apply(),true);assert.equal(c.writes.length,1);
+  }
+});
+
+test('stale day, permissions, session, menu and concurrent discount block price saves',async()=>{
+  for(const kind of ['day','role','session','menu','discount']){
+    const c=setRuntime();selectPrice(c);
+    c.waitForSessionSaveQueue=async()=>{
+      if(kind==='day')c.S.activeBizDay='another-day';
+      if(kind==='role')c.window._posRole='list';
+      if(kind==='session')session(c).sessionId='another-session';
+      if(kind==='menu')c.S.menus.sets[1].price=99999;
+      if(kind==='discount')session(c).adjustedTotal=1000;
+    };
+    assert.equal(await c.saveSetPrice(),false,kind);assert.equal(c.writes.length,0,kind);
+    assert.equal(session(c).items[0].price,8000);
+  }
+});
+
+test('invalid counts and prices never write; existing discounts require explicit removal',async()=>{
+  for(const n of [0,-1,1.5,100,NaN,Infinity,'']){
+    const c=setRuntime(),before=clone(session(c));
+    assert.equal(await c.addExt(c.S.menus.extensions[0],false,{roomIncluded:false,guests:n}),false);
+    assert.equal(await c.addSetToSession('s60',n),false);assert.deepEqual(clone(session(c)),before);
+  }
+  for(const price of ['',-1,1.5,NaN,Infinity,10000001]){
+    const c=setRuntime();selectPrice(c,'',true);c.setPriceState.price=price;
+    assert.equal(await c.saveSetPrice(),false);assert.equal(c.writes.length,0);
+  }
+  const c=setRuntime();session(c).adjustedTotal=10000;selectPrice(c);const before=clone(session(c));
+  assert.equal(await c.saveSetPrice(),false);assert.equal(await c.addSetToSession('s60',1),false);
+  assert.equal(await c.addExt(c.S.menus.extensions[0],false),false);assert.deepEqual(clone(session(c)),before);
+});
+
+test('missing or invalid historical time is rejected without guessing, while OP zero price is valid',async()=>{
+  for(const minutes of [undefined,0,-60,Infinity,NaN]){
+    const c=setRuntime();session(c).items[0].minutes=minutes;selectPrice(c);
+    assert.equal(await c.saveSetPrice(),false);assert.equal(c.writes.length,0);
+  }
+  const c=setRuntime();selectPrice(c,'',true);c.setPriceState.price=0;
+  assert.equal(await c.saveSetPrice(),true);assert.equal(session(c).items[0].price,0);
+  assert.equal(session(c).items[0].minutes,60);
+});
+
+test('legacy numeric-string end times are corrected arithmetically',async()=>{
+  const c=setRuntime(),end=session(c).setEndTime;session(c).setEndTime=String(end);selectPrice(c);
+  assert.equal(await c.saveSetPrice(),true);assert.equal(session(c).setEndTime,end+30*minute);
+});
+
 for(const room of ['vip','karaoke'])test(room+' fee removal preserves extension, SC, free drink and end time',async()=>{
   const c=runtime({room,guests:room==='karaoke'?3:1});
   await c.addExt(c.S.menus.extensions[1],true);
