@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.160";
+const APP_VERSION="6.160.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -1228,15 +1228,19 @@ async function readRemoteActiveAssignmentsForCast(castId){
   }));
   return found;
 }
-async function readRemoteActiveShiftsForCast(castId){
+async function readRemoteShiftsForCast(castId){
   const found={};
   await Promise.all(castIdQueryValues(castId).map(async value=>{
     const snap=await window._db.ref(FB_ROOT+"/shifts").orderByChild("castId").equalTo(value).get();
     Object.entries(snap.val()||{}).forEach(([id,sh])=>{
-      if(sh&&String(sh.castId)===String(castId)&&!sh.clockOut)found[id]=sh;
+      if(sh&&String(sh.castId)===String(castId))found[id]=sh;
     });
   }));
   return found;
+}
+async function readRemoteActiveShiftsForCast(castId){
+  const shifts=await readRemoteShiftsForCast(castId);
+  return Object.fromEntries(Object.entries(shifts).filter(([,sh])=>!sh.clockOut));
 }
 async function guardedShiftDelete(shiftId,expected,expectedActiveBizDay=S.activeBizDay){
   if(!posRequireAttendanceBusinessDay(expectedActiveBizDay))throw Object.assign(new Error("ATTENDANCE_BUSINESS_CLOSED"),{userMessage:"営業開始後に出勤画面を開き直してください。"});
@@ -1371,11 +1375,13 @@ async function guardedCheckedNodeUpdate(updates,checker,options={}){
   const counterPaths=scopedChangedCounters(updates,expectedRecords);
   (options.readActiveAssignCasts||[]).forEach(id=>counterPaths.add("_castAssignmentRevisions/"+String(id)));
   (options.readActiveShiftCasts||[]).forEach(id=>counterPaths.add("_castShiftRevisions/"+String(id)));
+  (options.readAllShiftCasts||[]).forEach(id=>counterPaths.add("_castShiftRevisions/"+String(id)));
   const root=await readScopedPaths([...readPaths,...counterPaths]);
   // Capture membership revisions before querying so an intervening insert cannot be missed.
   await Promise.all([
     ...(options.readActiveAssignCasts||[]).map(async id=>{Object.assign(root.assignments||(root.assignments={}),await readRemoteActiveAssignmentsForCast(id));}),
-    ...(options.readActiveShiftCasts||[]).map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteActiveShiftsForCast(id));})
+    ...(options.readActiveShiftCasts||[]).map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteActiveShiftsForCast(id));}),
+    ...(options.readAllShiftCasts||[]).map(async id=>{Object.assign(root.shifts||(root.shifts={}),await readRemoteShiftsForCast(id));})
   ]);
   const ok=checker?checker(root):{ok:true};
   if(ok===false||ok?.ok===false)throw Object.assign(new Error(ok?.message||"conflict"),{userMessage:ok?.message});
@@ -7978,14 +7984,17 @@ const title=isIn?"出勤登録":"退勤登録";
 const onduty=getOnduty();
 if(shiftMd.step==="cast"){
   let castBtns="";
+  let correctionGuide="";
   if(isIn){
-    // 出勤：未出勤のキャスト一覧
-    const onIds=getOndutyIds();
+    const onIds=new Set(onduty.map(sh=>String(sh.castId)));
+    const doneIds=new Set(Object.values(S.shifts||{}).filter(sh=>sh.clockOut).map(sh=>String(sh.castId)));
+    if(doneIds.size)correctionGuide='<p style="font-size:12px;color:#aaa;line-height:1.5;margin:12px 0 0;">誤って退勤を登録した場合は、出勤管理の「退勤済み」から「退勤取消」を選んでください。</p>';
     sc().forEach(c=>{
-      const already=onIds.has(c.id);
-      castBtns+='<button class="btn" '+(already?"disabled":"")+' data-cid="'+c.id+'" onclick="shiftMd.castId=parseInt(this.dataset.cid);shiftMd.step=\'time\';shiftMd.time=roundHHMM(15);rModal()" style="padding:14px 8px;background:'+(already?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:2px solid '+(already?"rgba(255,255,255,.06)":"rgba(74,222,128,.3)")+';color:'+(already?"#444":"#e8dcc8")+';border-radius:8px;font-size:14px;font-weight:700;text-align:center;cursor:'+(already?"not-allowed":"pointer")+';touch-action:manipulation;">'
+      const castId=String(c.id);
+      const status=onIds.has(castId)?"出勤中":doneIds.has(castId)?"退勤済み":"";
+      castBtns+='<button class="btn" '+(status?"disabled":"")+' data-cid="'+gmsEscapeHtml(castId)+'" onclick="shiftMd.castId=this.dataset.cid;shiftMd.step=\'time\';shiftMd.time=roundHHMM(15);rModal()" style="padding:14px 8px;background:'+(status?"rgba(255,255,255,.02)":"rgba(74,222,128,.08)")+';border:2px solid '+(status?"rgba(255,255,255,.06)":"rgba(74,222,128,.3)")+';color:'+(status?"#444":"#e8dcc8")+';border-radius:8px;font-size:14px;font-weight:700;text-align:center;cursor:'+(status?"not-allowed":"pointer")+';touch-action:manipulation;">'
         +'<div style="font-size:15px;margin-bottom:3px;">'+c.name+'</div>'
-        +(already?'<div style="font-size:10px;color:#4ade80;opacity:.8;">✓ 出勤中</div>':'<div style="font-size:10px;color:#4ade8077;">タップして選択</div>')
+        +(status?'<div style="font-size:10px;color:#aaa;">'+status+'</div>':'<div style="font-size:10px;color:#4ade8077;">タップして選択</div>')
         +'</button>';
     });
   } else {
@@ -8009,6 +8018,7 @@ if(shiftMd.step==="cast"){
     +'</div>'
     +'<div style="font-size:12px;color:#666;margin-bottom:12px;letter-spacing:.05em;">'+(isIn?"出勤するキャストを選択":"退勤するキャストを選択")+'</div>'
     +'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;max-height:55vh;overflow-y:auto;">'+castBtns+'</div>'
+    +correctionGuide
     +'<button class="btn" onclick="closeM()" style="margin-top:18px;width:100%;padding:11px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:#666;border-radius:6px;font-size:13px;">キャンセル</button>'
     +'</div></div>';
 } else if(shiftMd.step==="time"){
@@ -8884,9 +8894,10 @@ async function clockIn(castId,time,expectedActiveBizDay=S.activeBizDay){
         {[FB_ROOT+"/shifts/"+sid]:desired},
         root=>{
           if(remoteActiveShift(root,castId))return{ok:false,message:"このキャストは他端末で既に出勤中です。最新状態を確認してください。"};
+          if(Object.values(root.shifts||{}).some(sh=>String(sh.castId)===String(castId)))return{ok:false,message:"このキャストはこの営業日ですでに退勤済みです。誤って退勤した場合は「退勤取消」を使ってください。"};
           return{ok:true};
         },
-        {deferOptimistic:true,expectedActiveBizDay,createRecords:["shifts/"+sid],nodeUpdate:{expectedActiveBizDay,createRecords:["shifts/"+sid],readActiveShiftCasts:[castId]}}
+        {deferOptimistic:true,expectedActiveBizDay,createRecords:["shifts/"+sid],nodeUpdate:{expectedActiveBizDay,createRecords:["shifts/"+sid],readAllShiftCasts:[castId]}}
       );
       if(S.activeBizDay!==expectedActiveBizDay)return;
       sbs(true,"同期済み ✓");closeM();render();
@@ -9268,10 +9279,18 @@ function rShifts(){
   if(!posCanView("shifts"))return '<div class="access-home">営業開始後に出勤画面を開いてください。</div>';
   // S.shiftsは現在の営業日データのみ含むため、追加フィルタリング不要
   const onduty=getOnduty().sort((a,b)=>a.clockIn-b.clockIn);
-  const onIds=getOndutyIds();
+  const onIds=new Set(onduty.map(sh=>String(sh.castId)));
   const allToday=Object.values(S.shifts||{});
   const done=allToday.filter(sh=>sh.clockOut).sort((a,b)=>b.clockIn-a.clockIn);
   const totalMs=allToday.reduce((a,sh)=>a+safeShiftDurationMs(sh),0);
+  const castIds=new Set();
+  const duplicateCastIds=new Set();
+  for(const sh of allToday){
+    const castId=String(sh.castId);
+    if(castIds.has(castId))duplicateCastIds.add(castId);
+    castIds.add(castId);
+  }
+  const reviewBadge='<span style="color:#fbbf24;font-size:11px;font-weight:700;margin-left:8px;">要確認</span>';
 
   let html='<div style="max-width:720px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">出勤管理</h2>';
@@ -9282,11 +9301,12 @@ function rShifts(){
   html+='<button class="btn" onclick="openShiftMd(\'out\')" style="flex:1;padding:14px;font-size:15px;font-weight:700;border-radius:8px;background:rgba(255,80,80,.12);border:1px solid rgba(255,80,80,.3);color:#ff6b6b;touch-action:manipulation;">退勤登録</button>';
   html+='<button class="btn" onclick="exportShiftCSV()" style="padding:14px 16px;background:rgba(74,222,128,.1);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:8px;font-size:13px;font-weight:600;touch-action:manipulation;">CSV</button>';
   html+='</div>';
+  if(duplicateCastIds.size)html+='<div class="cast-attendance-warning" role="status"><strong>同じキャストに複数の出退勤記録があります。</strong><div>「要確認」の時刻を確認し、誤登録があれば「編集」から修正・削除してください。</div></div>';
 
   // 出勤中
   html+='<div class="glass" style="border-radius:8px;padding:16px;margin-bottom:14px;">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">';
-  html+='<div class="st">出勤中 ('+onduty.length+'名)</div>';
+  html+='<div class="st">出勤中 ('+onIds.size+'名)</div>';
   html+='<div style="font-size:12px;color:#888;">本日累計: <span style="color:#4ade80;font-weight:700;">'+fmtDur(totalMs)+'</span></div>';
   html+='</div>';
   if(!onduty.length){html+='<div style="font-size:13px;color:#444;padding:8px 0;">出勤中のキャストはいません</div>';}
@@ -9296,6 +9316,7 @@ const inT=new Date(sh.clockIn).toLocaleTimeString("ja-JP",{hour:"2-digit",minute
 html+='<div class="ir" style="min-height:40px;">';
 html+='<div style="flex:1;">';
 html+='<span style="font-size:14px;font-weight:700;color:#e8dcc8;">'+sh.castName+'</span>';
+if(duplicateCastIds.has(String(sh.castId)))html+=reviewBadge;
 html+='<span style="font-size:11px;color:#888;margin-left:8px;">'+inT+'〜 ('+fmtDur(elapsed)+')</span>';
 html+='</div>';
 html+='<div style="display:flex;gap:6px;">';
@@ -9316,6 +9337,7 @@ done.forEach(sh=>{
   html+='<div class="ir" style="font-size:13px;min-height:38px;">';
   html+='<div style="flex:1;">';
   html+='<span style="color:#bbb;font-weight:600;">'+sh.castName+'</span>';
+  if(duplicateCastIds.has(String(sh.castId)))html+=reviewBadge;
   html+='<span style="color:#666;margin-left:10px;">'+inT+' → '+outT+'</span>';
   html+='<span style="color:#888;margin-left:8px;">('+fmtDur(worked)+')</span>';
   html+='</div>';
