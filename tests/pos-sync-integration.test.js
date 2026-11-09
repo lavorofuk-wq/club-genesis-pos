@@ -19,7 +19,7 @@ const deleteShiftOp=app.slice(app.indexOf("async function deleteShift"),app.inde
 const shiftDeleteHelper=app.slice(app.indexOf("async function guardedShiftDelete"),app.indexOf("function syncVersionedRecordsFromPrepared"));
 assert.match(app,/function readRemoteActiveShiftsForCast\(castId\)/);
 assert.match(app,/window\._db\.ref\(FB_ROOT\+"\/shifts"\)\.orderByChild\("castId"\)\.equalTo\(value\)\.get\(\)/);
-assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readActiveShiftCasts:\[castId\]/);
+assert.match(shiftOps,/async function clockIn[\s\S]*createRecords:\["shifts\/"\+sid\][\s\S]*readAllShiftCasts:\[castId\]/);
 assert.match(shiftOps,/async function cancelClockOut[\s\S]*readActiveShiftCasts:\[current\.castId\]/);
 assert.match(shiftOps,/async function saveShiftEdit[\s\S]*readActiveShiftCasts:\[current\.castId\][\s\S]*readActiveAssignCasts:\[current\.castId\]/);
 assert.match(deleteShiftOp,/await guardedShiftDelete\(sid,expected,expectedActiveBizDay\)/);
