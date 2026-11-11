@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.161";
+const APP_VERSION="6.162";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -1310,6 +1310,7 @@ async function guardedScopedCommit(root,updates,options={}){
   const expectedActive=options.expectedActiveBizDay===undefined?S.activeBizDay||null:options.expectedActiveBizDay;
   if((root.activeBizDay||null)!==expectedActive)throw Object.assign(new Error("business day changed"),{userMessage:"営業状態が他端末で変更されています。最新状態を確認してください。"});
   const operation={version:SCOPED_ATOMIC_VALIDATION_VERSION,nonce,expectedActiveBizDay:expectedActive,records:{},counters:{}};
+  if(options.sessionMoves)operation.sessionMoves=cloneData(options.sessionMoves);
   // Deletions also carry a surviving revision proof, checked atomically by the rules.
   const expectedRecords=options.expectedRecords||{};
   const prepared=prepareVersionedRecordUpdates(root,updates,{...options,expectedRecords});
@@ -2488,6 +2489,7 @@ function tablePreparationModalHtml(){
     +'<button class="btn" onclick="answerTablePreparation(false)" '+(tablePreparationBusy?'disabled':"")+' style="flex:1;min-height:48px;border:1px solid #888;border-radius:6px;font-size:16px;">いいえ</button></div></div></div>';
 }
 async function guardedCloseSession(tableId,expected,historyRecord=null){
+  if(!historyRecord&&!posIsOp())throw Object.assign(new Error("SESSION_DELETE_ACCESS_DENIED"),{code:"SESSION_DELETE_ACCESS_DENIED",userMessage:"テーブルの削除はOPアカウントで操作してください。"});
   requireScopedAtomic();
   const expectedActiveBizDay=S.activeBizDay||null;
   const tableCounter="_tableAssignmentRevisions/"+tableId;
@@ -2686,6 +2688,7 @@ async function guardedAtomicTableChange(oldId,newId,expected,trace=()=>{}){
     await guardedScopedCommit(root,updates,{
       expectedRecords:{...expectedRecords,["sessions/"+oldId]:remote,["sessions/"+newId]:null},
       expectedActiveBizDay:root.activeBizDay||null,
+      sessionMoves:{[oldId]:newId},
       counterWrites:["_tableAssignmentRevisions/"+oldId,"_tableAssignmentRevisions/"+newId]
     });
     trace("saveDone");
@@ -4981,6 +4984,7 @@ function isBanaiExtensionBackItem(i){
 }
 async function execDelItem(){if(chargeSaveBusy)return;const id=window._delItemId,prev=window._delPrevMd;if(!id)return;const saved=await remItem(id);if(!saved)return;window._delItemId=null;window._delItemLabel=null;window._delPrevMd=null;if(prev){md=prev;rModal();}else closeM();}
 async function execDeleteSession(){
+  if(!posIsOp())return posDenyAccess();
   if(!at||!S.sessions[at])return;
   const tableId=at,identity=cloneData(S.sessions[tableId]);
   return withDataOperation("table:"+tableId,async()=>{
@@ -5087,6 +5091,7 @@ function rHist(){
   let html='<div style="max-width:720px;margin:0 auto;">';
   html+='<h2 style="font-family:Cormorant Garamond,serif;font-size:22px;color:#d4a017;margin-bottom:16px;">会計履歴</h2>';
   // 現状サマリー（現在の営業日のデータ）
+  if(posIsOp()){
   const todaySales=(S.history||[]).reduce((a,h)=>a+h.total,0);
   const pendingSales=Object.values(S.sessions||{}).reduce((a,s)=>a+ct(s).total,0);
   const grandTotal=todaySales+pendingSales;
@@ -5105,7 +5110,7 @@ function rHist(){
   const workRounded=Math.ceil(workMin/30)*30;
   const workH=workRounded/60;
   const workHStr=(workH%1===0)?workH.toString():(Math.round(workH*10)/10).toFixed(1);
-  html+='<div class="glass" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
+  html+='<div class="glass data-current-summary" style="border-radius:8px;padding:14px;margin-bottom:16px;">';
   html+='<div class="st" style="margin-bottom:10px;">現状</div>';
   html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px;">';
   html+='<div style="text-align:center;padding:10px;background:rgba(74,222,128,.06);border:1px solid rgba(74,222,128,.15);border-radius:6px;"><div style="font-size:10px;color:#888;margin-bottom:4px;">会計済み</div><div style="font-size:16px;font-weight:700;color:#4ade80;">'+pAmt(todaySales)+'</div></div>';
@@ -5130,12 +5135,13 @@ function rHist(){
   html+='</div>';
   html+='</div>';
 
+  }
   // ===== 会計履歴（開いている営業日のみ）=====
   const todayHist=[...(S.history||[])].sort((a,b)=>b.startTime-a.startTime);
-  if(todayHist.length>0){
+  if(posIsOp()&&todayHist.length>0){
 const totalAmt=todayHist.reduce((a,h)=>a+h.total,0);
 const subtotalAmt=todayHist.reduce((a,h)=>a+(h.subtotal||h.total),0);
-html+='<div class="glass" style="border-radius:8px;padding:12px 16px;margin-bottom:16px;">';
+html+='<div class="glass history-totals" style="border-radius:8px;padding:12px 16px;margin-bottom:16px;">';
 html+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;">';
 html+='<span style="font-size:12px;color:#888;">'+todayHist.length+'件</span>';
 html+='<span style="font-size:12px;color:#666;">小計 '+pAmt(subtotalAmt)+'</span>';
@@ -5185,10 +5191,10 @@ if(exp){
   html+='<button class="btn" data-phidg="'+h.id+'" onclick="printHistReceiptGuest(Number(this.dataset.phidg))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;border-radius:4px;font-size:12px;font-weight:600;">🖨 ゲスト</button>';
   html+='<button class="btn" data-phids="'+h.id+'" onclick="printHistReceipt(Number(this.dataset.phids))" style="padding:6px 12px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;border-radius:4px;font-size:12px;">🖨 店舗</button>';
   html+='<button class="btn" data-ehid="'+h.id+'" onclick="editHistPay(parseInt(this.dataset.ehid))" style="padding:6px 12px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.2);color:#38bdf8;border-radius:4px;font-size:12px;">支払変更</button>';
-  if(S.activeBizDay&&(S.history||[]).some(sh=>String(sh.id)===String(h.id))){
+  if(posIsOp()&&S.activeBizDay&&(S.history||[]).some(sh=>String(sh.id)===String(h.id))){
     html+='<button class="btn" data-rhid="'+h.id+'" onclick="restoreHistoryToFloor(this.dataset.rhid)" style="padding:6px 12px;background:rgba(74,222,128,.08);border:1px solid rgba(74,222,128,.25);color:#4ade80;border-radius:4px;font-size:12px;font-weight:700;">フロア復活して再編集</button>';
   }
-  if((S.history||[]).some(sh=>sh.id===h.id)){
+  if(posIsOp()&&(S.history||[]).some(sh=>sh.id===h.id)){
     html+='<button class="btn" data-dhid="'+h.id+'" onclick="cdh(parseInt(this.dataset.dhid))" style="padding:6px 12px;background:rgba(255,80,80,.1);border:1px solid rgba(255,80,80,.2);color:#ff6b6b;border-radius:4px;font-size:12px;">削除</button>';
   }
   html+='</div></div>';
@@ -5292,6 +5298,7 @@ function getAnalysisBizDays(){
   return typeof analysisSt!=="undefined"&&analysisSt.days!=null?analysisSt.days:(S.bizDays||{});
 }
 function exportCSV(){
+  if(!posIsOp())return posDenyAccess();
   const data=getFilteredHist();
   if(data.length===0){alert("エクスポートするデータがありません");return;}
   const csv=historySalesCSV(data,true);
@@ -5299,7 +5306,7 @@ function exportCSV(){
   const url=URL.createObjectURL(blob);
   const a=document.createElement("a");a.href=url;a.download="genesis_"+(histFilter.from||S.activeBizDay||getBizDate())+".csv";a.click();URL.revokeObjectURL(url);
 }
-function cdh(id){if(!posRequireView("history"))return;dhi=id;om("dh");}
+function cdh(id){if(!posIsOp())return posDenyAccess();if(!posRequireView("history"))return;dhi=id;om("dh");}
 
 // ===== 分割払い操作 =====
 function spSetMethod(idx,method){
@@ -5384,6 +5391,7 @@ function epAddRow(){
 }
 async function guardedHistoryRecordUpdate(expected,desired,expectedActiveBizDay=S.activeBizDay){
   if(!posCanView("history")||!expectedActiveBizDay||S.activeBizDay!==expectedActiveBizDay)throw Object.assign(new Error("HISTORY_BUSINESS_ACCESS_DENIED"),{userMessage:"営業状態が変更されています。データ画面を開き直してください。"});
+  if(desired==null&&!posIsOp())throw Object.assign(new Error("HISTORY_OPERATION_ACCESS_DENIED"),{code:"HISTORY_OPERATION_ACCESS_DENIED",userMessage:"会計履歴の削除はOPアカウントで操作してください。"});
   requireScopedAtomic();
   const matches={};
   await Promise.all(castIdQueryValues(expected.id).map(async value=>{
@@ -5428,6 +5436,7 @@ function buildRestoredSessionFromHistory(h){
 }
 async function guardedRestoreHistoryToFloor(expected,expectedActiveBizDay=S.activeBizDay){
   if(!posCanView("history")||!expectedActiveBizDay||S.activeBizDay!==expectedActiveBizDay)throw Object.assign(new Error("HISTORY_BUSINESS_ACCESS_DENIED"),{userMessage:"営業状態が変更されています。データ画面を開き直してください。"});
+  if(!posIsOp())throw Object.assign(new Error("HISTORY_OPERATION_ACCESS_DENIED"),{code:"HISTORY_OPERATION_ACCESS_DENIED",userMessage:"フロア復活はOPアカウントで操作してください。"});
   requireScopedAtomic();
   const tableId=String(expected?.tableId||"");
   if(!tableId)throw Object.assign(new Error("missing table"),{userMessage:"復活するテーブルを確認できません。"});
@@ -5485,6 +5494,7 @@ async function guardedRestoreHistoryToFloor(expected,expectedActiveBizDay=S.acti
   return{session:restoredSession,restoredAssignments:eligibleAssignments.length,skippedAssignments:restoreAssignments.length-eligibleAssignments.length};
 }
 async function restoreHistoryToFloor(id){
+  if(!posIsOp())return posDenyAccess();
   if(!posRequireView("history"))return;
   const expectedActiveBizDay=S.activeBizDay;
   if(!S.activeBizDay){alert("営業中のみフロア復活できます。過去営業日は営業日データを読み込んでから操作してください。");return;}
@@ -5850,6 +5860,7 @@ alert("保存に失敗："+e.message);
   }
 }
 async function clearAllSessions(){
+  if(!posIsOp())return posDenyAccess();
   if(!confirm("進行中のセッションを全て削除します。よろしいですか？"))return;
   return withDataOperation("reset:sessions",async()=>{
     const updates={},expectedRecords={};
@@ -7274,18 +7285,21 @@ function _castDrinkRowsFromHist(hist){
   return rows;
 }
 function exportDrinkDataXLSX(){
+  if(!posIsOp())return posDenyAccess();
   const rows=_castDrinkRowsFromHist(S.history||[]);
   if(rows.length<=1){alert("出力するキャストDrinkデータがありません");return;}
   const date=S.activeBizDay||getBizDate();
   _downloadXLSX(rows,"drink_data_"+date+".xlsx","Drink");
 }
 function exportAccountingDataXLSX(){
+  if(!posIsOp())return posDenyAccess();
   const hist=S.history||[];
   if(!hist.length){alert("出力する会計データがありません");return;}
   const date=S.activeBizDay||getBizDate();
   _downloadXLSX(_accountingRowsFromHist(hist),"accounting_data_"+date+".xlsx","Accounting");
 }
 function exportSalesDataXLSX(){
+  if(!posIsOp())return posDenyAccess();
   const rows=_salesDataRowsFromHist(S.history||[]);
   if(rows.length<=1){alert("出力する売上データがありません");return;}
   const date=S.activeBizDay||getBizDate();
@@ -8627,7 +8641,7 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
 const _hr=window._viewHistRec;
 if(!_hr){h='<div class="mo" onclick="closeM()"><div class="mb">エラー</div></div>';}
 else{
-  const canRestoreHist=S.activeBizDay&&(S.history||[]).some(h=>String(h.id)===String(_hr.id));
+  const canRestoreHist=posIsOp()&&S.activeBizDay&&(S.history||[]).some(h=>String(h.id)===String(_hr.id));
   let itRows="";
   [...(_hr.items||[])].forEach(i=>{const isDisc=i.isDiscount;itRows+='<div class="ir" style="font-size:13px;"><span style="color:'+(isDisc?"#ff6b6b":"#bbb")+'">'+(i.qty>1?i.label+" × "+i.qty:i.label)+'</span><span style="color:'+(isDisc?"#ff6b6b":"#d4a017")+'">'+(isDisc?"-":"")+pAmt(Math.abs(i.price*(i.qty||1)))+'</span></div>';});
   h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropagation()" style="max-width:480px;">'
@@ -8953,6 +8967,7 @@ function addSCToSession(){
   return saveChargeChange(s=>POS_CHARGES.addSC(s,targetId,offset=>({id:"sc_add_"+Date.now()+"_"+Math.random().toString(36).slice(2,8)+"_"+offset,label:"シングルチャージ"+(targetId==="base"?"":"（延長）"),price:singleChargePrice(),qty:1}),legacyId));
 }
 async function doh(){
+  if(!posIsOp())return posDenyAccess();
   if(!posRequireView("history"))return;
   const expectedActiveBizDay=S.activeBizDay;
   const record=S.history.find(h=>String(h.id)===String(dhi));if(!record)return;

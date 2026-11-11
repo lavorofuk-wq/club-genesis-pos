@@ -50,7 +50,7 @@ function posCanOpenModal(name){
   if(name==="shift")return posCanView("shifts");
   if(["editpay","viewHistDetail"].includes(name))return posCanView("history");
   if(["tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation"].includes(name))return posCanView("list");
-  const floorModals=["opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est"];
+  const floorModals=["opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","tc","est"];
   return posCanView("floor")&&(floorModals.includes(name)||name.startsWith("ci-")||name.startsWith("liquor_"));
 }
 function posLimitedHome(){

@@ -2,6 +2,7 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const {source}=require('./helpers/scoped-runtime.cjs');
+const {installAccessRuntime}=require('./helpers/access-runtime.cjs');
 
 function contextFor(hist){
   const ctx={
@@ -11,7 +12,7 @@ function contextFor(hist){
     document:{createElement:()=>({click(){}})},alert:()=>assert.fail('unexpected alert'),
     _dlCSV:csv=>{ctx.blob=new Blob([csv]);}
   };
-  vm.createContext(ctx);
+  installAccessRuntime(ctx);
   for(const [from,to] of [
     ['function gmsEscapeHtml','function gmsInt'],
     ['function gmsInt','function gmsHHMM'],

@@ -57,47 +57,82 @@ async function checkDataAccess(page,role,size){
   else await page.locator('#nh').click();
   assert.equal(await page.evaluate(()=>vw),'history');
   assert.match(await page.locator('#m').innerText(),/会計履歴/);
-  for(const label of ['会計済み','未収（進行中）','合計見込み','会計データ','売上データ','ドリンクデータ'])assert.ok((await page.locator('#m').innerText()).includes(label),label);
+  const historyText=await page.locator('#m').innerText();
+  for(const label of ['現状','会計済み','未収（進行中）','合計見込み','会計データ','売上データ','ドリンクデータ'])assert.equal(historyText.includes(label),role==='op',role+' summary: '+label);
+  assert.equal(await page.locator('#m .data-current-summary').count(),role==='op'?1:0,role+' current summary is not rendered for restricted accounts');
+  assert.equal(await page.locator('#m .history-totals').count(),role==='op'?1:0,role+' history aggregates follow the same summary permission');
   assert.match(await page.locator('#m').innerText(),/9,876,543/);
   await page.locator('.hist-header').click();assert.equal(await page.locator('.hist-body').count(),1);
+  for(const selector of ['[data-dhid]','[data-rhid]'])assert.equal(await page.locator('#m '+selector).count(),role==='op'?1:0,role+' history operation control: '+selector);
   await page.evaluate(()=>{window.scrollTo(0,0);sbs(true,'同期済み ✓');});
   await page.screenshot({path:path.join(output,size+'-'+role+'-data.png'),fullPage:true});
   await page.evaluate(()=>{
-    window.__qaData={prints:[],exports:[],updates:[],restores:[],opened:[]};
-    window.__qaDataOriginal={eposPrint,_downloadXLSX,guardedHistoryRecordUpdate,guardedRestoreHistoryToFloor,openFloorDetail,confirm:window.confirm};
+    window.__qaData={prints:[],exports:[],updates:[],restores:[],opened:[],csv:[],downloads:[]};
+    window.__qaDataOriginal={eposPrint,_downloadXLSX,guardedHistoryRecordUpdate,guardedRestoreHistoryToFloor,openFloorDetail,confirm:window.confirm,createObjectURL:URL.createObjectURL,revokeObjectURL:URL.revokeObjectURL,anchorClick:HTMLAnchorElement.prototype.click};
     window.confirm=()=>true;
     eposPrint=(record,reprint)=>window.__qaData.prints.push({record,reprint});
     _downloadXLSX=(rows,filename,sheet)=>window.__qaData.exports.push({rows,filename,sheet});
     guardedHistoryRecordUpdate=async(expected,desired)=>{window.__qaData.updates.push({expected,desired});};
     guardedRestoreHistoryToFloor=async(expected)=>{window.__qaData.restores.push(expected);return{session:{tableId:expected.tableId},skippedAssignments:0};};
     openFloorDetail=id=>window.__qaData.opened.push(id);
+    URL.createObjectURL=blob=>{window.__qaData.csv.push(blob.size);return 'blob:qa-export';};
+    URL.revokeObjectURL=()=>{};
+    HTMLAnchorElement.prototype.click=function(){window.__qaData.downloads.push(this.download);};
   });
   try{
     await page.locator('[data-phidg]').click();await page.locator('[data-phids]').click();
     assert.deepEqual(await page.evaluate(()=>window.__qaData.prints.map(p=>!!p.record.isGuest)),[true,false],'receipt dispatch retains guest/store variants');
-    for(const fn of ['exportAccountingDataXLSX','exportSalesDataXLSX','exportDrinkDataXLSX'])await page.locator('#m [onclick="'+fn+'()"]' ).click();
-    assert.deepEqual(await page.evaluate(()=>window.__qaData.exports.map(item=>item.sheet)),['Accounting','Sales','Drink']);
-    assert.equal(await page.evaluate(()=>window.__qaData.exports.every(item=>item.rows.length>1&&item.filename.endsWith('2026-10-02.xlsx'))),true);
+    if(role==='op'){
+      for(const fn of ['exportAccountingDataXLSX','exportSalesDataXLSX','exportDrinkDataXLSX'])await page.locator('#m [onclick="'+fn+'()"]' ).click();
+      assert.deepEqual(await page.evaluate(()=>window.__qaData.exports.map(item=>item.sheet)),['Accounting','Sales','Drink']);
+      assert.equal(await page.evaluate(()=>window.__qaData.exports.every(item=>item.rows.length>1&&item.filename.endsWith('2026-10-02.xlsx'))),true);
+    }else{
+      await page.evaluate(()=>{exportAccountingDataXLSX();exportSalesDataXLSX();exportDrinkDataXLSX();exportCSV();});
+      assert.deepEqual(await page.evaluate(()=>({exports:window.__qaData.exports,csv:window.__qaData.csv,downloads:window.__qaData.downloads})),{exports:[],csv:[],downloads:[]},'cashier cannot bypass hidden summary export controls');
+    }
     await page.locator('[data-ehid]').click();assert.equal(await page.evaluate(()=>md),'editpay');
     assert.match(await page.locator('#md').innerText(),/支払記録を変更/);
     await page.locator('#md .ep-method-btn[data-m="card"]').click();
     await page.locator('#md [onclick="saveHistPay()"]' ).click();
     await page.waitForFunction(()=>window.__qaData.updates.length===1&&md===null);
     assert.equal(await page.evaluate(()=>window.__qaData.updates[0].desired.payMethod),'card');
-    await page.locator('[data-dhid]').click();assert.equal(await page.evaluate(()=>md),'dh');
-    await page.locator('#md [onclick="doh()"]' ).click();
-    await page.waitForFunction(()=>window.__qaData.updates.length===2&&md===null);
-    assert.equal(await page.evaluate(()=>window.__qaData.updates[1].desired),null,'delete reaches the existing guarded writer');
+    if(role==='op'){
+      await page.locator('[data-dhid]').click();assert.equal(await page.evaluate(()=>md),'dh');
+      await page.locator('#md [onclick="doh()"]' ).click();
+      await page.waitForFunction(()=>window.__qaData.updates.length===2&&md===null);
+      assert.equal(await page.evaluate(()=>window.__qaData.updates[1].desired),null,'OP delete reaches the existing guarded writer');
+    }else{
+      await page.evaluate(async()=>{cdh(S.history[0].id);dhi=S.history[0].id;await doh();await restoreHistoryToFloor(S.history[0].id);dhi=null;});
+      assert.equal(await page.evaluate(()=>md),null,'cashier direct deletion entry does not open a dialog');
+      assert.deepEqual(await page.evaluate(()=>({updates:window.__qaData.updates.length,restores:window.__qaData.restores.length,opened:window.__qaData.opened.length})),{updates:1,restores:0,opened:0},'cashier direct destructive actions do not reach persistence');
+      const errors=await page.evaluate(async()=>{
+        const record=JSON.parse(JSON.stringify(S.history[0])),original=window.__qaDataOriginal,results=[];
+        for(const run of [()=>original.guardedHistoryRecordUpdate(record,null),()=>original.guardedRestoreHistoryToFloor(record)]){
+          try{await run();results.push('allowed');}catch(error){results.push(error.message);}
+        }
+        return results;
+      });
+      assert.deepEqual(errors,['HISTORY_OPERATION_ACCESS_DENIED','HISTORY_OPERATION_ACCESS_DENIED'],'cashier cannot bypass action guards through lower-level history helpers');
+    }
     await page.evaluate(()=>sv('assignHistory'));
     await page.locator('#m [data-hrid]').click();assert.equal(await page.evaluate(()=>md),'viewHistDetail');
     assert.match(await page.locator('#md').innerText(),/QA 過去明細/);
-    await page.locator('#md [data-rhid]').click();
-    await page.waitForFunction(()=>window.__qaData.opened.length===1);
-    assert.equal(await page.evaluate(()=>vw),'floor');
-    assert.equal(await page.evaluate(()=>window.__qaData.restores[0].tableId),'t2');
+    assert.equal(await page.locator('#md [data-rhid]').count(),role==='op'?1:0,role+' invoice detail restore control');
+    if(role==='op'){
+      await page.locator('#md [data-rhid]').click();
+      await page.waitForFunction(()=>window.__qaData.opened.length===1);
+      assert.equal(await page.evaluate(()=>vw),'floor');
+      assert.equal(await page.evaluate(()=>window.__qaData.restores[0].tableId),'t2');
+    }else{
+      await page.evaluate(async()=>{await restoreHistoryToFloor(S.history[0].id);});
+      assert.equal(await page.evaluate(()=>md),'viewHistDetail','denied cashier restore leaves invoice viewing intact');
+      assert.equal(await page.evaluate(()=>window.__qaData.restores.length),0);
+    }
   }finally{
     await page.evaluate(()=>{
       ({eposPrint,_downloadXLSX,guardedHistoryRecordUpdate,guardedRestoreHistoryToFloor,openFloorDetail}=window.__qaDataOriginal);
+      URL.createObjectURL=window.__qaDataOriginal.createObjectURL;URL.revokeObjectURL=window.__qaDataOriginal.revokeObjectURL;
+      HTMLAnchorElement.prototype.click=window.__qaDataOriginal.anchorClick;
       window.confirm=window.__qaDataOriginal.confirm;delete window.__qaDataOriginal;
       at=null;closeM();sv('home');
     });
@@ -114,6 +149,20 @@ async function checkClosedDataAccess(page,role){
   await page.evaluate(()=>{window._viewHistRec=S.history[0];window._histDetailBack=null;om('viewHistDetail');});
   assert.equal(await page.evaluate(()=>md),role==='op'?'viewHistDetail':null,'only OP may inspect archived invoice details when closed');
   await page.evaluate(()=>closeM());
+}
+async function checkRestrictedSessionDeletion(page,role){
+  if(role==='op')return;
+  const result=await page.evaluate(async()=>{
+    const before=JSON.stringify(S),reads=window.__qaReads.length,writes=window.__qaWrites.length;
+    const original={at,confirm:window.confirm,alert:window.alert};let confirmations=0,alerts=0,helperError='';
+    window.confirm=()=>{confirmations++;return true;};window.alert=()=>{alerts++;};at='t1';
+    try{
+      await execDeleteSession();await clearAllSessions();
+      try{await guardedCloseSession('t1',cloneData(S.sessions.t1));}catch(error){helperError=error.message;}
+      return{unchanged:before===JSON.stringify(S),reads:window.__qaReads.length-reads,writes:window.__qaWrites.length-writes,confirmations,alerts,helperError};
+    }finally{at=original.at;window.confirm=original.confirm;window.alert=original.alert;}
+  });
+  assert.deepEqual(result,{unchanged:true,reads:0,writes:0,confirmations:0,alerts:0,helperError:'SESSION_DELETE_ACCESS_DENIED'},role+' direct unbilled-table deletion remains OP-only without affecting business data');
 }
 async function checkAttendanceLifecycle(page,role,size){
   await page.evaluate(()=>{at=null;md=null;vw='home';render();});
@@ -234,7 +283,7 @@ async function main(){
         await page.evaluate(()=>sv('home'));
       }
       if(role!=='op'){
-        const denied=['mgmtMenu','endBizDay','deleteSession','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
+        const denied=['mgmtMenu','endBizDay','deleteSession','dh','anaDateSel','restore-conflicts','loadBizDayConfirm_2026-09-01'];
         if(role==='list')denied.push('startBizDay','settingsEditor','co','co2','opsMenu','ci-guests','est','editpay','viewHistDetail');
         for(const name of denied){
           await page.evaluate(name=>{at='t1';md=name;rModal();},name);
@@ -279,6 +328,7 @@ async function main(){
         await page.evaluate(()=>window.scrollTo(0,0));
         await page.screenshot({path:path.join(output,size+'-op-accounts-self-guard.png'),fullPage:true});
       }
+      await checkRestrictedSessionDeletion(page,role);
       await checkDataAccess(page,role,size);
       assert.equal(await page.evaluate(()=>JSON.stringify(S)===window.__qaBusiness),true,'role UI browsing leaves all business data unchanged');
       await page.evaluate(()=>{at=null;md=null;document.getElementById('floor-order-modal').style.display='none';S.activeBizDay=null;vw='home';render();});
