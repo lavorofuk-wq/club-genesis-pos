@@ -11,6 +11,80 @@ async function addDrink(page){
     at='t1';openFloorDetail('t1');om('castDetail');
   });
 }
+async function addBanaiFixture(page){
+  await page.evaluate(items=>{
+    const names=new Map(S.casts.map(c=>[String(c.id),c.name]));
+    items.forEach(i=>{
+      if(i.castId!=null)i.castName=names.get(String(i.castId));
+      if(i.banaiExtCastIds)i.banaiExtCastNames=i.banaiExtCastIds.map(id=>names.get(String(id)));
+      if(i.backTargetCastIds)i.backTargetCastNames=i.backTargetCastIds.map(id=>names.get(String(id)));
+      if(i.isBanaiShimei)i.label='場内指名 ('+i.castName+')';
+    });
+    Object.assign(S.sessions.t1,{items,banaiShimeis:[1,3],honShimeis:[],setEndTime:S.sessions.t1.startTime+3*3600000});
+    window.__qaDatabase.sessions.t1=structuredClone(S.sessions.t1);
+    at='t1';openFloorDetail('t1');om('setDetail');
+  },require('../tests/helpers/banai-order-fixture.cjs').items('1','3'));
+}
+async function checkBanaiEdits(page,name){
+  await seed(page,'op');await addBanaiFixture(page);
+  const initial=await page.evaluate(()=>({total:ct(S.sessions.t1).total,shifts:S.shifts,assignments:S.assignments}));
+  await page.locator('.drink-change-open[data-iid="nom-b"]').click();
+  const up=page.getByRole('button',{name:'注文順を1つ前へ',exact:true}),down=page.getByRole('button',{name:'注文順を1つ後へ',exact:true});
+  for(let n=0;n<3;n++)await up.click();
+  assert.equal(await page.evaluate(()=>castDrinkChangeState.position),2);
+  assert.equal(await page.locator('.banai-order-targets').count(),1);
+  assert.equal(await page.locator('#drink-edit-save').isDisabled(),true);
+  await page.locator('.banai-order-targets [data-cid="1"]').check();
+  await page.locator('.banai-order-targets [data-cid="3"]').check();
+  assert.match(await page.locator('#drink-edit-preview').innerText(),/34,000 → ¥16,000/);
+  assert.match(await page.locator('#drink-edit-preview').innerText(),/15,000 → ¥31,000/);
+  assert.match(await page.locator('#drink-edit-preview').innerText(),/bottle1 バック対象/);
+  await page.locator('#drink-edit-preview').scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(output,name+'-banai-select.png'),fullPage:true});
+  for(const selector of ['.drink-order-tools','#drink-edit-save'])assert.equal(await page.locator(selector).evaluate(el=>{
+    const rect=el.getBoundingClientRect(),dialog=el.closest('.mb').getBoundingClientRect();
+    return rect.top>=dialog.top&&rect.bottom<=dialog.bottom&&rect.bottom<=innerHeight;
+  }),true);
+  assert.equal(await page.locator('.drink-edit-dialog').evaluate(el=>el.scrollWidth>el.clientWidth+1),false);
+  await down.click();assert.equal(await page.evaluate(()=>Object.keys(castDrinkChangeState.extensions).length),0);
+  await up.click();assert.equal(await page.locator('#drink-edit-save').isDisabled(),true);
+  await page.locator('.banai-order-targets [data-cid="1"]').check();await page.locator('.banai-order-targets [data-cid="3"]').check();
+  await page.locator('#drink-edit-save').click();await page.waitForFunction(()=>!chargeSaveBusy&&md==='setDetail');
+  assert.deepEqual(await page.evaluate(()=>S.sessions.t1.items.find(i=>i.id==='bottle1').backTargetCastIds),['1','3']);
+  assert.deepEqual(await page.evaluate(()=>S.sessions.t1.items.find(i=>i.id==='cd_a').backTargetCastIds),['1']);
+  assert.equal(await page.evaluate(()=>ct(S.sessions.t1).total),initial.total);
+  assert.deepEqual(await page.evaluate(()=>S.shifts),initial.shifts);assert.deepEqual(await page.evaluate(()=>S.assignments),initial.assignments);
+  await page.locator('.drink-change-open[data-iid="nom-b"]').click();await down.click();
+  await page.getByRole('button',{name:'戻る',exact:true}).click();
+  assert.equal(await page.evaluate(()=>Object.keys(window.__qaDatabase.banaiOrderChanges['2026-10-04']).length),1);
+  const saved=await page.evaluate(()=>window.__qaDatabase);
+  await page.reload();await seed(page,'op');
+  await page.evaluate(saved=>{
+    Object.assign(window.__qaDatabase,saved);S.sessions=structuredClone(saved.sessions);
+    vw='list';render();vw='floor';render();at='t1';openFloorDetail('t1');om('setDetail');
+  },saved);
+  assert.equal(await page.evaluate(()=>S.sessions.t1.items[2].id),'nom-b');
+  await page.evaluate(()=>{md='co2';coState={payMethod:'cash',splits:[{method:'cash',amount:ct(S.sessions.t1).total}]};rModal();});
+  await page.getByRole('button',{name:'会計終了を確定する',exact:false}).click();await page.waitForFunction(()=>!checkoutBusy&&S.history.length===1);
+  assert.equal(await page.evaluate(()=>openBanaiOrderChange('nom-a')),false);
+  await page.evaluate(async()=>{openTablePreparation('t1');await answerTablePreparation(true);await restoreHistoryToFloor(S.history[0].id);at='t1';om('setDetail');});
+  await page.locator('.drink-change-open[data-iid="nom-a"]').click();
+  while(await page.evaluate(()=>castDrinkChangeState.position)<9)await down.click();
+  assert.equal(await page.locator('.banai-order-targets').count(),2);
+  assert.equal(await page.locator('.banai-order-targets [data-cid="1"]').count(),0);
+  await page.locator('.banai-order-targets [data-eid="ext1"][data-cid=""]').check();
+  assert.equal(await page.locator('#drink-edit-save').isDisabled(),true);
+  await page.locator('.banai-order-targets [data-eid="ext2"][data-cid="3"]').check();
+  await page.locator('#drink-edit-preview').scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(output,name+'-banai-restored.png'),fullPage:true});
+  await page.locator('#drink-edit-save').click();await page.waitForFunction(()=>!chargeSaveBusy&&md==='setDetail');
+  assert.deepEqual(await page.evaluate(()=>S.sessions.t1.items.find(i=>i.id==='bottle1').backTargetCastIds),[]);
+  assert.equal(await page.evaluate(()=>ct(S.sessions.t1).total),initial.total);
+  await page.evaluate(()=>{md='co2';coState={payMethod:'card',splits:[{method:'card',amount:ct(S.sessions.t1).total}]};rModal();});
+  await page.getByRole('button',{name:'会計終了を確定する',exact:false}).click();await page.waitForFunction(()=>!checkoutBusy&&S.history.length===1);
+  assert.equal(await page.evaluate(()=>S.history[0].total),initial.total);
+  assert.deepEqual(await page.evaluate(()=>gmsCastSales(S.history).map(c=>[c.castId,c.jonaiExtensionSales]).sort()),[['1',0],['3',17000]]);
+}
 async function checkEdits(page,name){
   await seed(page,'op');await addDrink(page);
   await page.evaluate(()=>{
@@ -124,14 +198,18 @@ async function main(){
       assert.equal(await page.evaluate(()=>S.history[0].items[1].castId),1);
       assert.equal(await page.evaluate(()=>S.history[0].total),20800);
       await checkEdits(page,name);
+      await checkBanaiEdits(page,name);
       for(const role of ['cashier','list']){
         await seed(page,role);await addDrink(page);
         assert.equal(await page.getByRole('button',{name:'変更',exact:true}).count(),0);
         await page.evaluate(async()=>{openCastDrinkChange('cd_qa');selectDrinkChangeCast(2);await saveCastDrinkChange();});
         await page.evaluate(async()=>{openCastDrinkEdit('cd_qa');setDrinkChangeMode('price');setDrinkEditField('price','1');await saveCastDrinkChange();setDrinkChangeMode('order');moveDrinkEdit(-1);await saveCastDrinkChange();});
         assert.equal(await page.evaluate(()=>window.__qaWrites.length),0);
+        await addBanaiFixture(page);assert.equal(await page.locator('.drink-change-open').count(),0);
+        await page.evaluate(async()=>{openBanaiOrderChange('nom-b');moveDrinkEdit(-1);selectBanaiOrderCast('ext1','1',true);await saveCastDrinkChange();});
+        assert.equal(await page.evaluate(()=>window.__qaWrites.length),0);
       }
-      assert.deepEqual(errors,[]);console.log(name+': role gating, save, totals, attendance warning, preparation gate, restore, reassign and re-checkout passed');
+      assert.deepEqual(errors,[]);console.log(name+': drink edits and nomination order, extension reselection, bottle backs, role gates, reload, restore and re-checkout passed');
       await context.close();
     }
   }finally{if(browser)await browser.close();await new Promise(resolve=>server.close(resolve));}

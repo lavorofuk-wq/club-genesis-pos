@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.164";
+const APP_VERSION="6.165";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -1744,24 +1744,30 @@ async function saveChargeChange(change,options={}){
 function castDrinkChangeAllowed(){
   return posIsOp()&&posCanView("floor")&&!checkoutBusy&&!tableChangeBusy&&!entryTimeBusy;
 }
-function openCastDrinkChange(itemId){
+function openCastDrinkChange(itemId,kind){
   if(!castDrinkChangeAllowed())return posDenyAccess();
   if(chargeSaveBusy||!at||!S.sessions[at]||!requireFirebaseReady())return false;
   if(sessionSaveStates[at]?.status==="saving"||sessionSaveStates[at]?.status==="error"){
     alert("オーダーの保存状態を確認してから再操作してください。");return false;
   }
   const session=S.sessions[at],items=(session.items||[]).filter(i=>String(i.id)===String(itemId));
-  if(items.length!==1||!CAST_DRINK_CHANGE.isDrink(items[0]))return false;
-  castDrinkChangeState={tableId:at,dayId:S.activeBizDay,actorUid:window._posUid,session:cloneData(session),itemId:String(itemId),castId:null,offDuty:false,error:"",mode:"cast"};
+  if(items.length!==1||!(kind==="banai"?CAST_DRINK_CHANGE.isBanai:CAST_DRINK_CHANGE.isDrink)(items[0]))return false;
+  if(kind==="banai"){
+    try{CAST_DRINK_CHANGE.banaiPlan(session,itemId,session.items.indexOf(items[0]));}
+    catch(error){alert(drinkChangeError(error));return false;}
+  }
+  castDrinkChangeState={tableId:at,dayId:S.activeBizDay,actorUid:window._posUid,session:cloneData(session),itemId:String(itemId),castId:null,offDuty:false,error:"",kind:kind==="banai"?"banai":"drink",mode:kind==="banai"?"order":"cast",position:session.items.indexOf(items[0]),extensions:{}};
   md="castDrinkChange";rModal();return true;
 }
 function openCastDrinkEdit(itemId){
   if(!openCastDrinkChange(itemId))return false;
   setDrinkChangeMode("choose");return true;
 }
+function openBanaiOrderChange(itemId){return openCastDrinkChange(itemId,"banai");}
 function setDrinkChangeMode(mode){
   const st=castDrinkChangeState;
   if(!castDrinkChangeAllowed()||chargeSaveBusy||!st||!["choose","cast","price","order"].includes(mode))return;
+  if(st.kind==="banai")return;
   const item=st.session.items[CAST_DRINK_CHANGE.targetIndex(st.session,st.itemId)];
   st.mode=mode;st.error="";
   if(mode==="price"){st.priceSource="current";st.price=item.price;st.qty=item.qty||1;st.menu=null;st.customPrice="";}
@@ -1775,10 +1781,19 @@ function drinkChangeError(error){
     "drink-qty-invalid":"数量は1〜999杯の整数で入力してください。",
     "drink-unchanged":"変更内容がありません。",
     "drink-menu-changed":"ドリンクメニューが変更されています。画面を開き直してください。",
-    "drink-target-missing":"対象の注文が変更されています。画面を開き直してください。"
+    "drink-target-missing":"対象の注文が変更されています。画面を開き直してください。",
+    "banai-selection-required":"影響する延長ごとに対象キャストを選択してください。",
+    "banai-selection-invalid":"延長より前の場内指名から対象キャストを選び直してください。",
+    "banai-group-invalid":"延長とSC・室料の関連を確認できません。順番変更は保存していません。明細を確認してください。",
+    "banai-group-split":"延長と付随するSC・室料の間には移動できません。"
   })[error.message]||"変更を保存できませんでした。最新状態を確認して再操作してください。";
 }
 function drinkEditDesired(session,st){
+  if(st.kind==="banai"){
+    if(st.mode!=="order")throw new Error("drink-target-missing");
+    if(st.position===CAST_DRINK_CHANGE.targetIndex(session,st.itemId,"banai"))throw new Error("drink-unchanged");
+    return CAST_DRINK_CHANGE.reorderBanai(session,st.itemId,st.position,st.extensions,gmsItemCategory);
+  }
   if(st.mode==="cast")return CAST_DRINK_CHANGE.change(session,st.itemId,sc().find(c=>String(c.id)===st.castId));
   if(st.mode==="price"){
     if(st.priceSource==="menu"){
@@ -1810,8 +1825,45 @@ function setDrinkEditField(field,value){
 function moveDrinkEdit(delta){
   const st=castDrinkChangeState;
   if(!castDrinkChangeAllowed()||chargeSaveBusy||st?.mode!=="order"||![-1,1].includes(delta))return;
-  st.position=Math.max(0,Math.min(st.session.items.length-1,st.position+delta));st.error="";rModal();
+  st.position=st.kind==="banai"?CAST_DRINK_CHANGE.nextBanaiPosition(st.session,st.itemId,st.position,delta):Math.max(0,Math.min(st.session.items.length-1,st.position+delta));
+  st.extensions={};st.error="";rModal();
   document.getElementById("drink-order-current")?.scrollIntoView({block:"nearest"});
+}
+function selectBanaiOrderCast(extensionId,castId,checked){
+  const st=castDrinkChangeState;
+  if(!castDrinkChangeAllowed()||chargeSaveBusy||st?.kind!=="banai"||st.mode!=="order")return;
+  const group=CAST_DRINK_CHANGE.banaiPlan(st.session,st.itemId,st.position).extensions.find(g=>g.id===extensionId);
+  if(!group)return;
+  if(castId===""){
+    if(checked)st.extensions[extensionId]=[];else delete st.extensions[extensionId];
+  }else{
+    if(!group.candidates.some(c=>c.id===castId))return;
+    const selected=st.extensions[extensionId]||[];
+    st.extensions[extensionId]=checked?[...new Set([...selected,castId])]:selected.filter(id=>id!==castId);
+  }
+  const content=document.querySelector(".drink-edit-content"),list=document.querySelector(".drink-order-list");
+  const contentTop=content?.scrollTop||0,listTop=list?.scrollTop||0;
+  st.error="";rModal();
+  const nextContent=document.querySelector(".drink-edit-content"),nextList=document.querySelector(".drink-order-list");
+  if(nextContent)nextContent.scrollTop=contentTop;
+  if(nextList)nextList.scrollTop=listTop;
+}
+function banaiOrderSelectionsHtml(plan){
+  const st=castDrinkChangeState;
+  return plan.extensions.map(group=>{
+    const selected=st.extensions[group.id],attrs=' data-eid="'+chargeHtml(group.id)+'"';
+    const option=(id,name,checked)=>'<label><input type="checkbox"'+attrs+' data-cid="'+chargeHtml(id)+'" onchange="selectBanaiOrderCast(this.dataset.eid,this.dataset.cid,this.checked)" '+(checked?'checked ':'')+(chargeSaveBusy?'disabled':'')+'>'+chargeHtml(name)+'</label>';
+    return '<fieldset class="banai-order-targets"><legend>延長 '+group.number+' / '+chargeHtml(group.label)+'</legend><div class="banai-order-before">変更前：'+chargeHtml(group.beforeIds.map(id=>gmsCastName(id,"")).join("・")||"対象なし")+'</div>'
+      +group.candidates.map(c=>option(c.id,gmsCastName(c.id,c.name),selected?.includes(c.id))).join("")+option("","対象なし",Array.isArray(selected)&&selected.length===0)+'</fieldset>';
+  }).join("");
+}
+function banaiOrderBottleImpactHtml(before,after){
+  return after.items.filter(i=>["champagneWine","keepBottle"].includes(gmsItemCategory(i))).map(item=>{
+    const old=before.items.find(i=>String(i.id)===String(item.id));
+    if(sameFirebaseValue(old.backTargetCastIds||[],item.backTargetCastIds||[]))return"";
+    const names=row=>(row.backTargetCastIds||[]).map((id,n)=>gmsCastName(id,row.backTargetCastNames?.[n]||"")).join("・")||"対象なし";
+    return '<div>'+chargeHtml(item.label)+' バック対象<br>'+chargeHtml(names(old))+' → '+chargeHtml(names(item))+'</div>';
+  }).join("");
 }
 function drinkEditImpactHtml(before,after){
   const old=ct(before),next=ct(after);
@@ -1828,7 +1880,7 @@ function updateDrinkEditPreview(){
   if(!st||!target||!button)return;
   try{
     const desired=drinkEditDesired(st.session,st);
-    target.innerHTML=drinkEditImpactHtml(st.session,desired);button.disabled=chargeSaveBusy||!castDrinkChangeAllowed();
+    target.innerHTML=drinkEditImpactHtml(st.session,desired)+(st.kind==="banai"?banaiOrderBottleImpactHtml(st.session,desired):"");button.disabled=chargeSaveBusy||!castDrinkChangeAllowed();
   }catch(error){target.textContent=error.message==="drink-unchanged"?"":drinkChangeError(error);button.disabled=true;}
 }
 function castDrinkMenuOptionsHtml(cid,editing=false){
@@ -1848,7 +1900,8 @@ function toggleDrinkChangeOffDuty(){
 }
 function cancelCastDrinkChange(){
   if(chargeSaveBusy)return;
-  castDrinkChangeState=null;om("castDetail");
+  const target=castDrinkChangeState?.kind==="banai"?"setDetail":"castDetail";
+  castDrinkChangeState=null;om(target);
 }
 async function saveCastDrinkChange(){
   if(!castDrinkChangeAllowed())return posDenyAccess();
@@ -1872,7 +1925,8 @@ async function saveCastDrinkChange(){
       itemId:previous.id,price:previous.price??0,qty:previous.qty||1,fromCastId:String(previous.castId??""),fromCastName:previous.castName||"",
       toCastId:String(cast?.id??previous.castId??""),toCastName:cast?.name||previous.castName||"",changedAt,actorUid:window._posUid,expectedRevision:Number(current._rev)||0,
       kind:state.mode,before:cloneData(previous),after:cloneData(desired.items.find(i=>String(i.id)===state.itemId)),
-      fromIndex:CAST_DRINK_CHANGE.targetIndex(current,state.itemId),toIndex:CAST_DRINK_CHANGE.targetIndex(desired,state.itemId),
+      fromIndex:CAST_DRINK_CHANGE.targetIndex(current,state.itemId,state.kind),toIndex:CAST_DRINK_CHANGE.targetIndex(desired,state.itemId,state.kind),
+      ...(state.kind==="banai"?{extensions:cloneData(selection.extensions),changedItems:desired.items.filter(item=>!sameFirebaseValue(item,current.items.find(i=>String(i.id)===String(item.id)))).map(item=>({before:cloneData(current.items.find(i=>String(i.id)===String(item.id))),after:cloneData(item)}))}:{}),
       ...(state.mode==="order"?{beforeOrder:current.items.map(i=>String(i.id||"")),afterOrder:desired.items.map(i=>String(i.id||""))}:{})};
     // Read the roster revision first, then bind both snapshots to the atomic commit.
     const rosterPath="_settingsRevisions/castRoster";
@@ -1895,10 +1949,10 @@ async function saveCastDrinkChange(){
     // The audit collection is OP-only under the existing database rules. Save both atomically.
     await guardedScopedCommit(root,{
       [FB_ROOT+"/sessions/"+state.tableId]:desired,
-      [FB_ROOT+"/castDrinkChanges/"+state.dayId+"/"+auditId]:audit
+      [FB_ROOT+(state.kind==="banai"?"/banaiOrderChanges/":"/castDrinkChanges/")+state.dayId+"/"+auditId]:audit
     },{expectedActiveBizDay:state.dayId,expectedRecords:{["sessions/"+state.tableId]:current},counterPaths:counters});
     if(castDrinkChangeState===state&&S.activeBizDay===state.dayId&&posIsOp()){
-      castDrinkChangeState=null;md="castDetail";render();renderOrderPartial();refreshFloorModal();sbs(true,"同期済み ✓");
+      castDrinkChangeState=null;md=state.kind==="banai"?"setDetail":"castDetail";render();renderOrderPartial();refreshFloorModal();sbs(true,"同期済み ✓");
     }
     return true;
   }catch(error){
@@ -1925,7 +1979,7 @@ function castDrinkChangeHtml(){
     +'<div class="drink-change-actions"><button type="button" class="btn" onclick="cancelCastDrinkChange()">戻る</button><button type="button" class="btn gbg" onclick="saveCastDrinkChange()" '+(!target||String(target.id)===String(item.castId)?'disabled':'')+'>キャスト変更を確定</button></div></div></div>';
 }
 function castDrinkEditHtml(){
-  const st=castDrinkChangeState,item=st.session.items[CAST_DRINK_CHANGE.targetIndex(st.session,st.itemId)];
+  const st=castDrinkChangeState,item=st.session.items[CAST_DRINK_CHANGE.targetIndex(st.session,st.itemId,st.kind)];
   let body='',orderTools='',title="キャストDrink 変更";
   if(st.mode==="choose")body='<div class="drink-edit-modes"><button class="btn" onclick="setDrinkChangeMode(\'cast\')">キャスト変更</button><button class="btn" onclick="setDrinkChangeMode(\'price\')">金額変更</button><button class="btn" onclick="setDrinkChangeMode(\'order\')">順番変更</button></div>';
   if(st.mode==="price"){
@@ -1933,15 +1987,18 @@ function castDrinkEditHtml(){
     body=castDrinkMenuOptionsHtml(item.castId,true)+'<label class="charge-field">数量（杯）<input class="ip" id="drink-edit-qty" type="number" inputmode="numeric" min="1" max="999" step="1" value="'+chargeHtml(st.qty)+'" oninput="setDrinkEditField(\'qty\',this.value)"></label>';
   }
   if(st.mode==="order"){
-    title="キャストDrink 順番変更";
-    const preview=CAST_DRINK_CHANGE.reorder(st.session,st.itemId,st.position);
+    title=st.kind==="banai"?"場内指名 順番変更":"キャストDrink 順番変更";
+    const plan=st.kind==="banai"?CAST_DRINK_CHANGE.banaiPlan(st.session,st.itemId,st.position):null;
+    const preview=plan?plan.session:CAST_DRINK_CHANGE.reorder(st.session,st.itemId,st.position);
     body='<ol class="drink-order-list">'+preview.items.map(row=>'<li '+(String(row.id)===st.itemId?'id="drink-order-current" aria-current="true"':'')+'><span>'+chargeHtml(row.label)+' × '+(row.qty||1)+'</span><span>¥'+fmt(row.price*(row.qty||1))+'</span></li>').join("")+'</ol>';
-    orderTools='<div class="drink-order-tools"><button type="button" class="btn" title="注文順を1つ前へ" aria-label="注文順を1つ前へ" onclick="moveDrinkEdit(-1)" '+(st.position===0?'disabled':'')+'>↑</button><span>'+(st.position+1)+' / '+st.session.items.length+'</span><button type="button" class="btn" title="注文順を1つ後へ" aria-label="注文順を1つ後へ" onclick="moveDrinkEdit(1)" '+(st.position===st.session.items.length-1?'disabled':'')+'>↓</button></div>';
+    if(plan)body+=banaiOrderSelectionsHtml(plan);
+    const canMove=delta=>!chargeSaveBusy&&(plan?CAST_DRINK_CHANGE.nextBanaiPosition(st.session,st.itemId,st.position,delta)!==st.position:st.position+delta>=0&&st.position+delta<st.session.items.length);
+    orderTools='<div class="drink-order-tools"><button type="button" class="btn" title="注文順を1つ前へ" aria-label="注文順を1つ前へ" onclick="moveDrinkEdit(-1)" '+(!canMove(-1)?'disabled':'')+'>↑</button><span>'+(st.position+1)+' / '+st.session.items.length+'</span><button type="button" class="btn" title="注文順を1つ後へ" aria-label="注文順を1つ後へ" onclick="moveDrinkEdit(1)" '+(!canMove(1)?'disabled':'')+'>↓</button></div>';
   }
   return '<div class="mo" onclick="closeM()"><div class="mb drink-change-dialog drink-edit-dialog" onclick="event.stopPropagation()"><h3>'+title+'</h3><div class="drink-change-summary">'+chargeHtml(item.label)+' × '+(item.qty||1)+'<strong>¥'+fmt(item.price*(item.qty||1))+'</strong></div><div class="drink-edit-content">'+body
     +(st.mode==="choose"?'':'<div class="drink-edit-preview" id="drink-edit-preview" aria-live="polite"></div>')
     +(st.error?'<p class="drink-change-error" role="alert">'+chargeHtml(st.error)+'</p>':'')
-    +'</div>'+orderTools+'<div class="drink-change-actions"><button class="btn" onclick="'+(st.mode==="choose"?'cancelCastDrinkChange()':'setDrinkChangeMode(\'choose\')')+'">戻る</button>'
+    +'</div>'+orderTools+'<div class="drink-change-actions"><button class="btn" onclick="'+(st.mode==="choose"||st.kind==="banai"?'cancelCastDrinkChange()':'setDrinkChangeMode(\'choose\')')+'">戻る</button>'
     +(st.mode==="choose"?'':'<button class="btn gbg" id="drink-edit-save" onclick="saveCastDrinkChange()" disabled>変更を確定</button>')+'</div></div></div>';
 }
 function requireSetChangeReady(s){
@@ -8128,7 +8185,7 @@ if(md==="ci-guests"){
     else if(md==="setDetail"&&s){
 const items=(s.items||[]).filter(isSetCatItem);
 const delSt='width:26px;height:26px;border-radius:50%;background:rgba(255,80,80,.15);color:#ff6b6b;font-size:14px;flex-shrink:0;touch-action:manipulation;';
-let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;const editable=i.isSet||POS_CHARGES.isParent(i);return'<div class="ir set-detail-row"><span class="set-detail-label">'+chargeHtml(lb)+'</span><div class="set-detail-actions"><span>¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span>'+(editable?'<button class="btn set-price-edit" data-iid="'+chargeHtml(i.id)+'" onclick="openSetPrice(this.dataset.iid)" title="セット料金を訂正" aria-label="'+chargeHtml(i.label)+'の料金訂正">料金訂正</button>':'')+'<button class="btn" data-iid="'+chargeHtml(i.id)+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
+let rows=items.map(i=>{const lb=i.qty>1?i.label+" × "+i.qty:i.label;const editable=i.isSet||POS_CHARGES.isParent(i);return'<div class="ir set-detail-row"><span class="set-detail-label">'+chargeHtml(lb)+'</span><div class="set-detail-actions"><span>¥'+fmt(Math.abs(i.price*(i.qty||1)))+'</span>'+(editable?'<button class="btn set-price-edit" data-iid="'+chargeHtml(i.id)+'" onclick="openSetPrice(this.dataset.iid)" title="セット料金を訂正" aria-label="'+chargeHtml(i.label)+'の料金訂正">料金訂正</button>':'')+(posIsOp()&&CAST_DRINK_CHANGE.isBanai(i)?'<button type="button" class="btn drink-change-open" data-iid="'+chargeHtml(i.id)+'" onclick="openBanaiOrderChange(this.dataset.iid)" aria-label="'+chargeHtml(i.label)+'の順番変更">順番変更</button>':'')+'<button class="btn" data-iid="'+chargeHtml(i.id)+'" onclick="remItemDetail(this.dataset.iid)" style="'+delSt+'">×</button></div></div>';}).join("");
 if(!rows)rows='<div style="font-size:12px;color:#444;padding:8px 0;">なし</div>';
 const onIds=getOndutyIds();const cols2='repeat(auto-fill,minmax(110px,1fr))';
 const _scP=singleChargePrice();

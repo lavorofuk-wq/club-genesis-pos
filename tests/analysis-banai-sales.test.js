@@ -94,6 +94,25 @@ function verifyAnalysis(hist,expected){
   return ctx;
 }
 
+test('nomination reordering and extension reselection agree across data, analysis, CSV and GMS',()=>{
+  const change=require('../cast-drink-change.js'),items=require('./helpers/banai-order-fixture.cjs').items;
+  const initial=record(items()),category=contextFor().gmsItemCategory;
+  verifyAnalysis([initial],{a:34000,b:15000});
+  const shared=change.reorderBanai(initial,'nom-b',2,{ext1:['a','b']},category);
+  verifyAnalysis([shared],{a:16000,b:31000});
+  const single=change.reorderBanai(initial,'nom-b',2,{ext1:['b']},category);
+  verifyAnalysis([single],{a:0,b:47000});
+  const empty=change.reorderBanai(initial,'nom-a',9,{ext1:[],ext2:['b']},category);
+  verifyAnalysis([empty],{a:0,b:17000});
+  const laterEmpty=change.reorderBanai(initial,'nom-b',10,{ext2:[]},category);
+  verifyAnalysis([laterEmpty],{a:32000,b:0});
+  const discounted={...shared,subtotal:35000,adjustedTotal:53300,adjustedTotalTax:18300,adjustedTotalBaseSubtotal:61000};
+  verifyAnalysis([discounted],{a:Math.floor(16000*35000/61000),b:Math.floor(16000*35000/61000)+Math.floor(15000*35000/61000)});
+  const hon=record([...items(),{id:'hon',isHonShimei:true,castId:'a',castName:'A',price:0,qty:1}]);
+  const next=change.reorderBanai(hon,'nom-b',2,{},category),ctx=verifyAnalysis([next],{a:0,b:0});
+  assert.equal(ctx.gmsCastSales([next]).find(c=>c.castId==='a').honShimeiSales,61000);
+});
+
 test('set corrections and guest joins agree across data, analysis, CSV and GMS',()=>{
   const charges=require('../charge-core.js');
   for(const hon of [false,true]){

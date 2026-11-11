@@ -859,6 +859,11 @@ textarea:focus-visible{
 .drink-edit-dialog{display:flex;flex-direction:column;overflow:hidden;}
 .drink-edit-dialog>h3,.drink-edit-dialog>.drink-change-summary,.drink-edit-dialog>.drink-change-actions{flex-shrink:0;}
 .drink-edit-content{min-height:0;overflow-y:auto;}
+.banai-order-targets{margin:12px 0;padding:8px 10px;border:1px solid #cbd5e1;border-radius:6px;min-width:0;}
+.banai-order-targets legend{font-size:13px;font-weight:700;overflow-wrap:anywhere;}
+.banai-order-targets label{display:flex;align-items:center;gap:8px;min-height:40px;font-size:14px;overflow-wrap:anywhere;}
+.banai-order-targets input{width:18px;height:18px;flex-shrink:0;}
+.banai-order-before{font-size:12px;color:#64748b;overflow-wrap:anywhere;}
 .drink-edit-dialog>.drink-change-actions{padding-top:12px;}
 .drink-edit-dialog>.drink-order-tools{flex-shrink:0;margin-top:8px;}
 @media(max-width:700px){
