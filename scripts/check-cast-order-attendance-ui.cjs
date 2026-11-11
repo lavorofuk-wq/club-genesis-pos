@@ -8,7 +8,6 @@ async function seed(page,role){
     window._posRole=role;window._posUid='qa-'+role;window.FB_ROOT='pos-dev';window.BACKUP_ROOT='backup-dev';
     window.firebase={auth:()=>({currentUser:{uid:window._posUid}})};
     window._fbReady=true;window._fbFirstSync=true;window._fbConnected=true;window._posServerAppVersion=APP_VERSION;
-    scheduleReleaseNotes=()=>{};
     scopedAtomicValidationVersion=614400;tableChangeAtomicValidationVersion=614300;bizDayAtomicValidationVersion=614100;
     const start=Date.parse('2026-10-04T20:00:00+09:00');
     S.activeBizDay='2026-10-04';
