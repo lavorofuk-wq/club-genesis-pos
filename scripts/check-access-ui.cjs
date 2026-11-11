@@ -25,8 +25,6 @@ async function fixture(page,role){
     }};
     window._fbReady=true;window._fbFirstSync=true;window._fbConnected=true;
     window._posNeedsReloadAfterDisconnect=false;window._posWriteLocked=false;window._posVersionCheckFailed=false;window._posServerAppVersion=APP_VERSION;
-    // Release-note behavior has its own UI suite. Keep its automatic dialog out of this permission fixture.
-    scheduleReleaseNotes=function(){};
     const time=Date.now(),past=time-7200000;
     S.activeBizDay='2026-10-02';S.bizDays={'2026-10-02':{date:'2026-10-02',startedAt:time-3600000}};
     S.tables=[{id:'t1',label:'QA 卓 1',vip:false},{id:'t2',label:'QA 卓 2',vip:false}];
