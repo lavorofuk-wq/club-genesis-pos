@@ -19,5 +19,31 @@
       backType:"castDrink",backAllocation:"orderedCast"};
     return desired;
   }
-  return{isDrink,change};
+  function targetIndex(session,itemId){
+    const items=session?.items||[],matches=items.filter(item=>String(item.id)===String(itemId));
+    if(matches.length!==1||!isDrink(matches[0]))throw new Error("drink-target-missing");
+    return items.indexOf(matches[0]);
+  }
+  function reprice(session,itemId,selection){
+    const index=targetIndex(session,itemId),price=Number(selection.price),qty=Number(selection.qty);
+    if(Object.prototype.hasOwnProperty.call(session,"adjustedTotal"))throw new Error("drink-discount");
+    if(!["number","string"].includes(typeof selection.price)||String(selection.price).trim()===""||!Number.isSafeInteger(price)||price<0||price>10000000)throw new Error("drink-price-invalid");
+    if(!["number","string"].includes(typeof selection.qty)||String(selection.qty).trim()===""||!Number.isSafeInteger(qty)||qty<1||qty>999)throw new Error("drink-qty-invalid");
+    const desired=JSON.parse(JSON.stringify(session)),item=desired.items[index];
+    item.price=price;item.qty=qty;
+    if(selection.menuLabel!=null){
+      item.drinkLabel=String(selection.menuLabel);
+      if(selection.menuId)item.drinkMenuId=String(selection.menuId);else delete item.drinkMenuId;
+    }
+    if(JSON.stringify(item)===JSON.stringify(session.items[index]))throw new Error("drink-unchanged");
+    return desired;
+  }
+  function reorder(session,itemId,position){
+    const index=targetIndex(session,itemId);
+    if(!Number.isInteger(position)||position<0||position>=session.items.length)throw new Error("drink-position-invalid");
+    const desired=JSON.parse(JSON.stringify(session)),[item]=desired.items.splice(index,1);
+    desired.items.splice(position,0,item);
+    return desired;
+  }
+  return{isDrink,change,targetIndex,reprice,reorder};
 });

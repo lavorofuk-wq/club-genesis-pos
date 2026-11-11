@@ -837,6 +837,30 @@ textarea:focus-visible{
 .set-change-history{margin:12px 0;font-size:12px;line-height:1.6;overflow-wrap:anywhere;}
 .set-change-history summary{cursor:pointer;padding:7px 0;}
 .set-change-entry{padding:8px 0;border-bottom:1px solid var(--gms-border);}
+.drink-edit-modes{display:grid;gap:10px;margin:16px 0;}
+.drink-edit-modes .btn,.drink-menu-option{padding:13px 14px;border:1px solid var(--gms-border);border-radius:4px;color:var(--gms-text);}
+.drink-menu-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px;}
+.drink-menu-option{min-height:64px;overflow-wrap:anywhere;white-space:normal;}
+.drink-menu-option span{display:block;font-size:12px;margin-top:5px;}
+.drink-menu-option.gbg{background:var(--gms-primary)!important;color:#fff!important;border-color:var(--gms-primary);}
+.drink-custom-amount{display:flex;gap:8px;margin:12px 0;}
+.drink-custom-amount .ip{min-width:0;width:100%;flex:1;}
+.drink-custom-amount .btn{padding:10px 16px;}
+.drink-edit-preview{font-size:12px;line-height:1.6;margin:12px 0;max-height:22vh;overflow:auto;overflow-wrap:anywhere;}
+.drink-edit-preview>div{padding-top:7px;}
+.drink-order-list{height:260px;max-height:35vh;overflow:auto;margin:12px 0;padding:0;list-style-position:inside;border-block:1px solid var(--gms-border);}
+.drink-order-list li{padding:10px 8px;border-bottom:1px solid var(--gms-border);font-size:12px;overflow-wrap:anywhere;}
+.drink-order-list li span:last-child{display:block;text-align:right;}
+.drink-order-list [aria-current]{background:#e5f0ff;box-shadow:inset 3px 0 var(--gms-primary);font-weight:700;}
+.drink-order-tools{display:flex;align-items:center;justify-content:center;gap:20px;}
+.drink-order-tools .btn{width:44px;height:44px;flex:none;border:1px solid var(--gms-border);border-radius:4px;font-size:22px;}
+.drink-order-tools .btn:disabled{opacity:.35;}
+.drink-change-dialog .charge-field .ip{width:100%;min-width:0;}
+.drink-edit-dialog{display:flex;flex-direction:column;overflow:hidden;}
+.drink-edit-dialog>h3,.drink-edit-dialog>.drink-change-summary,.drink-edit-dialog>.drink-change-actions{flex-shrink:0;}
+.drink-edit-content{min-height:0;overflow-y:auto;}
+.drink-edit-dialog>.drink-change-actions{padding-top:12px;}
+.drink-edit-dialog>.drink-order-tools{flex-shrink:0;margin-top:8px;}
 @media(max-width:700px){
   #logout-btn{padding:4px 6px;font-size:0;}
   #logout-btn::after{content:'退出';font-size:10px;}
