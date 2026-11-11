@@ -31,6 +31,7 @@ function contextFor(){
   };
   vm.createContext(context);
   for(const [from,to] of [
+    ['function gmsInt','function gmsHHMM'],
     ['function sessionGrossSubtotal','function standardChargeFromSubtotal'],
     ['function isSetCatItem','function isGuestCatItem'],
     ['function isBanaiExtensionBackItem','async function execDelItem'],
@@ -92,6 +93,65 @@ function verifyAnalysis(hist,expected){
   assert.equal(JSON.stringify(hist),before,'analysis must not mutate stored history');
   return ctx;
 }
+
+test('nomination reordering and extension reselection agree across data, analysis, CSV and GMS',()=>{
+  const change=require('../cast-drink-change.js'),items=require('./helpers/banai-order-fixture.cjs').items;
+  const initial=record(items()),category=contextFor().gmsItemCategory;
+  verifyAnalysis([initial],{a:34000,b:15000});
+  const shared=change.reorderBanai(initial,'nom-b',2,{ext1:['a','b']},category);
+  verifyAnalysis([shared],{a:16000,b:31000});
+  const single=change.reorderBanai(initial,'nom-b',2,{ext1:['b']},category);
+  verifyAnalysis([single],{a:0,b:47000});
+  const empty=change.reorderBanai(initial,'nom-a',9,{ext1:[],ext2:['b']},category);
+  verifyAnalysis([empty],{a:0,b:17000});
+  const laterEmpty=change.reorderBanai(initial,'nom-b',10,{ext2:[]},category);
+  verifyAnalysis([laterEmpty],{a:32000,b:0});
+  const discounted={...shared,subtotal:35000,adjustedTotal:53300,adjustedTotalTax:18300,adjustedTotalBaseSubtotal:61000};
+  verifyAnalysis([discounted],{a:Math.floor(16000*35000/61000),b:Math.floor(16000*35000/61000)+Math.floor(15000*35000/61000)});
+  const hon=record([...items(),{id:'hon',isHonShimei:true,castId:'a',castName:'A',price:0,qty:1}]);
+  const next=change.reorderBanai(hon,'nom-b',2,{},category),ctx=verifyAnalysis([next],{a:0,b:0});
+  assert.equal(ctx.gmsCastSales([next]).find(c=>c.castId==='a').honShimeiSales,61000);
+});
+
+test('set corrections and guest joins agree across data, analysis, CSV and GMS',()=>{
+  const charges=require('../charge-core.js');
+  for(const hon of [false,true]){
+    const h=record([
+      {id:'set',isSet:true,label:'Set',price:10000,qty:3,minutes:60},
+      {id:'nom-a',castId:'a',castName:'A',price:2000,qty:1,...(hon?{isHonShimei:true}:{isBanaiShimei:true})},
+      {id:'nom-b',castId:'b',castName:'B',price:2000,qty:1,...(hon?{isHonShimei:true}:{isBanaiShimei:true})},
+      {...extension(['a','b'],8000),id:'ext',groupId:'phase',extMinutes:60,qty:2},
+      {id:'bottle',category:'champagneWine',label:'Bottle',price:30000,qty:1}
+    ],{guests:2,totalGuests:3,startTime:100000,setEndTime:7300000});
+    charges.setPrice(h,'set',{id:'set90',label:'Set90',price:15000,minutes:90});
+    charges.addGuestSet(h,{id:'set90',label:'Set90',price:15000,minutes:90},1,'joined');
+    charges.setNextGuests(h,4);
+    h.items.push({...extension(['a'],8000),id:'next',extMinutes:60,qty:4});
+    h.subtotal=h.items.reduce((sum,i)=>sum+i.price*i.qty,0);
+    const ctx=verifyAnalysis([h],hon?{a:0,b:0}:{a:62500,b:30500});
+    assert.equal(ctx.gmsGuestCount(h),5);
+    for(const row of ctx.gmsCastSales([h]))assert.equal(row.honShimeiSales,hon?71000:0);
+  }
+});
+
+test('drink amount and order edits agree across data, analysis, CSV and GMS',()=>{
+  const change=require('../cast-drink-change.js');
+  const initial=record([{id:'set',isSet:true,price:10000,qty:1},
+    {id:'a',isBanaiShimei:true,castId:'a',castName:'A',price:2000,qty:1},
+    {id:'b',isBanaiShimei:true,castId:'b',castName:'B',price:2000,qty:1},
+    {...extension(['a']),id:'ext-a'},
+    {id:'cd_a',category:'castDrink',castId:'a',castName:'A',price:2000,qty:3},
+    {...extension(['b']),id:'ext-b'},
+    {id:'cd_b',category:'castDrink',castId:'b',castName:'B',price:1000,qty:1}]);
+  const price=change.reprice(initial,'cd_a',{price:3000,qty:4});price.subtotal+=6000;
+  verifyAnalysis([price],{a:16000,b:5000});
+  const moved=change.reorder(price,'cd_a',6);
+  verifyAnalysis([moved],{a:4000,b:17000});
+  const beforeExtension=change.reorder(moved,'cd_a',3);
+  verifyAnalysis([beforeExtension],{a:4000,b:5000});
+  const hon={...moved,items:[...moved.items,{id:'hon',castId:'a',castName:'A',price:0,qty:1,isHonShimei:true}]};
+  const ctx=verifyAnalysis([hon],{a:0,b:0});assert.equal(ctx.gmsCastSales([hon]).find(r=>r.castId==='a').honShimeiSales,35000);
+});
 
 test('drink reassignment preserves hon and extension allocation across data, analysis and GMS',()=>{
   const change=require('../cast-drink-change.js').change;
