@@ -42,7 +42,7 @@ function posCanOpenModal(name){
   if(posBusinessModal(name)&&!(typeof S!=="undefined"&&S.activeBizDay))return false;
   if(name==="startBizDay")return posCanStartBusiness()&&!S.activeBizDay;
   if(posIsOp())return true;
-  if(["releaseNotes","firebaseLock","sessionConflict"].includes(name))return true;
+  if(["firebaseLock","sessionConflict"].includes(name))return true;
   if(name==="settingsEditor")return posCanView("settings");
   if(name==="shift")return posCanView("shifts");
   if(["editpay","viewHistDetail"].includes(name))return posCanView("history");
