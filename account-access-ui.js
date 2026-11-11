@@ -1,6 +1,6 @@
 // OP-only account permissions. Authentication users are created in Firebase Console.
 const ACCOUNT_ACCESS_ROLES=Object.freeze({
-  cashier:{label:"キャッシャー",tabs:"フロア・リスト・設定・出勤・データ"},
+  cashier:{label:"キャッシャー",tabs:"フロア・リスト・設定・出勤・データ（個別履歴のみ／削除・復活不可）"},
   list:{label:"リスト",tabs:"リスト・出勤"},
   op:{label:"OP",tabs:"全機能"}
 });

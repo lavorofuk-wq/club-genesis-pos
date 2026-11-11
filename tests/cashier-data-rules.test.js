@@ -32,9 +32,9 @@ const desiredPayment=record=>{
   delete next.receiptIssued;return next;
 };
 
-test('cashier data writes retain scoped history revisions and restore related live records',async()=>{
+test('permitted data writes retain scoped history revisions and OP restores related live records',async()=>{
   for(const operation of ['payment','delete','restore']){
-    const state=dataFixture(),db=fakeDb(state),ctx=dataContext(db,state),expected=clone(state.history.h1);
+    const state=dataFixture(),db=fakeDb(state),ctx=dataContext(db,state,'pos-dev',operation==='payment'?'cashier':'op'),expected=clone(state.history.h1);
     if(operation==='restore')await ctx.guardedRestoreHistoryToFloor(expected);
     else await ctx.guardedHistoryRecordUpdate(expected,operation==='payment'?desiredPayment(expected):null);
     assert.equal(db.writes.length,1,operation+' commits once');
@@ -57,7 +57,8 @@ test('cashier data actions succeed under production rules while list writes and 
   {skip:process.env.POS_RULES_EMULATOR!=='1'},async t=>{
   const cashier=await emulator('demo-pos-cashier-data','cashier');
   const list=await emulator('demo-pos-cashier-data','list');
-  const access={authorizedUsers:{cashier:true,list:true},roles:{cashier:'cashier',list:'list'}};
+  const op=await emulator('demo-pos-cashier-data','op');
+  const access={authorizedUsers:{cashier:true,list:true,op:true},roles:{cashier:'cashier',list:'list',op:'op'}};
   const saved=root=>cashier.request(root,'GET',undefined,true);
   const reset=state=>cashier.request('','PUT',{access:clone(access),pos:clone(state),'pos-dev':clone(state)},true);
   async function run(ctx,state,operation){
@@ -67,9 +68,10 @@ test('cashier data actions succeed under production rules while list writes and 
   }
 
   for(const root of ['pos','pos-dev'])for(const operation of ['payment','delete','restore']){
-    await t.test(root+' cashier '+operation+' saves without OP or archive access',async()=>{
+    const role=operation==='payment'?'cashier':'op',actor=operation==='payment'?cashier:op;
+    await t.test(root+' '+role+' '+operation+' saves with its permitted role',async()=>{
       const state=dataFixture();await reset(state);
-      const ctx=dataContext(cashier.db(),state,root);await run(ctx,state,operation);
+      const ctx=dataContext(actor.db(),state,root,role);await run(ctx,state,operation);
       const remote=await saved(root);
       assert.equal(remote.history.other.total,8000);
       if(operation==='payment'){
@@ -87,23 +89,33 @@ test('cashier data actions succeed under production rules while list writes and 
 
     await t.test(root+' list cannot replay cashier '+operation+' payload',async()=>{
       const state=dataFixture();await reset(state);
-      const db=fakeDb(clone(state)),ctx=dataContext(db,state);
+      const db=fakeDb(clone(state)),ctx=dataContext(db,state,'pos-dev',role);
       await run(ctx,state,operation);
       const payload=Object.fromEntries(Object.entries(db.writes[0]).map(([key,value])=>[key.replace(/^pos-dev\//,root+'/'),value]));
       const before=await saved(root);
       await assert.rejects(list.request('','PATCH',payload),error=>error.code==='PERMISSION_DENIED');
       assert.deepEqual(await saved(root),before);
     });
+    if(operation!=='payment')await t.test(root+' cashier cannot replay OP '+operation+' payload',async()=>{
+      const state=dataFixture();await reset(state);
+      const db=fakeDb(clone(state)),ctx=dataContext(db,state,'pos-dev','op');
+      await run(ctx,state,operation);
+      const payload=Object.fromEntries(Object.entries(db.writes[0]).map(([key,value])=>[key.replace(/^pos-dev\//,root+'/'),value]));
+      const before=await saved(root);
+      await assert.rejects(cashier.request('','PATCH',payload),error=>error.code==='PERMISSION_DENIED');
+      assert.deepEqual(await saved(root),before,'denied history mutation must not partially restore sessions, assignments or shifts');
+    });
   }
 
   for(const operation of ['payment','delete','restore'])for(const race of ['history','business-end','business-switch']){
     await t.test(operation+' rejects concurrent '+race+' without partial data changes',async()=>{
       const state=dataFixture();await reset(state);let afterRace;
-      const ctx=dataContext(cashier.db(async()=>{
+      const role=operation==='payment'?'cashier':'op',actor=operation==='payment'?cashier:op;
+      const ctx=dataContext(actor.db(async()=>{
         const updates=race==='history'?{'pos-dev/history/h1/_rev':3}:
           {'pos-dev/activeBizDay':race==='business-end'?null:'2026-09-09'};
         await cashier.request('','PATCH',updates,true);afterRace=await saved('pos-dev');
-      }),state);
+      }),state,'pos-dev',role);
       await assert.rejects(run(ctx,state,operation));
       assert.ok(afterRace,'race reaches the atomic write');
       assert.deepEqual(await saved('pos-dev'),afterRace);
@@ -123,9 +135,9 @@ test('cashier data actions succeed under production rules while list writes and 
         'cast-shift':{'pos-dev/_castShiftRevisions/c1':1},
         'table-assignment':{'pos-dev/_tableAssignmentRevisions/t1':4}
       };
-      const ctx=dataContext(cashier.db(async()=>{
+      const ctx=dataContext(op.db(async()=>{
         await cashier.request('','PATCH',mutations[race],true);afterRace=await saved('pos-dev');
-      }),state);
+      }),state,'pos-dev','op');
       await assert.rejects(ctx.guardedRestoreHistoryToFloor(clone(state.history.h1)));
       assert.ok(afterRace,'race reaches the atomic write');
       assert.deepEqual(await saved('pos-dev'),afterRace);
@@ -138,7 +150,7 @@ test('cashier data actions succeed under production rules while list writes and 
     const state=dataFixture();
     state.assignments.old={id:'old',castId:'c2',tableId:'t1',sessionId:90,startTime:95,endTime:500,type:'free',_rev:3};
     state.shifts.s2={id:'s2',castId:'c2',clockIn:80,status:'waiting',_rev:1};
-    await reset(state);const ctx=dataContext(cashier.db(),state);
+    await reset(state);const ctx=dataContext(op.db(),state,'pos-dev','op');
     const result=await ctx.guardedRestoreHistoryToFloor(clone(state.history.h1));
     const remote=await saved('pos-dev');
     assert.equal(result.restoredAssignments,1);assert.equal(result.skippedAssignments,0);
@@ -155,7 +167,7 @@ test('cashier data actions succeed under production rules while list writes and 
         state.assignments.a2={id:'a2',castId:'c1',tableId:'t2',sessionId:600,startTime:600,_rev:1};
         state.shifts.s1.status='active';
       }
-      await reset(state);const ctx=dataContext(cashier.db(),state);
+      await reset(state);const ctx=dataContext(op.db(),state,'pos-dev','op');
       const result=await ctx.guardedRestoreHistoryToFloor(clone(state.history.h1));
       const remote=await saved('pos-dev');
       assert.equal(result.restoredAssignments,0);assert.equal(result.skippedAssignments,1);

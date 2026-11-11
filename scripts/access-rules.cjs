@@ -51,6 +51,63 @@ function liveShiftWrite(before,after){
   ].map(part=>`(${part})`).join(' && ');
 }
 
+// Removing a live session is a checkout or an actual table move, never a bare
+// cancellation for cashiers. A surviving record proves the matching destination.
+function cashierSessionRemoval(before,after){
+  const and=parts=>parts.map(part=>`(${part})`).join(' && ');
+  const session=`${before}.child('sessions').child($tableId)`;
+  const scoped=`${after}.child('_scopedOperation')`;
+  const record=`${scoped}.child('records/sessions').child($tableId)`;
+  const freshScoped=and([
+    `${scoped}.child('version').isNumber()`,
+    `${scoped}.child('version').val() >= 614400`,
+    `${scoped}.child('nonce').isString()`,
+    `${scoped}.child('nonce').val() != ${before}.child('_scopedOperation/nonce').val()`,
+    `${scoped}.child('expectedActiveBizDay').val() == ${before}.child('activeBizDay').val()`,
+    `${record}.child('write').val() == true && ${record}.child('deleted').val() == true`
+  ]);
+  const preparation=`${after}.child('tablePreparations').child($tableId)`;
+  const historyId=`${preparation}.child('sessionId').val()`;
+  const history=`${after}.child('history').child(${historyId} + '')`;
+  const checkout=and([
+    freshScoped,
+    `${preparation}.child('sessionId').isString()`,
+    `!${before}.child('tablePreparations').child($tableId).exists()`,
+    `!${before}.child('history').child(${historyId} + '').exists()`,
+    `${history}.child('tableId').val() == $tableId`,
+    `${history}.child('startTime').val() == ${session}.child('startTime').val()`,
+    `${history}.child('_nodeWriteNonce').val() == ${scoped}.child('nonce').val()`,
+    `${preparation}.child('_nodeWriteNonce').val() == ${scoped}.child('nonce').val()`
+  ]);
+  const legacy=`${after}.child('_tableChangeOperations').child($tableId)`;
+  const legacyMove=and([
+    `${legacy}.child('nonce').isString()`,
+    `${legacy}.child('nonce').val() != ${before}.child('_tableChangeOperations').child($tableId).child('nonce').val()`,
+    `${legacy}.child('toTableId').isString()`,
+    `${after}.child('sessions').child(${legacy}.child('toTableId').val() + '').exists()`
+  ]);
+  const targetId=`${scoped}.child('sessionMoves').child($tableId).val()`;
+  const target=`${after}.child('sessions').child(${targetId} + '')`;
+  const targetProof=`${scoped}.child('records/sessions').child(${targetId} + '')`;
+  const scopedMove=and([
+    freshScoped,
+    `${scoped}.child('sessionMoves').child($tableId).isString() && ${targetId} != $tableId`,
+    `!${before}.child('sessions').child(${targetId} + '').exists()`,
+    `${target}.child('tableId').val() == ${targetId}`,
+    `${target}.child('startTime').val() == ${session}.child('startTime').val()`,
+    `(!${session}.child('sessionId').exists() || ${target}.child('sessionId').val() == ${session}.child('sessionId').val())`,
+    `${target}.child('_nodeWriteNonce').val() == ${scoped}.child('nonce').val()`,
+    `${targetProof}.child('exists').val() == false && ${targetProof}.child('write').val() == true && ${targetProof}.child('deleted').val() == false`
+  ]);
+  return and([
+    `${session}.exists()`,
+    `!${after}.child('sessions').child($tableId).exists()`,
+    `${before}.child('activeBizDay').isString() && ${before}.child('activeBizDay').val() != ''`,
+    `${after}.child('activeBizDay').val() == ${before}.child('activeBizDay').val()`,
+    `(${checkout}) || (${legacyMove}) || (${scopedMove})`
+  ]);
+}
+
 // A cashier may create one empty, previously unused business day. Keep the
 // ancestor grants OP-only: a child grant cannot revoke an ancestor RTDB grant.
 function applyCashierStartRules(rules,writeGate){
@@ -168,6 +225,28 @@ function applyAccessRules(document){
     for(const key of CASHIER_WRITE_PATHS)rules[key]={...(rules[key]||{}),'.write':`${CASHIER} && (${childGate})`};
     applyCashierStartRules(rules,writeGate);
     const opChildWrite=`${OP} && (${childGate})`;
+    // A parent .write grant cannot be revoked by a child rule, and .validate
+    // does not run for deletions. Cashiers may create/update individual history
+    // records, but only OP may delete a record or replace the whole collection.
+    const emptyCollectionWrite=`${CASHIER_ONLY} && (${childGate}) && !data.exists() && !newData.exists()`;
+    // New-day startup sends null for already-empty live collections. This is a
+    // no-op only: it never authorizes removing even one surviving record.
+    rules.history['.write']=`(${opChildWrite}) || (${emptyCollectionWrite})`;
+    const historyGate=writeGate.replace(/\bnewData\b/g,'newData.parent().parent()').replace(/\bdata\b/g,'data.parent().parent()');
+    const stableHistory=['id','tableId','sessionId','startTime','endTime','guests','total','subtotal','tax','rate']
+      .map(key=>`newData.child('${key}').val() == data.child('${key}').val()`)
+      .concat("newData.child('items').exists() == data.child('items').exists()")
+      .map(check=>`(${check})`).join(' && ');
+    rules.history.$id['.write']=`${CASHIER_ONLY} && (${historyGate}) && newData.exists() && (!data.exists() || (${stableHistory}))`;
+    rules.sessions['.write']=`(${opChildWrite}) || (${emptyCollectionWrite})`;
+    const session=rules.sessions.$tableId;
+    let legacySessionWrite=session['.write'];
+    if(legacySessionWrite.includes("child('sessionMoves')")){
+      const boundary=legacySessionWrite.indexOf(`) || (${CASHIER_ONLY} && (`);
+      if(boundary<0)throw new Error('Cannot recover the legacy session write rule');
+      legacySessionWrite=legacySessionWrite.slice(1,boundary);
+    }
+    session['.write']=`(${legacySessionWrite}) || (${CASHIER_ONLY} && (${historyGate}) && (${cashierSessionRemoval('data.parent().parent()','newData.parent().parent()')}))`;
     for(const [key,node] of Object.entries(rules)){
       if(key.startsWith('.')||key==='$other'||key==='shifts'||!node||typeof node!=='object')continue;
       if(!node['.write'])node['.write']=opChildWrite;

@@ -9,7 +9,7 @@ function deferred(){
   const promise=new Promise(done=>{resolve=done;});
   return{promise,resolve};
 }
-function setup({role='cashier',activeBizDay=DAY,phase}={}){
+function setup({role='op',activeBizDay=DAY,phase}={}){
   const state=fixture();
   Object.assign(state,{activeBizDay,sessions:{},shifts:{},assignments:{},tables:[{id:'t1',label:'T1'}],
     history:{123:{id:123,tableId:'t1',startTime:100,endTime:500,setEndTime:400,guests:2,total:6000,items:[],_rev:1}}});
@@ -70,8 +70,9 @@ test('history helpers deny list accounts, closed days, and stale day arguments b
   assert.equal(db.reads.length,0);assert.equal(db.writes.length,0);
 });
 
-test('cashier and OP live history updates, deletion and floor restore keep scoped atomic writes',async()=>{
+test('cashier payment edits and OP history operations keep scoped atomic writes',async()=>{
   for(const role of ['cashier','op'])for(const kind of ['pay','delete','restore']){
+    if(role==='cashier'&&kind!=='pay')continue;
     const {ctx,state,db}=setup({role});
     await helperAction(ctx,kind);
     assert.equal(db.writes.length,1,role+' '+kind);
@@ -138,7 +139,7 @@ test('direct history mutation entry points are unavailable to list accounts and 
   }
 });
 
-test('successful cashier history UI operations finish normally and restore timers stay day-bound',async()=>{
+test('successful OP history UI operations finish normally and restore timers stay day-bound',async()=>{
   for(const kind of ['pay','delete','restore']){
     const env=setup();env.ctx.md=kind==='pay'?'editpay':kind==='delete'?'dh':'viewHistDetail';
     await uiAction(env.ctx,kind);
@@ -151,6 +152,41 @@ test('successful cashier history UI operations finish normally and restore timer
     }
   }
   const env=setup();await env.ctx.restoreHistoryToFloor(123);env.timers[0]();assert.deepEqual(env.opened,['t1']);
+});
+
+test('cashier cannot delete or restore history through public or helper entry points',async()=>{
+  const env=setup({role:'cashier'}),record=clone(env.ctx.S.history[0]);
+  env.ctx.dhi=null;env.ctx.cdh(123);
+  assert.equal(env.ctx.dhi,null);assert.equal(env.ctx.md,null);
+  for(const kind of ['delete','restore']){
+    await assert.rejects(helperAction(env.ctx,kind),error=>error.code==='HISTORY_OPERATION_ACCESS_DENIED');
+    await uiAction(env.ctx,kind);
+  }
+  // Undefined is also a destructive desired value, not a payment edit.
+  await assert.rejects(env.ctx.guardedHistoryRecordUpdate(record,undefined),error=>error.code==='HISTORY_OPERATION_ACCESS_DENIED');
+  assert.equal(env.db.reads.length,0);assert.equal(env.db.writes.length,0);
+  assert.equal(env.ctx.S.history.length,1);assert.equal(env.timers.length,0);
+  env.ctx.editHistPay(123);assert.equal(env.ctx.md,'editpay');
+  await env.ctx.saveHistPay();
+  assert.equal(env.db.writes.length,1);assert.equal(env.state.history[123].payMethod,'card');
+});
+
+test('cashier payment responses remain day-bound while restricted history operations are denied',async()=>{
+  const env=setup({role:'cashier',phase:'response'}),saving=env.ctx.saveHistPay();
+  await env.entered.promise;
+  env.ctx.S.activeBizDay=NEXT;env.ctx.S.history=[{id:456,total:9000}];
+  env.ctx.md='settingsEditor';env.ctx.editPayHid=456;
+  env.resume.resolve();await saving;
+  assert.deepEqual(clone(env.ctx.S.history),[{id:456,total:9000}]);
+  assert.equal(env.ctx.md,'settingsEditor');assert.equal(env.ctx.editPayHid,456);
+});
+
+test('session deletion helper rejects cashier and list before database reads',async()=>{
+  for(const role of ['cashier','list']){
+    const env=setup({role});
+    await assert.rejects(env.ctx.guardedCloseSession('t1',{}),error=>error.code==='SESSION_DELETE_ACCESS_DENIED');
+    assert.equal(env.db.reads.length,0);assert.equal(env.db.writes.length,0);
+  }
 });
 
 test('checkout restoration matches timestamp and stable session IDs without crossing sessions',()=>{
