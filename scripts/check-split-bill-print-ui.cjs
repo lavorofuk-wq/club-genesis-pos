@@ -74,17 +74,21 @@ async function main(){
       const enlarged=await page.evaluate(xml=>{
         const doc=new DOMParser().parseFromString(xml,'text/xml'),lines=[];
         if(doc.querySelector('parsererror'))throw new Error('Invalid printer XML');
-        let dh=false,dw=false;
+        let dh=false,dw=false,em=false,align='left';
         for(const el of doc.getElementsByTagName('text')){
           if(el.hasAttribute('dh'))dh=el.getAttribute('dh')==='true';
           if(el.hasAttribute('dw'))dw=el.getAttribute('dw')==='true';
-          if(el.textContent.trim())lines.push({text:el.textContent.trim(),dh,dw});
+          if(el.hasAttribute('em'))em=el.getAttribute('em')==='true';
+          if(el.hasAttribute('align'))align=el.getAttribute('align');
+          if(el.textContent.trim())lines.push({text:el.textContent.trim(),dh,dw,em,align});
         }
         return lines;
       },soap);
-      for(const text of ['CLUB GENESIS','お一人様あたりの金額','¥18,900 × 3名','¥19,000 × 1名']){
-        assert.deepEqual(enlarged.find(line=>line.text===text),{text,dh:true,dw:true});
+      for(const text of ['CLUB GENESIS','¥18,900 × 3名','¥19,000 × 1名']){
+        assert.deepEqual(enlarged.find(line=>line.text===text),{text,dh:true,dw:true,em:false,align:text==='CLUB GENESIS'?'center':'left'});
       }
+      assert.deepEqual(enlarged.find(line=>line.text==='お一人様あたりの金額'),{text:'お一人様あたりの金額',dh:false,dw:false,em:true,align:'center'});
+      assert.match(soap,/お一人様あたりの金額\n<\/text><text em="false"\/><feed line="1"\/><text align="left" dh="true" dw="true"\/>/);
       assert.ok(enlarged.filter(line=>line.text.startsWith('---')).every(line=>!line.dh&&!line.dw));
       await page.evaluate(()=>window.__qaFailPrinter=true);
       await page.locator('#split-print-submit').click();
@@ -95,12 +99,15 @@ async function main(){
       await page.emulateMedia({media:'print'});
       const printLayout=await page.locator('#receipt-print-area').evaluate(el=>{
         const logoSize=getComputedStyle(el.querySelector('.rcp-logo')).fontSize;
-        const rows=[...el.querySelectorAll('.rcp-split-heading,.rcp-split-share')];
-        return{count:rows.length,title:el.querySelector('.rcp-split-heading').textContent,
-          sameSize:rows.every(row=>getComputedStyle(row).fontSize===logoSize),
+        const heading=el.querySelector('.rcp-split-heading'),shares=[...el.querySelectorAll('.rcp-split-share')],rows=[heading,...shares];
+        const headingSize=parseFloat(getComputedStyle(heading).fontSize);
+        return{count:rows.length,title:heading.textContent,
+          headingSmaller:headingSize<parseFloat(logoSize)&&headingSize>=parseFloat(logoSize)*.8,
+          amountsUnchanged:shares.every(row=>getComputedStyle(row).fontSize===logoSize),
+          spaced:shares[0].firstElementChild.getBoundingClientRect().top-heading.getBoundingClientRect().bottom>=6*96/25.4-1,
           fits:rows.every(row=>row.scrollWidth<=row.clientWidth+1&&[...row.children].every(child=>child.scrollWidth<=child.clientWidth+1))};
       });
-      assert.deepEqual(printLayout,{count:3,title:'お一人様あたりの金額',sameSize:true,fits:true});
+      assert.deepEqual(printLayout,{count:3,title:'お一人様あたりの金額',headingSmaller:true,amountsUnchanged:true,spaced:true,fits:true});
       await page.locator('#receipt-print-area').screenshot({path:path.join(output,name+'-receipt.png')});
       await page.emulateMedia({media:'screen'});
       assert.equal(await page.evaluate(()=>JSON.stringify({session:S.sessions.t1,totals:ct(S.sessions.t1),payments:coState,db:window.__qaDatabase})),before);

@@ -82,7 +82,7 @@ body.in-order .order-left{overflow-y:auto;-webkit-overflow-scrolling:touch;paddi
   .rcp-row-amt{white-space:nowrap;font-weight:600;}
   .rcp-disc{color:#555;}
   .rcp-subtotal-row{display:flex;justify-content:space-between;font-size:9pt;padding:0.5mm 0;color:#444;}
-  .rcp-split-heading{font-size:16pt;font-weight:700;letter-spacing:0;text-align:center;line-height:1.5;margin:3mm 0;overflow-wrap:anywhere;}
+  .rcp-split-heading{font-size:14pt;font-weight:700;letter-spacing:0;text-align:center;line-height:1.5;margin:3mm 0 6mm;overflow-wrap:anywhere;}
   .rcp-split-share{display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:1mm 2mm;font-size:16pt;font-weight:700;letter-spacing:0;line-height:1.5;padding:1mm 0;}
   .rcp-split-share>span{max-width:100%;overflow-wrap:anywhere;}
   .rcp-total-label{font-size:13pt;font-weight:700;}

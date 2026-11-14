@@ -119,6 +119,13 @@ test('browser and Epson receipts contain identical groups and escape table label
   assert.equal(JSON.stringify(data),before);
   assert.equal((ctx.buildEposXML(data,false).match(/<cut /g)||[]).length,1);
 });
+test('Epson heading is smaller and separated from unchanged double-size amounts',()=>{
+  const {ctx}=setup();
+  const xml=ctx.buildEposXML({isSplitBill:true,total:75700,splitPeople:4,tableLabel:'T1'},false);
+  assert.match(xml,/<text align="center" dh="false" dw="false" em="true"\/><text>お一人様あたりの金額\n<\/text>/);
+  assert.match(xml,/<text em="false"\/><feed line="1"\/><text align="left" dh="true" dw="true"\/><text>¥18,900 × 3名/);
+  assert.match(xml,/<text>¥19,000 × 1名\n<\/text><text dh="false" dw="false"\/>/);
+});
 test('invalid receipt data fails closed for both printer paths',()=>{
   const {ctx}=setup();
   for(const builder of [ctx.buildReceiptHTML,ctx.buildEposXML]){

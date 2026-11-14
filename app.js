@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.166.1";
+const APP_VERSION="6.166.2";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -6477,7 +6477,8 @@ function buildSplitBillXML(data){
   return '<text lang="ja" smooth="true"/><feed line="1"/><text align="center" dh="true" dw="true"/>'+line('CLUB GENESIS')
     +'<text dh="false" dw="false"/><text align="left"/>'+line('-'.repeat(42))
     +line('テーブル: '+(data.tableLabel||''))+line('人数: '+fmt(plan.people)+'名')+line('合計金額: ¥'+fmt(plan.total))
-    +line('-'.repeat(42))+'<text dh="true" dw="true"/>'+line('お一人様あたりの金額')
+    +line('-'.repeat(42))+'<text align="center" dh="false" dw="false" em="true"/>'+line('お一人様あたりの金額')
+    +'<text em="false"/><feed line="1"/><text align="left" dh="true" dw="true"/>'
     +plan.groups.map(group=>line('¥'+fmt(group.amount)+' × '+fmt(group.people)+'名')).join('')
     +'<text dh="false" dw="false"/>'+line('-'.repeat(42))+'<feed line="4"/><cut type="feed"/>';
 }
