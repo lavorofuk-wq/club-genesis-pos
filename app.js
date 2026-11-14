@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.166";
+const APP_VERSION="6.166.1";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -6462,12 +6462,12 @@ function splitPrintEscape(value){return String(value??"").replace(/[&<>"']/g,c=>
 function buildSplitBillHTML(data){
   const plan=splitBillPlan(data.total,data.splitPeople);
   if(!plan)throw new Error("割勘の金額または人数が不正です");
-  return '<div class="rcp-logo">CLUB GENESIS</div><div class="rcp-sub">割勘</div><hr class="rcp-divider">'
+  return '<div class="rcp-logo">CLUB GENESIS</div><hr class="rcp-divider">'
     +'<div class="rcp-meta">テーブル: '+splitPrintEscape(data.tableLabel)+'</div>'
-    +'<div class="rcp-meta">割勘人数: '+fmt(plan.people)+'名</div><hr class="rcp-divider">'
+    +'<div class="rcp-meta">人数: '+fmt(plan.people)+'名</div><hr class="rcp-divider">'
     +'<div class="rcp-total-row"><span class="rcp-total-label">合 計</span><span class="rcp-total-amt">¥'+fmt(plan.total)+'</span></div>'
-    +'<hr class="rcp-divider-solid"><div class="rcp-sub">一人あたりの金額</div>'
-    +plan.groups.map(group=>'<div class="rcp-subtotal-row"><span>¥'+fmt(group.amount)+'</span><span>× '+fmt(group.people)+'名</span></div>').join('')
+    +'<hr class="rcp-divider-solid"><div class="rcp-split-heading">お一人様あたりの金額</div>'
+    +plan.groups.map(group=>'<div class="rcp-split-share"><span>¥'+fmt(group.amount)+'</span><span>× '+fmt(group.people)+'名</span></div>').join('')
     +'<hr class="rcp-divider">';
 }
 function buildSplitBillXML(data){
@@ -6475,11 +6475,11 @@ function buildSplitBillXML(data){
   if(!plan)throw new Error("割勘の金額または人数が不正です");
   const line=text=>'<text>'+splitPrintEscape(text)+'\n</text>';
   return '<text lang="ja" smooth="true"/><feed line="1"/><text align="center" dh="true" dw="true"/>'+line('CLUB GENESIS')
-    +'<text dh="false" dw="false"/>'+line('割勘')+'<text align="left"/>'+line('-'.repeat(42))
-    +line('テーブル: '+(data.tableLabel||''))+line('割勘人数: '+fmt(plan.people)+'名')+line('合計金額: ¥'+fmt(plan.total))
-    +line('-'.repeat(42))+line('一人あたりの金額')
+    +'<text dh="false" dw="false"/><text align="left"/>'+line('-'.repeat(42))
+    +line('テーブル: '+(data.tableLabel||''))+line('人数: '+fmt(plan.people)+'名')+line('合計金額: ¥'+fmt(plan.total))
+    +line('-'.repeat(42))+'<text dh="true" dw="true"/>'+line('お一人様あたりの金額')
     +plan.groups.map(group=>line('¥'+fmt(group.amount)+' × '+fmt(group.people)+'名')).join('')
-    +line('-'.repeat(42))+'<feed line="4"/><cut type="feed"/>';
+    +'<text dh="false" dw="false"/>'+line('-'.repeat(42))+'<feed line="4"/><cut type="feed"/>';
 }
 
 // ===== RECEIPT PRINT =====

@@ -69,13 +69,38 @@ async function main(){
       await page.waitForFunction(()=>window.__qaSoap.length===1);
       const soap=await page.evaluate(()=>window.__qaSoap[0]);
       assert.match(soap,/18,900 × 3名/);assert.match(soap,/19,000 × 1名/);
+      assert.match(soap,/人数: 4名/);assert.doesNotMatch(soap,/割勘/);
       assert.equal((soap.match(/<cut /g)||[]).length,1);
+      const enlarged=await page.evaluate(xml=>{
+        const doc=new DOMParser().parseFromString(xml,'text/xml'),lines=[];
+        if(doc.querySelector('parsererror'))throw new Error('Invalid printer XML');
+        let dh=false,dw=false;
+        for(const el of doc.getElementsByTagName('text')){
+          if(el.hasAttribute('dh'))dh=el.getAttribute('dh')==='true';
+          if(el.hasAttribute('dw'))dw=el.getAttribute('dw')==='true';
+          if(el.textContent.trim())lines.push({text:el.textContent.trim(),dh,dw});
+        }
+        return lines;
+      },soap);
+      for(const text of ['CLUB GENESIS','お一人様あたりの金額','¥18,900 × 3名','¥19,000 × 1名']){
+        assert.deepEqual(enlarged.find(line=>line.text===text),{text,dh:true,dw:true});
+      }
+      assert.ok(enlarged.filter(line=>line.text.startsWith('---')).every(line=>!line.dh&&!line.dw));
       await page.evaluate(()=>window.__qaFailPrinter=true);
       await page.locator('#split-print-submit').click();
       await page.waitForFunction(()=>window.__qaBrowserPrint===1);
       const fallback=await page.evaluate(()=>window.__qaPrintedHTML);
       for(const text of ['75,700','18,900','19,000','3名','1名'])assert.ok(fallback.includes(text));
+      assert.match(fallback,/人数: 4名/);assert.doesNotMatch(fallback,/割勘/);
       await page.emulateMedia({media:'print'});
+      const printLayout=await page.locator('#receipt-print-area').evaluate(el=>{
+        const logoSize=getComputedStyle(el.querySelector('.rcp-logo')).fontSize;
+        const rows=[...el.querySelectorAll('.rcp-split-heading,.rcp-split-share')];
+        return{count:rows.length,title:el.querySelector('.rcp-split-heading').textContent,
+          sameSize:rows.every(row=>getComputedStyle(row).fontSize===logoSize),
+          fits:rows.every(row=>row.scrollWidth<=row.clientWidth+1&&[...row.children].every(child=>child.scrollWidth<=child.clientWidth+1))};
+      });
+      assert.deepEqual(printLayout,{count:3,title:'お一人様あたりの金額',sameSize:true,fits:true});
       await page.locator('#receipt-print-area').screenshot({path:path.join(output,name+'-receipt.png')});
       await page.emulateMedia({media:'screen'});
       assert.equal(await page.evaluate(()=>JSON.stringify({session:S.sessions.t1,totals:ct(S.sessions.t1),payments:coState,db:window.__qaDatabase})),before);

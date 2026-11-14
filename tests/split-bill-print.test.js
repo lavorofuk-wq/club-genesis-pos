@@ -113,8 +113,8 @@ test('browser and Epson receipts contain identical groups and escape table label
   const data={isSplitBill:true,total:75700,splitPeople:4,tableLabel:'T1 <&>"',note:'private',items:[{label:'private order'}]};
   const before=JSON.stringify(data);
   for(const receipt of [ctx.buildReceiptHTML(data,false),ctx.buildEposXML(data,false)]){
-    for(const text of ['割勘','75,700','18,900','19,000','3名','1名','&lt;&amp;&gt;&quot;'])assert.ok(receipt.includes(text),text);
-    assert.doesNotMatch(receipt,/private|店舗控え|店 舗 控 え/);
+    for(const text of ['人数: 4名','お一人様あたりの金額','75,700','18,900','19,000','3名','1名','&lt;&amp;&gt;&quot;'])assert.ok(receipt.includes(text),text);
+    assert.doesNotMatch(receipt,/割勘|private|店舗控え|店 舗 控 え/);
   }
   assert.equal(JSON.stringify(data),before);
   assert.equal((ctx.buildEposXML(data,false).match(/<cut /g)||[]).length,1);
