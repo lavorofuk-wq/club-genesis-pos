@@ -14,11 +14,12 @@ function posRequireAttendanceBusinessDay(expectedBizDay=S.activeBizDay){
   return true;
 }
 function posBusinessModal(name){
-  if(name==="castDrinkChange"||name==="editpay"||name==="setPrice")return true;
+  if(name==="castDrinkChange"||name==="editpay"||name==="setPrice"||name==="coSplit")return true;
   return ["shift","tsuke","assignAction","moveToTable","changeType","editAssignTime","castStatus","castHistory","tablePreparation","opsMenu","loModeOn","loList","loConfirm","loFix","confirm-del","co","co2","disc","cu","gcu","reduce-guests","add-set","add-hon","cd","liquor-target","ext","sc-add","room","room-vip","room-karaoke","fd","qty","banai-ext-cast","banai","setDetail","guestDetail","castDetail","et","dh","tc","est","deleteSession","endBizDay"].includes(name)||String(name||"").startsWith("ci-")||String(name||"").startsWith("liquor_");
 }
 function invalidateBusinessDayDialogs(previous,next){
   if(previous===next)return;
+  if(typeof splitPrintState!=="undefined")splitPrintState=null;
   if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
   if(typeof setPriceState!=="undefined")setPriceState=null;
   if(typeof extensionGuests!=="undefined")extensionGuests=null;
@@ -38,7 +39,7 @@ function invalidateBusinessDayDialogs(previous,next){
   if(typeof vw!=="undefined"&&posBusinessView(vw))vw=posDefaultView();
 }
 function posCanOpenModal(name){
-  if(name==="setPrice")return posCanView("floor");
+  if(name==="setPrice"||name==="coSplit")return posCanView("floor");
   if(window._posAccessInvalidated)return false;
   if(!name)return true;
   if(!window.PosAccess?.normalizeRole(window._posRole))return false;
@@ -63,6 +64,7 @@ function posLimitedHome(){
     +'<div class="access-home-tabs">'+tabs.filter(tab=>labels[tab]&&posCanView(tab)).map(tab=>'<button class="btn" onclick="sv(\''+tab+'\')">'+labels[tab]+'</button>').join('')+'</div></section>';
 }
 window.posClearPrivateState=function(){
+  if(typeof splitPrintState!=="undefined")splitPrintState=null;
   if(typeof castDrinkChangeState!=="undefined")castDrinkChangeState=null;
   if(typeof setPriceState!=="undefined")setPriceState=null;
   if(typeof extensionGuests!=="undefined")extensionGuests=null;

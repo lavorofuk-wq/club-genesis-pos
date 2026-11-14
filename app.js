@@ -4,7 +4,7 @@ const DM={castCustomItems:[],normalSets:[],sets:[{id:"s1",label:"セット料金
 const DT=[{id:"t1",label:"テーブル 1",vip:false},{id:"t2",label:"テーブル 2",vip:false},{id:"t3",label:"テーブル 3",vip:false},{id:"t4",label:"テーブル 4",vip:false},{id:"t5",label:"テーブル 5",vip:false},{id:"t6",label:"テーブル 6",vip:false},{id:"t7",label:"テーブル 7",vip:false},{id:"t8",label:"テーブル 8",vip:false},{id:"va",label:"VIP-A",vip:true},{id:"vb",label:"VIP-B",vip:true}];
 
 // ===== STATE =====
-const APP_VERSION="6.165";
+const APP_VERSION="6.166";
 const GMS_JSON=window.GmsJsonCore;
 const POS_SYNC=window.PosSyncCore;
 const CAST_ORDER_ATTENDANCE=window.PosCastOrderAttendance;
@@ -151,6 +151,7 @@ let expandedHist={};
 let histFilter={from:"",to:"",fromTime:"19:00",toTime:"18:59"};
 let analysisSt={mode:null,castId:null,castName:null,days:null,loading:false,error:"",requestId:0};
 let coState={payMethod:null,splits:[]}; // 会計終了ステート（splits:分割払い）
+let splitPrintState=null;
 let checkoutBusy=false;
 let checkoutProgress=null;
 let checkoutError="";
@@ -6397,10 +6398,93 @@ function ata(){if(tableDeleteBusy||!ntl.trim())return;if(S.tables.length>=MAX_TA
 
 // ===== MODAL =====
 function om(name){if(!posCanOpenModal(name)){posDenyAccess();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy)return;if(name==="add-set"){chargeSessionIdentity=cloneData(S.sessions[at]);window._addSetN=1;}if(name==="cd"||name==="banai"){offDutyCastSelection=false;if(name==="cd"){cds=0;cdc=null;}}if(name==="endBizDay")endBizDayAttendanceIssues=null;md=name;rModal();}
-function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;castDrinkChangeState=null;setPriceState=null;extensionGuests=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
+function closeM(){if(checkoutBusy&&md==="co2")return;if(md==="settingsEditor"){settingsClose();return;}if(typeof settingsSaving==="function"&&settingsSaving())return;if(tableChangeBusy||entryTimeBusy||chargeSaveBusy||tablePreparationBusy)return;md=null;splitPrintState=null;castDrinkChangeState=null;setPriceState=null;extensionGuests=null;chargeSessionIdentity=null;document.getElementById("md").innerHTML="";}
+
+// ===== SPLIT BILL PRINT =====
+function splitBillPlan(total,people){
+  if(!Number.isSafeInteger(total)||total<0||total%100!==0)return null;
+  if(!Number.isSafeInteger(people)||people<1)return null;
+  const units=total/100,base=Math.floor(units/people)*100,higher=units%people;
+  const groups=[];
+  if(people-higher>0)groups.push({amount:base,people:people-higher});
+  if(higher>0)groups.push({amount:base+100,people:higher});
+  return{total,people,groups};
+}
+function openSplitPrint(){
+  if(!posRequireView("floor")||md!=="co"||checkoutBusy)return;
+  const s=S.sessions[at];if(!s)return;
+  splitPrintState={tableId:at,bizDay:S.activeBizDay,identity:{sessionId:s.sessionId,startTime:s.startTime},people:String(s.guests??""),shownTotal:null};
+  om("coSplit");
+}
+function splitPrintPreview(){
+  const state=splitPrintState,s=state&&S.sessions[state.tableId];
+  if(!state||at!==state.tableId||state.bizDay!==S.activeBizDay||!sameSessionIdOnly(s,state.identity))return{error:"対象の会計が変更されています。会計画面を開き直してください。"};
+  const total=ct(s).total;
+  if(!Number.isSafeInteger(total)||total<0||total%100!==0)return{error:"合計金額を確認してください。"};
+  const plan=splitBillPlan(total,Number(state.people));
+  if(!plan)return{total,error:"割勘人数は1以上の整数で入力してください。"};
+  return{...plan,tableLabel:S.tables.find(t=>t.id===state.tableId)?.label||""};
+}
+function splitPrintPreviewHtml(preview){
+  return(preview.total!=null?'<div class="split-print-total"><span>合計金額</span><strong>¥'+fmt(preview.total)+'</strong></div>':'')
+    +(preview.error?'<p class="split-print-error" role="alert">'+preview.error+'</p>':preview.groups.map(group=>'<div class="split-print-share"><strong>¥'+fmt(group.amount)+'</strong><span>× '+fmt(group.people)+'名</span></div>').join(''));
+}
+function updateSplitPrintPeople(value){
+  if(!splitPrintState||md!=="coSplit")return;
+  splitPrintState.people=value;
+  const preview=splitPrintPreview();
+  splitPrintState.shownTotal=preview.total;
+  const area=document.getElementById("split-print-preview"),button=document.getElementById("split-print-submit");
+  if(area)area.innerHTML=splitPrintPreviewHtml(preview);
+  if(button)button.disabled=!!preview.error;
+}
+function splitPrintModalHtml(){
+  const preview=splitPrintPreview();
+  if(splitPrintState)splitPrintState.shownTotal=preview.total;
+  return '<div class="mo" onclick="closeM()"><div class="mb split-print-modal" onclick="event.stopPropagation()">'
+    +'<h3>割勘印刷</h3><label for="split-print-people">割勘人数</label>'
+    +'<div class="split-print-people"><input class="ip" id="split-print-people" type="number" min="1" step="1" inputmode="numeric" value="'+splitPrintEscape(splitPrintState?.people||"")+'" oninput="updateSplitPrintPeople(this.value)"/><span>名</span></div>'
+    +'<div id="split-print-preview" aria-live="polite">'+splitPrintPreviewHtml(preview)+'</div>'
+    +'<button id="split-print-submit" class="btn gbg" onclick="printCheckoutSplit()" '+(preview.error?'disabled':'')+'>印刷する</button>'
+    +'<button class="btn" onclick="splitPrintState=null;om(\'co\')">戻る</button></div></div>';
+}
+function printCheckoutSplit(){
+  if(!posRequireView("floor")||md!=="coSplit"||checkoutBusy||!splitPrintState)return;
+  const input=document.getElementById("split-print-people");
+  if(input)splitPrintState.people=input.value;
+  const preview=splitPrintPreview();
+  if(preview.error){rModal();return;}
+  // A live update must be shown before printing a different bill total.
+  if(preview.total!==splitPrintState.shownTotal){rModal();alert("合計金額が変更されました。内容を確認してから印刷してください。");return;}
+  printReceipt({isSplitBill:true,tableLabel:preview.tableLabel,total:preview.total,splitPeople:preview.people},false);
+}
+function splitPrintEscape(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function buildSplitBillHTML(data){
+  const plan=splitBillPlan(data.total,data.splitPeople);
+  if(!plan)throw new Error("割勘の金額または人数が不正です");
+  return '<div class="rcp-logo">CLUB GENESIS</div><div class="rcp-sub">割勘</div><hr class="rcp-divider">'
+    +'<div class="rcp-meta">テーブル: '+splitPrintEscape(data.tableLabel)+'</div>'
+    +'<div class="rcp-meta">割勘人数: '+fmt(plan.people)+'名</div><hr class="rcp-divider">'
+    +'<div class="rcp-total-row"><span class="rcp-total-label">合 計</span><span class="rcp-total-amt">¥'+fmt(plan.total)+'</span></div>'
+    +'<hr class="rcp-divider-solid"><div class="rcp-sub">一人あたりの金額</div>'
+    +plan.groups.map(group=>'<div class="rcp-subtotal-row"><span>¥'+fmt(group.amount)+'</span><span>× '+fmt(group.people)+'名</span></div>').join('')
+    +'<hr class="rcp-divider">';
+}
+function buildSplitBillXML(data){
+  const plan=splitBillPlan(data.total,data.splitPeople);
+  if(!plan)throw new Error("割勘の金額または人数が不正です");
+  const line=text=>'<text>'+splitPrintEscape(text)+'\n</text>';
+  return '<text lang="ja" smooth="true"/><feed line="1"/><text align="center" dh="true" dw="true"/>'+line('CLUB GENESIS')
+    +'<text dh="false" dw="false"/>'+line('割勘')+'<text align="left"/>'+line('-'.repeat(42))
+    +line('テーブル: '+(data.tableLabel||''))+line('割勘人数: '+fmt(plan.people)+'名')+line('合計金額: ¥'+fmt(plan.total))
+    +line('-'.repeat(42))+line('一人あたりの金額')
+    +plan.groups.map(group=>line('¥'+fmt(group.amount)+' × '+fmt(group.people)+'名')).join('')
+    +line('-'.repeat(42))+'<feed line="4"/><cut type="feed"/>';
+}
 
 // ===== RECEIPT PRINT =====
 function buildReceiptHTML(sessionOrEst, isEstimate){
+  if(sessionOrEst.isSplitBill)return buildSplitBillHTML(sessionOrEst);
   // sessionOrEst: {tableLabel, startTime, endTime?, guests, items, subtotal, discount, tax, total, rate, extraItems?}
   const now2=new Date();
   const tl=sessionOrEst.tableLabel||"";
@@ -6505,6 +6589,7 @@ showEposPrintError(ip,port,e,data,isEstimate);
 
 // ePOS-Print XML形式でレシートデータを構築（80mm = 約42半角文字幅）
 function buildEposXML(data,isEstimate){
+  if(data.isSplitBill)return buildSplitBillXML(data);
   const{tableLabel,guests,items,grossSubtotal,subtotal,subDiscAmt,totalDiscAmt,discount,tax,total,rate,discountMode,payMethod,splits,startTime,note,isGuest}=data;
   const now2=new Date();
   const W=42;
@@ -7790,11 +7875,14 @@ h='<div class="mo" onclick="closeM()"><div class="mb" onclick="event.stopPropaga
   +'</div>'
   +'<div style="display:flex;gap:6px;margin-top:16px;">'
   +'<button class="btn" onclick="printCheckoutGuest()" style="flex:1;padding:11px 6px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.25);color:#38bdf8;touch-action:manipulation;">🖨 ゲスト用</button>'
-  +'<button class="btn" onclick="printCheckout()" style="flex:1;padding:11px 6px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">🖨 店舗用</button>'
+  +'<button class="btn" onclick="openSplitPrint()" style="flex:1;padding:11px 6px;font-size:12px;font-weight:700;border-radius:6px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.15);color:#ddd;touch-action:manipulation;">割勘印刷</button>'
   +'<button class="btn gbg" onclick="md=\'co2\';rModal()" style="flex:2;padding:11px 8px;font-size:14px;font-weight:700;border-radius:6px;touch-action:manipulation;">会計終了 →</button>'
   +'</div>'
   +'<button class="btn" onclick="closeM()" style="width:100%;margin-top:8px;padding:9px;font-size:13px;color:#555;background:none;">キャンセル</button>'
   +'</div></div>';
+  }
+  else if(md==="coSplit"){
+    h=splitPrintModalHtml();
   }
   else if(md==="co2"&&checkoutBusy&&checkoutProgress){
 const progress=checkoutProgress;

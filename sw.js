@@ -1,9 +1,9 @@
-const RELEASE_VERSION = '6.165';
-const CACHE = 'genesis-pos-v6.165-auth';
-const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.165', './boot-compat.js?v=6.165', './firebase-init.js?v=6.165', './gms-json-core.js?v=6.165', './sync-core.js?v=6.165', './charge-core.js?v=6.165', './analysis-data.js?v=6.165', './list-analysis-core.js?v=6.165', './list-analysis-ui.js?v=6.165', './settings-store.js?v=6.165', './settings-editor.js?v=6.165', './settings-actions.js?v=6.165', './settings-editor.css?v=6.165', './app.js?v=6.165', './manifest.json', './icon-192.png', './icon-512.png'];
-ASSETS.push('./commercial-ui.css?v=6.165');
+const RELEASE_VERSION = '6.166';
+const CACHE = 'genesis-pos-v6.166-auth';
+const ASSETS = ['./', './index.html', './styles.css', './list-analysis.css?v=6.166', './boot-compat.js?v=6.166', './firebase-init.js?v=6.166', './gms-json-core.js?v=6.166', './sync-core.js?v=6.166', './charge-core.js?v=6.166', './analysis-data.js?v=6.166', './list-analysis-core.js?v=6.166', './list-analysis-ui.js?v=6.166', './settings-store.js?v=6.166', './settings-editor.js?v=6.166', './settings-actions.js?v=6.166', './settings-editor.css?v=6.166', './app.js?v=6.166', './manifest.json', './icon-192.png', './icon-512.png'];
+ASSETS.push('./commercial-ui.css?v=6.166');
 
-ASSETS.push('./cast-drink-change.js?v=6.165', './cast-order-attendance.js?v=6.165', './auth.css?v=6.165', './access-control.js?v=6.165', './access-ui.js?v=6.165', './account-access-ui.js?v=6.165', './account-access.css?v=6.165');
+ASSETS.push('./cast-drink-change.js?v=6.166', './cast-order-attendance.js?v=6.166', './auth.css?v=6.166', './access-control.js?v=6.166', './access-ui.js?v=6.166', './account-access-ui.js?v=6.166', './account-access.css?v=6.166');
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(()=>{}));
